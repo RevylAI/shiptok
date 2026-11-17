@@ -9,6 +9,7 @@ final class MergedPullRequestFeedStore {
     private static let feedWindowSeconds: TimeInterval = 14 * 24 * 60 * 60
     private static let mediaURLRenewalAgeSeconds: TimeInterval = 120
     private static let updateSearchOverlapSeconds: TimeInterval = 180
+    private static let pastWindowRecheckAgeSeconds: TimeInterval = 300
     // GitHub limits how much of its server time one account may take each minute, so a week's pull requests load a few at a time.
     private static let concurrentOpenWeekFetchCount = 6
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
@@ -408,6 +409,17 @@ final class MergedPullRequestFeedStore {
         pullRequest.mediaItems.contains { !unloadableMediaItemIDs.contains($0.id) }
     }
 
+    // A card from before the window stays only while labeled, and removing the label takes it out of both refresh searches, so each refresh reads again the one read longest ago, which drops it once it no longer belongs (AGENTS.md, "Feed Order").
+    private var pastWindowPullRequestDueForRecheck: MergedPullRequest? {
+        let windowStartDate = feedWindowStartDate
+        let lastReadDate = { (pullRequest: MergedPullRequest) in self.mediaFetchedAtByPullRequestID[pullRequest.id] ?? .distantPast }
+        let pastWindowPullRequests = pullRequests.filter { $0.id != focusedPullRequestID && $0.mergedAt < windowStartDate }
+        guard let leastRecentlyReadPullRequest = pastWindowPullRequests.min(by: { lastReadDate($0) < lastReadDate($1) }),
+              Date.now.timeIntervalSince(lastReadDate(leastRecentlyReadPullRequest)) > Self.pastWindowRecheckAgeSeconds
+        else { return nil }
+        return leastRecentlyReadPullRequest
+    }
+
     private func isMediaURLRenewalDue(forPullRequestID pullRequestID: String) -> Bool {
         Date.now.timeIntervalSince(mediaFetchedAtByPullRequestID[pullRequestID] ?? .distantPast) > Self.mediaURLRenewalAgeSeconds
     }
@@ -422,6 +434,9 @@ final class MergedPullRequestFeedStore {
         removeCardsThatLeftTheFeed()
         if let focusedPullRequestID, let focusedPullRequest = pullRequest(withID: focusedPullRequestID) {
             await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
+        }
+        if let pastWindowPullRequest = pastWindowPullRequestDueForRecheck {
+            await fetchAndApplyPullRequest(number: pastWindowPullRequest.number, forcesMediaURLRenewal: false)
         }
         let refreshStartedAt = Date.now
         let windowStartDate = feedWindowStartDate
