@@ -4,26 +4,25 @@ enum FeedCardPost {
     case pullRequest(MergedPullRequest)
     case weeklyEdition(WeeklyEdition)
 
-    var reactions: GitHubReactionSummary {
+    var thread: any GitHubCommentThread {
         switch self {
-        case .pullRequest(let pullRequest): pullRequest.reactions
-        case .weeklyEdition(let weeklyEdition): weeklyEdition.reactions
+        case .pullRequest(let pullRequest): pullRequest
+        case .weeklyEdition(let weeklyEdition): weeklyEdition
         }
     }
 
-    var discussionCommentCount: Int {
+    var vibeTarget: VibeTarget {
         switch self {
-        case .pullRequest(let pullRequest): pullRequest.discussionComments.count
-        case .weeklyEdition(let weeklyEdition): weeklyEdition.discussionComments.count
+        case .pullRequest(let pullRequest): VibeTarget(pullRequest: pullRequest)
+        case .weeklyEdition(let weeklyEdition): VibeTarget(weeklyEdition: weeklyEdition)
         }
     }
 
-    var mediaItems: [PullRequestMediaItem] {
-        switch self {
-        case .pullRequest(let pullRequest): pullRequest.mediaItems
-        case .weeklyEdition(let weeklyEdition): weeklyEdition.mediaItems
-        }
-    }
+    var reactions: GitHubReactionSummary { thread.reactions }
+
+    var discussionCommentCount: Int { thread.discussionComments.count }
+
+    var mediaItems: [PullRequestMediaItem] { thread.mediaItems }
 }
 
 struct FeedCardVibes {
@@ -96,7 +95,6 @@ struct FeedCardView: View {
     private static let captionScrimFadeHeight: CGFloat = 80
     private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
-    private static let minimumTapTargetSidePoints: CGFloat = 44
     private static let reactionPickerSpacing: CGFloat = 8
     private static let cardCoordinateSpaceName = "mergedPullRequestCard"
 
@@ -415,7 +413,7 @@ struct FeedCardView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(viewerVibe.tintColor.opacity(0.85)))
-                    .expandingTapTargetVertically(toMinimumHeight: Self.minimumTapTargetSidePoints)
+                    .expandingTapTargetVertically()
             }
             .buttonStyle(.swipeYielding)
             .fixedSize()

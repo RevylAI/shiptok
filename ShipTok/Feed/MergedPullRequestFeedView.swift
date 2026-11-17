@@ -609,121 +609,109 @@ struct MergedPullRequestFeedView: View {
     private func pageView(_ page: FeedPage, isCurrentPage: Bool, deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
         switch page {
         case .pullRequest(let pullRequest):
-            let vibeTarget = VibeTarget(pullRequest: pullRequest)
-            FeedCardView(
-                post: .pullRequest(pullRequest),
+            feedCard(
+                .pullRequest(pullRequest),
                 heroMediaItem: feedStore.heroMediaItem(of: pullRequest),
-                analyticsSubject: vibeTarget.analyticsSubject,
+                isCurrentPage: isCurrentPage,
+                deckSize: deckSize,
                 pageChromeInsets: pageChromeInsets,
-                systemOcclusionFrames: systemOcclusionFrames,
-                videoScrubFraction: isCurrentPage ? videoScrubFraction : nil,
-                vibeFeedbackComposerHeight: vibeFeedbackComposerHeight,
-                isBehindVibeFeedbackComposer: vibeAwaitingFeedback != nil,
-                isKeyboardShown: isKeyboardShown,
-                vibes: feedCardVibes(
-                    tally: pullRequest.vibeTally(
-                        viewerGitHubLogin: viewer.githubLogin,
-                        viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: pullRequest.id)
-                    ),
-                    target: vibeTarget,
-                    deckWidth: deckSize.width
-                ),
-                moderation: feedCardModeration(reportableContents: pullRequest.reportableContents(
-                    postedOn: vibeTarget.analyticsSubject,
-                    excludingContentBy: viewer.githubLogin
-                )),
-                isPlaybackActive: isCurrentPage && scenePhase == .active && !isFeedCovered,
-                isOccludedForAnalytics: isHeroOccludedForAnalytics,
-                horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
-                likeBurstTrigger: likeBurstTriggers[pullRequest.id, default: 0],
-                onDoubleTap: {
-                    guard !promptsSignIn(for: .like) else { return }
-                    showLikeBurst(onPostID: pullRequest.id)
-                    viewer.analytics.capture(.likeSelected(vibeTarget.analyticsSubject,
-                        control: .doubleTap, wasLiked: pullRequest.reactions.viewerReactions.contains(.heart)))
-                    Task { await feedStore.likeUnlessAlreadyLiked(pullRequestID: pullRequest.id) }
-                },
-                onToggleLike: {
-                    guard !promptsSignIn(for: .like) else { return }
-                    likeHapticTrigger += 1
-                    viewer.analytics.capture(.likeSelected(vibeTarget.analyticsSubject,
-                        control: .feedRail, wasLiked: pullRequest.reactions.viewerReactions.contains(.heart)))
-                    Task { await feedStore.toggleReaction(.heart, pullRequestID: pullRequest.id) }
-                },
-                onToggleReaction: { reaction in
-                    guard !promptsSignIn(for: .reaction) else { return }
-                    Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) }
-                },
-                onOpenComments: {
-                    commentsSheetPullRequest = feedStore.pullRequest(withID: pullRequest.id) ?? pullRequest
-                    viewer.analytics.capture(.commentsOpened(vibeTarget.analyticsSubject))
-                },
-                onOpenDeck: { mediaDeckPullRequestID = PresentedPullRequestID(id: pullRequest.id) },
-                onTapCaption: { detailSheetPullRequest = pullRequest },
-                onHeroMediaLoadFailure: { failedHeroMediaItem in
+                likeUnlessAlreadyLiked: { Task { await feedStore.likeUnlessAlreadyLiked(pullRequestID: pullRequest.id) } },
+                toggleReaction: { reaction in Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) } },
+                openComments: { commentsSheetPullRequest = feedStore.pullRequest(withID: pullRequest.id) ?? pullRequest },
+                openDeck: { mediaDeckPullRequestID = PresentedPullRequestID(id: pullRequest.id) },
+                tapCaption: { detailSheetPullRequest = pullRequest },
+                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem in
                     Task { await feedStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, onPullRequestID: pullRequest.id) }
-                },
-                onTapWhileBehindVibeFeedbackComposer: dismissKeyboard
+                }
             )
         case .weeklyEdition(let weeklyEdition):
-            FeedCardView(
-                post: .weeklyEdition(weeklyEdition),
+            feedCard(
+                .weeklyEdition(weeklyEdition),
                 heroMediaItem: weeklyEditionsStore.heroMediaItem(of: weeklyEdition),
-                analyticsSubject: VibeTarget(weeklyEdition: weeklyEdition).analyticsSubject,
+                isCurrentPage: isCurrentPage,
+                deckSize: deckSize,
                 pageChromeInsets: pageChromeInsets,
-                systemOcclusionFrames: systemOcclusionFrames,
-                videoScrubFraction: isCurrentPage ? videoScrubFraction : nil,
-                vibeFeedbackComposerHeight: vibeFeedbackComposerHeight,
-                isBehindVibeFeedbackComposer: vibeAwaitingFeedback != nil,
-                isKeyboardShown: isKeyboardShown,
-                vibes: feedCardVibes(
-                    tally: weeklyEdition.vibeTally(
-                        viewerGitHubLogin: viewer.githubLogin,
-                        viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: weeklyEdition.id)
-                    ),
-                    target: VibeTarget(weeklyEdition: weeklyEdition),
-                    deckWidth: deckSize.width
-                ),
-                moderation: feedCardModeration(reportableContents: weeklyEdition.reportableContents(
-                    postedOn: VibeTarget(weeklyEdition: weeklyEdition).analyticsSubject,
-                    excludingContentBy: viewer.githubLogin
-                )),
-                isPlaybackActive: isCurrentPage && scenePhase == .active && !isFeedCovered,
-                isOccludedForAnalytics: isHeroOccludedForAnalytics,
-                horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
-                likeBurstTrigger: likeBurstTriggers[weeklyEdition.id, default: 0],
-                onDoubleTap: {
-                    guard !promptsSignIn(for: .like) else { return }
-                    showLikeBurst(onPostID: weeklyEdition.id)
-                    viewer.analytics.capture(.likeSelected(VibeTarget(weeklyEdition: weeklyEdition).analyticsSubject,
-                        control: .doubleTap, wasLiked: weeklyEdition.reactions.viewerReactions.contains(.heart)))
-                    Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(weeklyEditionID: weeklyEdition.id) }
-                },
-                onToggleLike: {
-                    guard !promptsSignIn(for: .like) else { return }
-                    likeHapticTrigger += 1
-                    viewer.analytics.capture(.likeSelected(VibeTarget(weeklyEdition: weeklyEdition).analyticsSubject,
-                        control: .feedRail, wasLiked: weeklyEdition.reactions.viewerReactions.contains(.heart)))
-                    Task { await weeklyEditionsStore.toggleReaction(.heart, weeklyEditionID: weeklyEdition.id) }
-                },
-                onToggleReaction: { reaction in
-                    guard !promptsSignIn(for: .reaction) else { return }
-                    Task { await weeklyEditionsStore.toggleReaction(reaction, weeklyEditionID: weeklyEdition.id) }
-                },
-                onOpenComments: {
-                    commentsSheetWeeklyEdition = weeklyEditionsStore.weeklyEditions.first { $0.id == weeklyEdition.id } ?? weeklyEdition
-                    viewer.analytics.capture(.commentsOpened(VibeTarget(weeklyEdition: weeklyEdition).analyticsSubject))
-                },
-                onOpenDeck: { openWeek(weeklyEdition) },
-                onTapCaption: { openWeek(weeklyEdition) },
-                onHeroMediaLoadFailure: { failedHeroMediaItem in
+                likeUnlessAlreadyLiked: { Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(weeklyEditionID: weeklyEdition.id) } },
+                toggleReaction: { reaction in Task { await weeklyEditionsStore.toggleReaction(reaction, weeklyEditionID: weeklyEdition.id) } },
+                openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.weeklyEditions.first { $0.id == weeklyEdition.id } ?? weeklyEdition },
+                openDeck: { openWeek(weeklyEdition) },
+                tapCaption: { openWeek(weeklyEdition) },
+                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem in
                     Task { await weeklyEditionsStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem) }
-                },
-                onTapWhileBehindVibeFeedbackComposer: dismissKeyboard
+                }
             )
         case .feedEnd:
             feedEndPage
         }
+    }
+
+    private func feedCard(
+        _ post: FeedCardPost,
+        heroMediaItem: PullRequestMediaItem?,
+        isCurrentPage: Bool,
+        deckSize: CGSize,
+        pageChromeInsets: EdgeInsets,
+        likeUnlessAlreadyLiked: @escaping () -> Void,
+        toggleReaction: @escaping (GitHubReaction) -> Void,
+        openComments: @escaping () -> Void,
+        openDeck: @escaping () -> Void,
+        tapCaption: @escaping () -> Void,
+        recoverFromHeroMediaLoadFailure: @escaping (PullRequestMediaItem) -> Void
+    ) -> FeedCardView {
+        let thread = post.thread
+        let vibeTarget = post.vibeTarget
+        let analyticsSubject = vibeTarget.analyticsSubject
+        return FeedCardView(
+            post: post,
+            heroMediaItem: heroMediaItem,
+            analyticsSubject: analyticsSubject,
+            pageChromeInsets: pageChromeInsets,
+            systemOcclusionFrames: systemOcclusionFrames,
+            videoScrubFraction: isCurrentPage ? videoScrubFraction : nil,
+            vibeFeedbackComposerHeight: vibeFeedbackComposerHeight,
+            isBehindVibeFeedbackComposer: vibeAwaitingFeedback != nil,
+            isKeyboardShown: isKeyboardShown,
+            vibes: feedCardVibes(
+                tally: thread.vibeTally(
+                    viewerGitHubLogin: viewer.githubLogin,
+                    viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: thread.id)
+                ),
+                target: vibeTarget,
+                deckWidth: deckSize.width
+            ),
+            moderation: feedCardModeration(reportableContents: thread.reportableContents(
+                postedOn: analyticsSubject,
+                excludingContentBy: viewer.githubLogin
+            )),
+            isPlaybackActive: isCurrentPage && scenePhase == .active && !isFeedCovered,
+            isOccludedForAnalytics: isHeroOccludedForAnalytics,
+            horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
+            likeBurstTrigger: likeBurstTriggers[thread.id, default: 0],
+            onDoubleTap: {
+                guard !promptsSignIn(for: .like) else { return }
+                showLikeBurst(onPostID: thread.id)
+                viewer.analytics.capture(.likeSelected(analyticsSubject, control: .doubleTap, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
+                likeUnlessAlreadyLiked()
+            },
+            onToggleLike: {
+                guard !promptsSignIn(for: .like) else { return }
+                likeHapticTrigger += 1
+                viewer.analytics.capture(.likeSelected(analyticsSubject, control: .feedRail, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
+                toggleReaction(.heart)
+            },
+            onToggleReaction: { reaction in
+                guard !promptsSignIn(for: .reaction) else { return }
+                toggleReaction(reaction)
+            },
+            onOpenComments: {
+                openComments()
+                viewer.analytics.capture(.commentsOpened(analyticsSubject))
+            },
+            onOpenDeck: openDeck,
+            onTapCaption: tapCaption,
+            onHeroMediaLoadFailure: recoverFromHeroMediaLoadFailure,
+            onTapWhileBehindVibeFeedbackComposer: dismissKeyboard
+        )
     }
 
     private func feedCardVibes(tally: PullRequestVibeTally, target: VibeTarget, deckWidth: CGFloat) -> FeedCardVibes {

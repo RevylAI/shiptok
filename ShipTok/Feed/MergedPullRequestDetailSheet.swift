@@ -7,8 +7,6 @@ struct MergedPullRequestDetailSheet: View {
     let onToggleReaction: (GitHubReaction) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    private static let minimumTapTargetSidePoints: CGFloat = 44
-
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -129,7 +127,7 @@ struct MergedPullRequestDetailSheet: View {
                 .padding(.vertical, 4)
                 .background(Capsule().fill(viewerReacted ? RevylBrandColor.brand.opacity(0.3) : RevylBrandColor.surfaceRaised))
                 .overlay(Capsule().stroke(viewerReacted ? RevylBrandColor.brand : RevylBrandColor.border, lineWidth: 1))
-                .expandingTapTargetVertically(toMinimumHeight: Self.minimumTapTargetSidePoints)
+                .expandingTapTargetVertically()
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(reaction.accessibilityName), \(count)")

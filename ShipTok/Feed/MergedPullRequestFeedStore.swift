@@ -145,7 +145,7 @@ final class MergedPullRequestFeedStore {
                             taskGroup.cancelAll()
                             return
                         }
-                        Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its week failed: \(Self.safeFailureDescription(error), privacy: .public)")
+                        Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its week failed: \(error.publicLogDescription, privacy: .public)")
                         lastFetchError = error
                         if let savedPullRequest = pullRequests.first(where: { $0.number == resolvedNumber }) {
                             openWeekPullRequests.append(savedPullRequest)
@@ -206,7 +206,7 @@ final class MergedPullRequestFeedStore {
                 handleRejectedGitHubAccess(githubAPIError)
                 return
             }
-            Self.logger.error("Loading the feed failed: \(Self.safeFailureDescription(error), privacy: .public)")
+            Self.logger.error("Loading the feed failed: \(error.publicLogDescription, privacy: .public)")
             feedLoadFailureMessage = error.localizedDescription
         }
     }
@@ -444,7 +444,7 @@ final class MergedPullRequestFeedStore {
                 handleRejectedGitHubAccess(githubAPIError)
                 return
             }
-            Self.logger.error("Refreshing the feed failed: \(Self.safeFailureDescription(error), privacy: .public)")
+            Self.logger.error("Refreshing the feed failed: \(error.publicLogDescription, privacy: .public)")
             if reportsFailure {
                 transientErrorMessage = "Couldn't refresh. \(error.localizedDescription)"
             }
@@ -478,7 +478,7 @@ final class MergedPullRequestFeedStore {
                 handleRejectedGitHubAccess(githubAPIError)
                 return
             }
-            Self.logger.error("Refetching #\(number, privacy: .public) failed: \(Self.safeFailureDescription(error), privacy: .public)")
+            Self.logger.error("Refetching #\(number, privacy: .public) failed: \(error.publicLogDescription, privacy: .public)")
         }
     }
 
@@ -593,15 +593,5 @@ final class MergedPullRequestFeedStore {
 
     private static func millisecondsElapsed(since startDate: Date) -> Int {
         Int(Date.now.timeIntervalSince(startDate) * 1000)
-    }
-
-    private static func safeFailureDescription(_ error: Error) -> String {
-        if let githubAPIError = error as? GitHubAPIError {
-            return githubAPIError.localizedDescription
-        }
-        if let urlError = error as? URLError {
-            return "URLError \(urlError.code.rawValue)"
-        }
-        return String(describing: type(of: error))
     }
 }

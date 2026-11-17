@@ -12,8 +12,6 @@ struct FeedModeSwitch: View {
     let onCloseWeek: () -> Void
     @Environment(\.shipTokAnalytics) private var analytics
 
-    private static let minimumTapTargetSidePoints: CGFloat = 44
-
     var body: some View {
         Group {
             if let openWeekDatesText {
@@ -25,7 +23,7 @@ struct FeedModeSwitch: View {
                         .padding(.vertical, 8)
                         .background(Capsule().fill(.black.opacity(0.5)))
                         .overlay(Capsule().stroke(.white.opacity(0.18), lineWidth: 1))
-                        .expandingTapTargetVertically(toMinimumHeight: Self.minimumTapTargetSidePoints)
+                        .expandingTapTargetVertically()
                 }
                 .buttonStyle(.swipeYielding)
                 .accessibilityHint("Goes back to the weekly videos")
@@ -62,7 +60,7 @@ struct FeedModeSwitch: View {
                         Capsule().fill(Color.white)
                     }
                 }
-                .expandingTapTargetVertically(toMinimumHeight: Self.minimumTapTargetSidePoints)
+                .expandingTapTargetVertically()
         }
         .buttonStyle(.swipeYielding)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

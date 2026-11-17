@@ -116,7 +116,7 @@ final class WeeklyEditionsStore {
                 handleRejectedGitHubAccess(githubAPIError)
                 return
             }
-            Self.logger.error("Reading the weekly editions failed: \(Self.safeFailureDescription(error), privacy: .public)")
+            Self.logger.error("Reading the weekly editions failed: \(error.publicLogDescription, privacy: .public)")
             if !isLoaded {
                 loadFailureMessage = error.localizedDescription
             } else if reportsFailure {
@@ -175,15 +175,5 @@ final class WeeklyEditionsStore {
     private func updateReactions(ofWeeklyEditionID weeklyEditionID: String, _ update: (inout GitHubReactionSummary) -> Void) {
         guard let weeklyEditionIndex = weeklyEditions.firstIndex(where: { $0.id == weeklyEditionID }) else { return }
         update(&weeklyEditions[weeklyEditionIndex].reactions)
-    }
-
-    private static func safeFailureDescription(_ error: Error) -> String {
-        if let githubAPIError = error as? GitHubAPIError {
-            return githubAPIError.localizedDescription
-        }
-        if let urlError = error as? URLError {
-            return "URLError \(urlError.code.rawValue)"
-        }
-        return String(describing: type(of: error))
     }
 }
