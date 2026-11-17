@@ -77,15 +77,15 @@ struct PullRequestMediaItemView: View {
     var body: some View {
         ZStack {
             Color.black
-            if let videoPlayback, !(isUnloadable && hasFailedToLoad) {
-                videoView(videoPlayback)
-            } else if let loadedImage {
-                imageView(loadedImage)
-            }
-            if !isShowingLoadedMedia {
-                if isUnloadable {
-                    unavailableLabel
-                } else {
+            if isUnloadable {
+                unavailableLabel
+            } else {
+                if let videoPlayback {
+                    videoView(videoPlayback)
+                } else if let loadedImage {
+                    imageView(loadedImage)
+                }
+                if !isShowingLoadedMedia {
                     ProgressView().tint(RevylBrandColor.textMuted)
                 }
             }
@@ -122,6 +122,12 @@ struct PullRequestMediaItemView: View {
         .onChange(of: videoPlaybackHasFailed) { _, hasFailed in
             if hasFailed { handleLoadFailure() }
         }
+        .onChange(of: isUnloadable) { _, isUnloadable in
+            guard isUnloadable else { return }
+            videoPlayback?.setAnalyticsVisibility(false)
+            videoPlayback?.pause()
+            videoPlayback = nil
+        }
         .onAppear {
             updateVideoPlayback(restartingFromBeginning: false)
             updateWatchVisibility()
@@ -132,7 +138,7 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    // A failed load keeps the loading look while its URL is renewed, so this shows only once the store gives the item up, and a given-up video drops its player with its hold, pause and scrub line (AGENTS.md, "Feed Order").
+    // A failed load keeps the loading look while its URL is renewed. Once the store gives the item up, only this shows and nothing loads or plays again (AGENTS.md, "Feed Order").
     private var unavailableLabel: some View {
         VStack(spacing: 8) {
             Image(systemName: mediaItem.kind == .video ? "video.slash" : "photo")
@@ -360,7 +366,7 @@ struct PullRequestMediaItemView: View {
 
     // Media under one id never changes, so it loads from memory, then the device, and only then the network, and a fresh signed URL matters only after a failed load. A saved card with nothing on the device waits for its refetch to bring a URL (AGENTS.md, "Signed Media URLs" and "Feed Caching").
     private func loadUnlessAlreadyLoaded() async {
-        guard hasFailedToLoad || (loadedImage == nil && videoPlayback == nil) else { return }
+        guard !isUnloadable, hasFailedToLoad || (loadedImage == nil && videoPlayback == nil) else { return }
         guard !PullRequestMediaMemoryCache.hasExpiringSignedURLFailed(for: mediaItem) else {
             handleLoadFailure()
             return
