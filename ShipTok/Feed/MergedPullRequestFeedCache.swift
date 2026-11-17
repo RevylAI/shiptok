@@ -19,19 +19,14 @@ actor MergedPullRequestFeedCache {
 
     // A feed saved for another GitHub login or before the window began is of no use, since its updates would take longer to read than the window itself.
     func loadSavedFeed(viewerGitHubLogin: String, repositoryFullName: String, appliedSince earliestUsefulDate: Date) -> SavedMergedPullRequestFeed? {
+        // A feed saved in another format can't be read for any login, so it goes.
         let savedFeedFileURLs = (try? FileManager.default.contentsOfDirectory(at: Self.savedFeedsDirectoryURL, includingPropertiesForKeys: nil)) ?? []
-        let savedMediaItemIDs = Set(savedFeedFileURLs.flatMap { fileURL -> [String] in
-            guard let feedData = try? Data(contentsOf: fileURL),
-                  let savedFeed = try? JSONDecoder().decode(SavedMergedPullRequestFeed.self, from: feedData),
-                  savedFeed.formatVersion == SavedMergedPullRequestFeed.currentFormatVersion
-            else {
-                try? FileManager.default.removeItem(at: fileURL)
-                return []
+        for savedFeedFileURL in savedFeedFileURLs {
+            let savedFeed = (try? Data(contentsOf: savedFeedFileURL)).flatMap { try? JSONDecoder().decode(SavedMergedPullRequestFeed.self, from: $0) }
+            if savedFeed?.formatVersion != SavedMergedPullRequestFeed.currentFormatVersion {
+                try? FileManager.default.removeItem(at: savedFeedFileURL)
             }
-            guard savedFeed.everyUpdateAppliedBefore >= earliestUsefulDate else { return [] }
-            return savedFeed.pullRequests.flatMap { $0.mediaItems.map(\.id) }
-        })
-        PullRequestMediaDiskCache.removeFilesInBackground(exceptForMediaItemIDs: savedMediaItemIDs)
+        }
         let savedFeedFileURL = Self.savedFeedFileURL(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: repositoryFullName)
         guard FileManager.default.fileExists(atPath: savedFeedFileURL.path(percentEncoded: false)) else { return nil }
         let savedFeed: SavedMergedPullRequestFeed

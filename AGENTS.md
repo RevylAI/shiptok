@@ -64,7 +64,7 @@ The rules below are binding for the whole repository.
 
 ## Feed Caching
 
-- **[STRICT]** Nothing already loaded is fetched again. The feed is saved on the device for the repository and signed-in GitHub login (a demo visit's is not), with the moment every update before it was applied, and a launch opens on it at once and then searches only the pull requests updated since; a saved feed older than the window is read again from scratch. Media files are saved under a hash of their media item's id and play from the device on later launches. Comments, reactions and vibes stay live: the card in focus is refetched as before.
+- **[STRICT]** Nothing already loaded is fetched again. The feed is saved on the device for the repository and signed-in GitHub login (a demo visit's is not), with the moment every update before it was applied, and a launch opens on it at once and then searches only the pull requests updated since; a saved feed older than the window is read again from scratch. Media files are saved under a hash of their media item's id and play from the device on later launches. The feed, weeks, decks and the demo share those files, so a file goes only once it has gone 30 days without being saved or shown, never by one surface's list. Comments, reactions and vibes stay live: the card in focus is refetched as before.
 - **[STRICT]** A saved feed holds no signed media URL, tokened Revyl media URL, raw description or comment body, or rendered HTML. A saved card's media item keeps its URL only when it isn't a credential, so its media plays from the device or waits for the refetch of the card in focus. A tokened Revyl media item's id is a hash of its canonical URL, never the token or the redirect target.
 
 ## Weekly Mode

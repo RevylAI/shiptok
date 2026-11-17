@@ -370,6 +370,7 @@ struct PullRequestMediaItemView: View {
             if let savedImageData = await PullRequestMediaDiskCache.cachedImageData(forMediaItemID: mediaItem.id) {
                 if let savedImage = await Self.decodeImage(savedImageData) {
                     hasFailedToLoad = false
+                    PullRequestMediaDiskCache.markFilesUsedInBackground(forMediaItemID: mediaItem.id)
                     PullRequestMediaMemoryCache.storeLoadedImage(savedImage, forMediaItemID: mediaItem.id)
                     showLoadedImage(savedImage)
                     return

@@ -92,6 +92,7 @@ enum PullRequestMediaMemoryCache {
         if let savedVideoFileURL = PullRequestMediaDiskCache.cachedVideoFileURL(forMediaItemID: mediaItem.id) {
             do {
                 savedVideoResourceLoader = try SingleRequestVideoResourceLoader(savedVideoFileURL: savedVideoFileURL)
+                PullRequestMediaDiskCache.markFilesUsedInBackground(forMediaItemID: mediaItem.id)
             } catch {
                 let readError = error as NSError
                 logger.error("Reading a saved video failed, so it downloads again: \(readError.domain, privacy: .public) \(readError.code)")

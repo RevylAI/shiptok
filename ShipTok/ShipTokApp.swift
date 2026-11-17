@@ -4,6 +4,10 @@ import SwiftUI
 struct ShipTokApp: App {
     @State private var signInSession = GitHubSignInSession()
 
+    init() {
+        PullRequestMediaDiskCache.removeLongUnusedFilesInBackground()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView(signInSession: signInSession)
