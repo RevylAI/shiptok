@@ -124,6 +124,8 @@ struct PullRequestMediaItemView: View {
         }
         .onChange(of: isUnloadable) { _, isUnloadable in
             guard isUnloadable else { return }
+            hasTerminalPlaybackFailure = true
+            reportVisiblePlaybackFailure()
             videoPlayback?.setAnalyticsVisibility(false)
             videoPlayback?.pause()
             videoPlayback = nil
