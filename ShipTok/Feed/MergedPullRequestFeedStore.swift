@@ -431,10 +431,6 @@ final class MergedPullRequestFeedStore {
         if let focusedPullRequestID, let focusedPullRequest = pullRequest(withID: focusedPullRequestID) {
             await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
         }
-        if let pastWindowPullRequest = pastWindowPullRequestDueForRecheck {
-            pastWindowRecheckDateByPullRequestID[pastWindowPullRequest.id] = .now
-            await fetchAndApplyPullRequest(number: pastWindowPullRequest.number, forcesMediaURLRenewal: false)
-        }
         let refreshStartedAt = Date.now
         let windowStartDate = feedWindowStartDate
         let earliestUpdateDate = nextUpdateSearchStartDate.addingTimeInterval(-Self.updateSearchOverlapSeconds)
@@ -476,6 +472,11 @@ final class MergedPullRequestFeedStore {
             if reportsFailure {
                 transientErrorMessage = "Couldn't refresh. \(error.localizedDescription)"
             }
+        }
+        // After the searches, so this one card's read never holds up what they bring in (AGENTS.md, "Feed Order").
+        if let pastWindowPullRequest = pastWindowPullRequestDueForRecheck {
+            pastWindowRecheckDateByPullRequestID[pastWindowPullRequest.id] = .now
+            await fetchAndApplyPullRequest(number: pastWindowPullRequest.number, forcesMediaURLRenewal: false)
         }
     }
 
