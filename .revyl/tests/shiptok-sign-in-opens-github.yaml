@@ -1,0 +1,29 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 3b933a1f-aea1-41f9-96aa-2c2f0465e2ae
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-17T21:00:36Z"
+    checksum: d086d6b83dab4bae5f9fb594ab5166ac4d99c9395d10919851f95b02eca0ef7a
+test:
+    metadata:
+        name: shiptok-sign-in-opens-github
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: validation
+          step_description: The signed-out screen shows the ShipTok title, a short description of the app, a 'Sign in with Revyl' button and a 'Look around first' button, and no error message
+        - type: instructions
+          step_description: Tap 'Sign in with Revyl'
+        - type: validation
+          step_description: A browser sheet opens over ShipTok on GitHub's sign-in page, asking to sign in to GitHub to continue
+        - type: instructions
+          step_description: Close the browser sheet with its Cancel button, without signing in
+        - type: validation
+          step_description: The signed-out screen shows again with 'Sign in with Revyl' and 'Look around first'

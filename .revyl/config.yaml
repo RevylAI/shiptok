@@ -1,0 +1,48 @@
+project:
+  id: 27d0b7f1-0a2f-4fa0-9466-697d3d5e818b
+run_test_definitions_from_git: true
+session:
+  idle_timeout_seconds: 1800
+build:
+  framework: ios
+  profiles:
+    development:
+      ios:
+        app_id: 48aec091-edd3-41d0-ae9c-34fb8822e5ca
+        setup_commands:
+          - bash scripts/revyl/remote-build.sh setup
+        build_commands:
+          - bash scripts/revyl/remote-build.sh compile
+        output_path: build/DerivedData/Build/Products/Debug-iphonesimulator/ShipTok.app
+        image: ios-macos-26-xcode-27.2
+pr_review:
+  enabled: true
+  build:
+    kind: ci_upload_to_revyl
+    app_ids:
+      ios: 48aec091-edd3-41d0-ae9c-34fb8822e5ca
+  proof_of_changes:
+    enabled: true
+    harness:
+      kind: revyl
+    system_prompt: >-
+      ShipTok is a native SwiftUI iOS app: a vertical, Reels-style feed of the
+      merged pull requests with media in one GitHub repository. Prove changes
+      signed out: on the signed-out screen, tap Look around first to open the
+      read-only demo of the public repository RevylAI/shiptok-demo. Swipe up
+      for the next pull request and down for the previous one; a sideways swipe
+      casts a vibe, a double-tap likes, and one tap pauses or resumes a video.
+      The right rail holds like, comments, react, vibes, mute, playback speed,
+      the media deck and More; the PRs / Weekly switch sits at the card's top
+      left; the tab bar holds the feed, the inbox and Settings. In the demo,
+      likes, reactions, comments, vibes, Report and the inbox ask the visitor
+      to sign in, which is the expected result there. Never complete a GitHub
+      sign-in. If the signed-out screen says the demo isn't available, report
+      that and prove what the signed-out screen allows.
+    always_verify:
+      - The signed-out screen shows Sign in with Revyl and Look around first
+      - Look around first opens the demo feed on a pull request card
+  workflows:
+    enabled: true
+    workflow_ids:
+      - a3b9d997-803e-4393-82b6-75613209013f

@@ -1,0 +1,34 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: f7f1fc9e-c394-4aa6-b5d2-b68b8702a42a
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-17T21:00:25Z"
+    checksum: 8b2ad5f9e3654c301e2c386216bd2c7578631bdc5d16f2f9b89890046a6e776f
+test:
+    metadata:
+        name: shiptok-demo-settings
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Open the demo feed with Look around first
+          module: shiptok-open-demo-feed
+        - type: instructions
+          step_description: Tap the Settings tab, the person icon at the right of the tab bar at the bottom
+        - type: validation
+          step_description: Settings shows a Demo section saying 'You're looking around' with a 'Sign in with Revyl' button, and a Feed section whose Repository is RevylAI/shiptok-demo
+        - type: instructions
+          step_description: Scroll down through Settings
+        - type: validation
+          step_description: Settings also shows 'Hidden people' saying no one is hidden, a Gestures section explaining the swipes, taps and 2x speed, and a 'Privacy and support' section with 'Privacy policy' and 'Contact support'
+        - type: instructions
+          step_description: Tap the Feed tab, the house icon at the left of the tab bar
+        - type: validation
+          step_description: The demo feed shows a pull request card again

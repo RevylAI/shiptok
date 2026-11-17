@@ -1,0 +1,38 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 5f68bb0a-89f3-4312-90d8-b4e9ce338bd4
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-17T21:00:35Z"
+    checksum: 97485bb5cdde10444f79f88165e400ecb09d3152dc1e87579c978eb8d588e52d
+test:
+    metadata:
+        name: shiptok-demo-weekly-mode
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Open the demo feed with Look around first
+          module: shiptok-open-demo-feed
+        - type: instructions
+          step_description: Tap 'Weekly' in the PRs / Weekly switch at the card's top left
+        - type: validation
+          step_description: '''Weekly'' is selected in the switch and the card shows a week: a ''ShipTok weekly'' chip with the week''s dates, a title and a short hook at its lower left'
+        - type: instructions
+          step_description: Tap the week's title at the card's lower left
+        - type: validation
+          step_description: The switch is replaced by a 'Week of' button with the week's dates and the card shows a pull request from that week
+        - type: instructions
+          step_description: Tap the 'Week of' button at the card's top left
+        - type: validation
+          step_description: The weekly card with its 'ShipTok weekly' chip shows again and 'Weekly' is selected in the switch
+        - type: instructions
+          step_description: Tap 'PRs' in the switch
+        - type: validation
+          step_description: '''PRs'' is selected in the switch and the card shows a pull request with its author and title'

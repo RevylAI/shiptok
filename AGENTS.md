@@ -91,3 +91,26 @@ The rules below are binding for the whole repository.
 
 - **[STRICT]** Before completing an app change, run the remote build (`setup`, `compile`, `zip`) on a macOS runner with Xcode 27.1 or newer and fix every warning the change introduces.
 - **[STRICT]** Check layout on the iPhone Duo only with a build from the iOS 27.1 SDK or newer, as TestFlight builds are: an app built with an older SDK is kept out of the Duo's status strip, so it lays out in a smaller window than the one people get.
+
+## Revyl
+
+- **[STRICT]** `.revyl/config.yaml` on `main` is the Revyl project's configuration. Revyl's GitHub App applies it on every push to `main` and refuses dashboard and `revyl config push` edits, so change it only in git and run `revyl config validate` before committing it.
+- **[STRICT]** `.revyl/tests/` holds one Revyl test per journey through the app and `.revyl/modules/` the steps they share, and runs read them from git (`run_test_definitions_from_git`), a pull request's runs at its head commit. A change to a journey updates its test in the same change, and a new journey gets a new test, added to the ShipTok journeys workflow that `.revyl/config.yaml` names. Push a new or changed test or module with `revyl test push --include-modules-and-scripts` before committing it, and commit the `_meta` it writes, since `_meta.remote_id` ties the file to its test in Revyl.
+- **[STRICT]** The journeys run signed out, through Look around first, and never sign in to GitHub.
+- **[STRICT]** Every build CI uploads carries its repository, head commit, branch and pull request, which Revyl's proof of changes and pull request workflows find it by; `revyl build upload` reads them from GitHub Actions, so keep uploads on it.
+- **[STRICT]** `.agents/skills/`, linked for Claude Code from `.claude/skills/`, holds Revyl-managed skills from `revyl skill install`. Never edit them in place; when the Revyl CLI version pinned in `.github/actions/install-revyl-cli/action.yml` moves, refresh them with `revyl skill update` from that version.
+
+### Revyl Verification
+
+When developing or changing a feature in this repo, use the Revyl dev loop to verify the behavior on a device before finishing.
+
+- Read and follow the local `revyl-cli-dev-loop` skill (`.agents/skills/revyl-cli-dev-loop/SKILL.md`) before running Revyl commands. `revyl dev --remote --profile development --platform ios` builds the checkout on Revyl's cloud builder and opens it on a cloud iPhone, so it needs no Mac.
+- Verify the user-visible outcome with device evidence, such as `revyl device screenshot`, `revyl device report --json`, or explicit interaction through `revyl device instruction`, and run the journey tests the change touches with `revyl test run <test name>`.
+- Summarize Revyl verification in the final response: what path was exercised, what evidence was captured, and any issues or limitations. If Revyl cannot be run, state the concrete blocker and the fallback verification used.
+
+## CI And Releases
+
+- **[STRICT]** `.github/workflows/ci.yml` runs on every pull request and push to `main`: a gitleaks scan with `.gitleaks.toml`, then `scripts/revyl/remote-build.sh` (`setup`, `compile`, `zip`) on GitHub's `xcode-27` runner with Xcode 27.2, uploading the build to Revyl. On `main` it runs the ShipTok journeys workflow on that exact build and explores it with Atlas. Fork pull requests get no secrets, so they build without uploading.
+- **[STRICT]** `.github/workflows/release.yml`, run by hand with a build number, is the only way builds reach App Store Connect: it runs `upload-to-testflight` with the App Store Connect API key in the repository secrets `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID` and `APP_STORE_CONNECT_API_PRIVATE_KEY`.
+- **[STRICT]** This repository is public, and so are its Actions logs: no workflow prints a secret, token, internal hostname or customer data.
+- **[STRICT]** Workflows pin every action to a commit and the Revyl CLI and gitleaks to a release version.

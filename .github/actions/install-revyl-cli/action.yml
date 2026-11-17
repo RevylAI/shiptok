@@ -1,0 +1,24 @@
+name: Install the Revyl CLI
+description: Downloads the Revyl CLI release this repository pins and puts it on PATH.
+runs:
+  using: composite
+  steps:
+    - name: Download the pinned Revyl CLI
+      shell: bash
+      env:
+        REVYL_CLI_VERSION: 0.2.18
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) release_asset=revyl-linux-amd64 ;;
+          Linux-ARM64) release_asset=revyl-linux-arm64 ;;
+          macOS-ARM64) release_asset=revyl-darwin-arm64 ;;
+          macOS-X64) release_asset=revyl-darwin-amd64 ;;
+          *) echo "::error::No Revyl CLI release for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+        esac
+        install_directory="$RUNNER_TEMP/revyl-cli"
+        mkdir -p "$install_directory"
+        curl --fail --silent --show-error --location --retry 3 \
+          --output "$install_directory/revyl" \
+          "https://github.com/RevylAI/revyl-cli/releases/download/v$REVYL_CLI_VERSION/$release_asset"
+        chmod +x "$install_directory/revyl"
+        echo "$install_directory" >> "$GITHUB_PATH"

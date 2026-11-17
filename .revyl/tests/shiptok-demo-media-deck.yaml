@@ -1,0 +1,34 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 551f5a8c-7698-49b8-8fac-8f4701a443c9
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-17T21:00:32Z"
+    checksum: 74cff1e807328f09d4c66d2b0f98be54b57b2f561db44e790771f5eb5b04cffb
+test:
+    metadata:
+        name: shiptok-demo-media-deck
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Open the demo feed with Look around first
+          module: shiptok-open-demo-feed
+        - type: instructions
+          step_description: Tap the media deck button on the right rail, the fanned stack of small cards with a count under it
+        - type: validation
+          step_description: The media deck opens full screen on a black background with a close button at its top left and a position label such as '1 of 3' at its top
+        - type: instructions
+          step_description: Swipe left on the media in the deck
+        - type: validation
+          step_description: The deck shows the next photo or video and its position label reads '2 of' the same total
+        - type: instructions
+          step_description: Tap the close button at the deck's top left
+        - type: validation
+          step_description: The deck is closed and the feed's pull request card shows again

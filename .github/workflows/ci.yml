@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.0
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Scan the files
+        run: gitleaks dir . --config .gitleaks.toml --redact --no-banner
+      - name: Scan the history
+        run: gitleaks git . --config .gitleaks.toml --redact --no-banner
+
+  build:
+    name: Build and upload to Revyl
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    outputs:
+      build-id: ${{ steps.upload.outputs.build-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check Xcode
+        run: bash scripts/revyl/remote-build.sh setup
+      - name: Build the Debug simulator app
+        run: bash scripts/revyl/remote-build.sh compile
+      - name: Zip the app
+        run: bash scripts/revyl/remote-build.sh zip
+      - uses: ./.github/actions/install-revyl-cli
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+      # The CLI reads the repository, the pull request's head commit and number, and the branch from GitHub Actions, which is how Revyl's proof of changes finds this build (README.md, "Built with Revyl").
+      - name: Upload the build to Revyl
+        id: upload
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
+        run: |
+          revyl build upload --file build/ShipTok.app.zip --app "$REVYL_IOS_APP_ID" --platform ios --yes --json > "$RUNNER_TEMP/revyl-build-upload.json"
+          build_id="$(jq -er 'select(.success == true and .count == 1) | .build.build_id' "$RUNNER_TEMP/revyl-build-upload.json")"
+          echo "build-id=$build_id" >> "$GITHUB_OUTPUT"
+          jq -r '.build | "Uploaded Revyl build \(.build_id) (\(.build_version)) to Revyl branch \(.branch_name // "default")"' "$RUNNER_TEMP/revyl-build-upload.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  journeys:
+    name: ShipTok journeys on Revyl
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/install-revyl-cli
+      - name: Run the ShipTok journeys workflow on this build
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
+          REVYL_JOURNEYS_WORKFLOW_ID: ${{ vars.REVYL_JOURNEYS_WORKFLOW_ID }}
+          REVYL_BUILD_ID: ${{ needs.build.outputs.build-id }}
+        run: |
+          revyl workflow run "$REVYL_JOURNEYS_WORKFLOW_ID" \
+            --ios-app "$REVYL_IOS_APP_ID" --ios-build-id "$REVYL_BUILD_ID" \
+            --github-actions --no-open
+
+  atlas:
+    name: Explore the build with Atlas
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # One exploration of main at a time keeps Atlas's map of main in upload order (Revyl docs, "Explore from the CLI").
+    concurrency:
+      group: revyl-atlas-main
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/install-revyl-cli
+      - name: Explore this build
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
+          REVYL_BUILD_ID: ${{ needs.build.outputs.build-id }}
+        run: |
+          revyl explore run "$REVYL_IOS_APP_ID" --build-id "$REVYL_BUILD_ID" \
+            --explorers 1 --max-duration 20m --timeout 45m \
+            --instructions "Explore signed out: start from Look around first on the signed-out screen. Never complete a GitHub sign-in."
