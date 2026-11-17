@@ -1,5 +1,28 @@
 import SwiftUI
 
+// What a demo visitor tried that posts to GitHub as them, so it asks them to sign in first.
+enum DemoSignInPromptAction: String, Identifiable, Sendable {
+    case like
+    case reaction
+    case comment
+    case vibe
+    case report
+    case inbox
+
+    var id: String { rawValue }
+
+    var promptTitle: String {
+        switch self {
+        case .like: "Sign in to like"
+        case .reaction: "Sign in to react"
+        case .comment: "Sign in to comment"
+        case .vibe: "Sign in to send vibes"
+        case .report: "Sign in to report"
+        case .inbox: "Sign in for your inbox"
+        }
+    }
+}
+
 // Asks a demo visitor to sign in when they try something that posts to GitHub as them; signing in from here lands in the signed-in app (shiptok/AGENTS.md, "Demo Mode").
 struct DemoSignInPromptSheet: View {
     let action: DemoSignInPromptAction

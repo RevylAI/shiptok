@@ -52,18 +52,3 @@ struct GitHubReactionPicker: View {
         .shadow(color: .black.opacity(0.5), radius: 16, y: 6)
     }
 }
-
-extension GitHubReaction {
-    var accessibilityName: String {
-        switch self {
-        case .thumbsUp: "Thumbs up"
-        case .thumbsDown: "Thumbs down"
-        case .laugh: "Laugh"
-        case .hooray: "Hooray"
-        case .confused: "Confused"
-        case .heart: "Heart"
-        case .rocket: "Rocket"
-        case .eyes: "Eyes"
-        }
-    }
-}

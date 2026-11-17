@@ -2,14 +2,6 @@ import Foundation
 import OSLog
 import Security
 
-struct GitHubUserIdentity: Codable, Sendable, Equatable {
-    var githubUserID: Int64
-    var githubLogin: String
-    var githubAvatarURLString: String?
-
-    var githubAvatarURL: URL? { githubAvatarURLString.flatMap(URL.init(string:)) }
-}
-
 struct StoredGitHubSignIn: Codable, Sendable {
     var tokens: GitHubUserAccessTokens
     var user: GitHubUserIdentity

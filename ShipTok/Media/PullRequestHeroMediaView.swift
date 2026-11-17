@@ -1,4 +1,3 @@
-import Observation
 import SwiftUI
 
 struct PullRequestHeroMediaView: View {
@@ -27,13 +26,4 @@ struct PullRequestHeroMediaView: View {
         )
         .id(mediaItem.id)
     }
-}
-
-@MainActor
-@Observable
-final class HeroVideoMuteChoice {
-    static let shared = HeroVideoMuteChoice()
-    var isMuted = true
-
-    private init() {}
 }

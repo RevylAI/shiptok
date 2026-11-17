@@ -19,19 +19,3 @@ struct VibeStampView: View {
         }
     }
 }
-
-extension PullRequestVibe {
-    var tintColor: Color {
-        switch self {
-        case .good: RevylBrandColor.success
-        case .bad: RevylBrandColor.danger
-        }
-    }
-
-    var systemImageName: String {
-        switch self {
-        case .good: "hand.thumbsup"
-        case .bad: "hand.thumbsdown"
-        }
-    }
-}

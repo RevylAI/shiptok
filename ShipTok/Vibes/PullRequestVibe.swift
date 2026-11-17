@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 enum PullRequestVibe: String, CaseIterable, Hashable, Sendable {
     case good
@@ -8,6 +8,20 @@ enum PullRequestVibe: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .good: "Good vibes"
         case .bad: "Bad vibes"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .good: RevylBrandColor.success
+        case .bad: RevylBrandColor.danger
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .good: "hand.thumbsup"
+        case .bad: "hand.thumbsdown"
         }
     }
 

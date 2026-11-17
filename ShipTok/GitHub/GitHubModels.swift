@@ -22,6 +22,19 @@ enum GitHubReaction: String, CaseIterable, Hashable, Sendable, Codable {
         case .eyes: "👀"
         }
     }
+
+    var accessibilityName: String {
+        switch self {
+        case .thumbsUp: "Thumbs up"
+        case .thumbsDown: "Thumbs down"
+        case .laugh: "Laugh"
+        case .hooray: "Hooray"
+        case .confused: "Confused"
+        case .heart: "Heart"
+        case .rocket: "Rocket"
+        case .eyes: "Eyes"
+        }
+    }
 }
 
 struct GitHubReactionSummary: Hashable, Sendable, Codable {
@@ -69,6 +82,13 @@ struct PullRequestComment: Identifiable, Hashable, Sendable, Codable {
     var reactions: GitHubReactionSummary
     var databaseID: Int? = nil
     var lastEditedAt: Date? = nil
+}
+
+extension PullRequestComment {
+    // Bots and comments carrying a ShipTok tag are never discussion comments: shiptok/AGENTS.md, "Ownership And Boundaries".
+    var isWrittenByPerson: Bool {
+        author?.isBot != true && !PullRequestMediaExtraction.containsShipTokVideoTag(bodyMarkdown)
+    }
 }
 
 struct MergedPullRequest: Identifiable, Hashable, Sendable, Codable {
