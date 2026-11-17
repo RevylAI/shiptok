@@ -75,7 +75,7 @@ The rules below are binding for the whole repository.
 
 ## Signed Media URLs
 
-- **[STRICT]** GitHub upload URLs come from its rendered HTML, signed for the reader, and stop working a few minutes after the fetch. A Revyl-hosted video's canonical source is the video target in the raw description or comment, including when a poster links to it; the poster is not another deck item. A media item's identity never includes the URL's query string, a video downloads once in a single request and every replay, loops included, plays from memory, and a fresh URL is fetched only after a load fails: a URL signed in its query string is renewed by refetching the pull request, and an unsigned one, such as a hosted video's tokened link that redirects to the file, by requesting it once more. Video redirects carry no GitHub authorization, and never replace the canonical cache identity.
+- **[STRICT]** GitHub upload URLs come from its rendered HTML, signed for the reader, and stop working a few minutes after the fetch. A Revyl-hosted video's canonical source is the video target in the raw description or comment, including when a poster links to it; the poster is not another deck item. A media item's identity never includes the URL's query string, a video downloads once in a single request, never past the size limit in `docs/shiptok-format.md`, and every replay, loops included, plays from memory, and a fresh URL is fetched only after a load fails: a URL signed in its query string is renewed by refetching the pull request, and an unsigned one, such as a hosted video's tokened link that redirects to the file, by requesting it once more. Video redirects carry no GitHub authorization, and never replace the canonical cache identity.
 
 ## Vibes
 

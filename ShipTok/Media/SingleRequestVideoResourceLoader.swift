@@ -6,6 +6,10 @@ struct MediaDownloadRejectedError: Error {
     let httpStatusCode: Int
 }
 
+struct VideoDownloadTooLargeError: Error {
+    let byteCount: Int
+}
+
 // GitHub's signed media URLs expire five minutes after the fetch, so the video arrives in one request that keeps streaming past expiry and every later read, loops included, comes from memory. A finished download is saved on the device, and a saved video plays from there (AGENTS.md, "Signed Media URLs" and "Feed Caching").
 final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate, @unchecked Sendable {
     let assetURL = SingleRequestVideoResourceLoader.makeAssetURL()
@@ -21,6 +25,8 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     private var downloadFailure: (any Error)?
     private var pendingLoadingRequests: [AVAssetResourceLoadingRequest] = []
     private let failureLogLevel: OSLogType
+    // The whole video is held in memory, so one over the size every ShipTok video keeps to fails like broken media (docs/shiptok-format.md, "ShipTok video").
+    private static let maximumVideoByteCount = 100 * 1024 * 1024
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
     init(videoURL: URL, savingAsMediaItemID mediaItemID: String, failureLogLevel: OSLogType) {
@@ -90,6 +96,10 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard acceptResponseOnFirstSight(of: dataTask) else { return }
+        guard receivedBytes.count + data.count <= Self.maximumVideoByteCount else {
+            failOversizedDownload(of: dataTask, byteCount: receivedBytes.count + data.count)
+            return
+        }
         receivedBytes.append(data)
         respondToPendingLoadingRequests()
     }
@@ -123,13 +133,17 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     }
 
     private func acceptResponseOnFirstSight(of task: URLSessionTask) -> Bool {
-        if hasAcceptedResponse { return true }
         if downloadFailure != nil { return false }
+        if hasAcceptedResponse { return true }
         let httpStatusCode = (task.response as? HTTPURLResponse)?.statusCode ?? 0
         guard httpStatusCode == 200, let response = task.response else {
             downloadFailure = MediaDownloadRejectedError(httpStatusCode: httpStatusCode)
             Self.logger.log(level: failureLogLevel, "Video download rejected with HTTP status \(httpStatusCode)")
             task.cancel()
+            return false
+        }
+        guard response.expectedContentLength <= Self.maximumVideoByteCount else {
+            failOversizedDownload(of: task, byteCount: Int(response.expectedContentLength))
             return false
         }
         hasAcceptedResponse = true
@@ -144,6 +158,12 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
             contentTypeIdentifier = movieType.identifier
         }
         return true
+    }
+
+    private func failOversizedDownload(of task: URLSessionTask, byteCount: Int) {
+        downloadFailure = VideoDownloadTooLargeError(byteCount: byteCount)
+        Self.logger.log(level: failureLogLevel, "Video download stopped at \(byteCount) bytes, over the \(Self.maximumVideoByteCount)-byte limit")
+        task.cancel()
     }
 
     private func respondToPendingLoadingRequests() {
