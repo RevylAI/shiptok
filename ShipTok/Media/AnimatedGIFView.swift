@@ -36,6 +36,7 @@ struct AnimatedGIFView: UIViewRepresentable {
     }
 }
 
+@MainActor
 final class GIFFrameAnimator {
     private final class AnimationRun {
         var isStopped = false
@@ -48,6 +49,7 @@ final class GIFFrameAnimator {
         guard runningAnimation == nil else { return }
         let animationRun = AnimationRun()
         runningAnimation = animationRun
+        // ImageIO calls the block on the main queue.
         let animationStatus = CGAnimateImageDataWithBlock(gifData as CFData, nil) { [weak imageView] _, frameImage, shouldStop in
             guard !animationRun.isStopped, let imageView else {
                 shouldStop.pointee = true

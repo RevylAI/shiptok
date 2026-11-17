@@ -96,7 +96,7 @@ struct FeedCardView: View {
     private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
-    private static let cardCoordinateSpaceName = "mergedPullRequestCard"
+    private nonisolated static let cardCoordinateSpaceName = "mergedPullRequestCard"
 
     // The box rides the keyboard over the card, so the caption would show half-covered around it; only the dimmed hero stays.
     private var showsOnlyHeroBehindVibeFeedbackComposer: Bool {
