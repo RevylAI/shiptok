@@ -224,6 +224,7 @@ final class GitHubSignInSession {
                 ShipTokAnalytics(githubUserID: storedSignIn.user.githubUserID).capture(.signInEnded(reason: .dataDeleted))
             }
             PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
+            URLCache.shared.removeAllCachedResponses()
             await PullRequestMediaDiskCache.finishPendingSaves()
             try Self.deleteCachedFiles()
         } catch {
@@ -235,22 +236,35 @@ final class GitHubSignInSession {
         Self.logger.info("Deleted this person's ShipTok data")
     }
 
+    // The deletion finishes only once the app's own caches are gone. Anything else under Caches is iOS's, which may refuse its removal, so it goes best effort.
     private static func deleteCachedFiles() throws {
-        let cachedFileURLs: [URL]
-        do {
-            cachedFileURLs = try FileManager.default.contentsOfDirectory(at: .cachesDirectory, includingPropertiesForKeys: nil)
-        } catch {
-            logger.error("Listing ShipTok's cached files to delete failed")
-            throw error
+        var appCacheDirectoryURLs = [MergedPullRequestFeedCache.savedFeedsDirectoryURL, PullRequestMediaDiskCache.directoryURL]
+        // URLCache.shared, which avatars load through, keeps its disk store here.
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            appCacheDirectoryURLs.append(.cachesDirectory.appending(path: bundleIdentifier, directoryHint: .isDirectory))
         }
-        for cachedFileURL in cachedFileURLs {
+        for appCacheDirectoryURL in appCacheDirectoryURLs {
             do {
-                try FileManager.default.removeItem(at: cachedFileURL)
+                try FileManager.default.removeItem(at: appCacheDirectoryURL)
             } catch CocoaError.fileNoSuchFile {
                 continue
             } catch {
-                logger.error("Deleting a cached ShipTok file failed")
+                logger.error("Deleting ShipTok's \(appCacheDirectoryURL.lastPathComponent, privacy: .public) cache failed")
                 throw error
+            }
+        }
+        let otherCachedFileURLs: [URL]
+        do {
+            otherCachedFileURLs = try FileManager.default.contentsOfDirectory(at: .cachesDirectory, includingPropertiesForKeys: nil)
+        } catch {
+            logger.error("Listing the other cached files to delete failed")
+            return
+        }
+        for cachedFileURL in otherCachedFileURLs {
+            do {
+                try FileManager.default.removeItem(at: cachedFileURL)
+            } catch {
+                logger.error("Deleting another cached file failed")
             }
         }
     }

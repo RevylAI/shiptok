@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 // Media under one id never changes, so a video or image downloaded once plays from the device on later launches until it goes a month unused. Files are named by a hash of the media item's id, which never carries a signed query string (AGENTS.md, "Feed Caching").
 enum PullRequestMediaDiskCache {
-    private static let directoryURL = URL.cachesDirectory.appending(path: "pull-request-media", directoryHint: .isDirectory)
+    static let directoryURL = URL.cachesDirectory.appending(path: "pull-request-media", directoryHint: .isDirectory)
     private static let videoFileExtensions = ["mp4", "mov", "m4v"]
     private static let imageFileExtension = "image"
     private static let unusedFileRetentionSeconds: TimeInterval = 30 * 24 * 60 * 60
