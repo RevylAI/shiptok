@@ -68,8 +68,9 @@ final class GitHubAPIClient: Sendable {
         return responseData
     }
 
-    // Every merged pull request in a merge-date range, updated since a date if one is given, read in full; each page arrives as it loads, so the caller can show it at once (AGENTS.md, "Feed Order").
+    // Every merged pull request in a merge-date range, with a label and updated since a date if either is given, read in full; each page arrives as it loads, so the caller can show it at once (AGENTS.md, "Feed Order").
     func searchMergedPullRequests(
+        labeled labelName: String?,
         updatedSince earliestUpdateDate: Date?,
         mergedFrom earliestMergeDate: Date?,
         mergedThrough latestMergeDate: Date
@@ -80,7 +81,8 @@ final class GitHubAPIClient: Sendable {
             for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
                 guard let mergedAt = pullRequestNode.mergedAt,
                       earliestMergeDate.map({ mergedAt >= $0 }) ?? true,
-                      mergedAt <= latestMergeDate
+                      mergedAt <= latestMergeDate,
+                      labelName.map({ Self.pullRequestNode(pullRequestNode, isLabeled: $0) }) ?? true
                 else { continue }
                 mergedPullRequests.append(try await mergedPullRequest(from: pullRequestNode, mergedAt: mergedAt))
             }
@@ -89,7 +91,12 @@ final class GitHubAPIClient: Sendable {
                 continuation.finish()
             }
         }
-        let searchRanges = try await mergedPullRequestSearchRanges(updatedSince: earliestUpdateDate, mergedFrom: earliestMergeDate, mergedThrough: latestMergeDate)
+        let searchRanges = try await mergedPullRequestSearchRanges(
+            labeled: labelName,
+            updatedSince: earliestUpdateDate,
+            mergedFrom: earliestMergeDate,
+            mergedThrough: latestMergeDate
+        )
         return AsyncThrowingStream<[MergedPullRequest], Error> { continuation in
             let searchTask = Task {
                 do {
@@ -116,9 +123,7 @@ final class GitHubAPIClient: Sendable {
         if case .demoFeed(let demoFeed) = source {
             var mergedPullRequests: [MergedPullRequest] = []
             for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
-                guard let mergedAt = pullRequestNode.mergedAt,
-                      (pullRequestNode.labels?.nodes ?? []).contains(where: { $0?.name.caseInsensitiveCompare(labelName) == .orderedSame })
-                else { continue }
+                guard let mergedAt = pullRequestNode.mergedAt, Self.pullRequestNode(pullRequestNode, isLabeled: labelName) else { continue }
                 mergedPullRequests.append(try await mergedPullRequest(from: pullRequestNode, mergedAt: mergedAt))
             }
             return mergedPullRequests
@@ -136,13 +141,15 @@ final class GitHubAPIClient: Sendable {
 
     // GitHub search returns at most 1,000 results, so a merge-date range is halved until each part is small, which also lets the parts load in parallel. A pull request's merge date never changes, so paging through a part never skips one that wasn't updated meanwhile, and one that was is read by the next search.
     private func mergedPullRequestSearchRanges(
+        labeled labelName: String?,
         updatedSince earliestUpdateDate: Date?,
         mergedFrom earliestMergeDate: Date?,
         mergedThrough latestMergeDate: Date
     ) async throws -> [String] {
+        let labelQualifier = labelName.map { " label:\($0)" } ?? ""
         let mergedRangeText = earliestMergeDate.map { "\($0.formatted(.iso8601))..\(latestMergeDate.formatted(.iso8601))" } ?? "<=\(latestMergeDate.formatted(.iso8601))"
         let updatedQualifier = earliestUpdateDate.map { " updated:>=\($0.formatted(.iso8601))" } ?? ""
-        let searchQuery = "\(mergedPullRequestSearchQualifiers) merged:\(mergedRangeText)\(updatedQualifier) sort:updated-desc"
+        let searchQuery = "\(mergedPullRequestSearchQualifiers)\(labelQualifier) merged:\(mergedRangeText)\(updatedQualifier) sort:updated-desc"
         let probe: MergedPullRequestSearchProbeData = try await sendGraphQLQuery(GitHubGraphQLDocument.mergedPullRequestSearchProbeQuery, variables: [
             "owner": repositoryOwnerLogin,
             "name": repositoryName,
@@ -155,11 +162,17 @@ final class GitHubAPIClient: Sendable {
         let rangeStartDate = earliestMergeDate ?? probe.feedRepository.createdAt
         let rangeMidpointDate = Date(timeIntervalSince1970: ((rangeStartDate.timeIntervalSince1970 + latestMergeDate.timeIntervalSince1970) / 2).rounded(.down))
         async let newerHalfSearchRanges = mergedPullRequestSearchRanges(
+            labeled: labelName,
             updatedSince: earliestUpdateDate,
             mergedFrom: rangeMidpointDate.addingTimeInterval(1),
             mergedThrough: latestMergeDate
         )
-        let olderHalfSearchRanges = try await mergedPullRequestSearchRanges(updatedSince: earliestUpdateDate, mergedFrom: rangeStartDate, mergedThrough: rangeMidpointDate)
+        let olderHalfSearchRanges = try await mergedPullRequestSearchRanges(
+            labeled: labelName,
+            updatedSince: earliestUpdateDate,
+            mergedFrom: rangeStartDate,
+            mergedThrough: rangeMidpointDate
+        )
         return try await newerHalfSearchRanges + olderHalfSearchRanges
     }
 
@@ -344,6 +357,10 @@ final class GitHubAPIClient: Sendable {
             comments: commentsWithBodyHTML.map(\.comment),
             mediaItems: mediaItems
         )
+    }
+
+    private static func pullRequestNode(_ pullRequestNode: PullRequestNode, isLabeled labelName: String) -> Bool {
+        (pullRequestNode.labels?.nodes ?? []).contains { $0?.name.caseInsensitiveCompare(labelName) == .orderedSame }
     }
 
     private func mergedPullRequest(from pullRequestNode: PullRequestNode, mergedAt: Date) async throws -> MergedPullRequest {

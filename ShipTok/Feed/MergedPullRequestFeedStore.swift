@@ -193,7 +193,7 @@ final class MergedPullRequestFeedStore {
                 insertFoundPullRequests(labeledPullRequests, mergedWindowStartDate: windowStartDate, fetchedAt: loadStartedAt)
                 Self.logger.info("Opened on \(self.pullRequests.count, privacy: .public) labeled pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
             }
-            let windowSearch = try await githubAPIClient.searchMergedPullRequests(updatedSince: nil, mergedFrom: windowStartDate, mergedThrough: loadStartedAt)
+            let windowSearch = try await githubAPIClient.searchMergedPullRequests(labeled: nil, updatedSince: nil, mergedFrom: windowStartDate, mergedThrough: loadStartedAt)
             for try await windowPage in windowSearch {
                 insertFoundPullRequests(windowPage, mergedWindowStartDate: windowStartDate, fetchedAt: loadStartedAt)
             }
@@ -424,18 +424,32 @@ final class MergedPullRequestFeedStore {
             await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
         }
         let refreshStartedAt = Date.now
+        let windowStartDate = feedWindowStartDate
+        let earliestUpdateDate = nextUpdateSearchStartDate.addingTimeInterval(-Self.updateSearchOverlapSeconds)
         do {
-            let updatedPullRequestSearch = try await githubAPIClient.searchMergedPullRequests(
-                updatedSince: nextUpdateSearchStartDate.addingTimeInterval(-Self.updateSearchOverlapSeconds),
-                mergedFrom: nil,
-                mergedThrough: refreshStartedAt
-            )
+            // Only a labeled pull request merged before the window can enter the feed, so nothing else that old is read (AGENTS.md, "Feed Order").
+            let updatedPullRequestSearches = [
+                try await githubAPIClient.searchMergedPullRequests(
+                    labeled: nil,
+                    updatedSince: earliestUpdateDate,
+                    mergedFrom: windowStartDate,
+                    mergedThrough: refreshStartedAt
+                ),
+                try await githubAPIClient.searchMergedPullRequests(
+                    labeled: MergedPullRequest.shipTokLabelName,
+                    updatedSince: earliestUpdateDate,
+                    mergedFrom: nil,
+                    mergedThrough: windowStartDate.addingTimeInterval(-1)
+                ),
+            ]
             var updatedPullRequestCount = 0
-            for try await updatedPullRequestPage in updatedPullRequestSearch {
-                for updatedPullRequest in updatedPullRequestPage.sorted(by: { $0.mergedAt < $1.mergedAt }) {
-                    apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+            for updatedPullRequestSearch in updatedPullRequestSearches {
+                for try await updatedPullRequestPage in updatedPullRequestSearch {
+                    for updatedPullRequest in updatedPullRequestPage.sorted(by: { $0.mergedAt < $1.mergedAt }) {
+                        apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+                    }
+                    updatedPullRequestCount += updatedPullRequestPage.count
                 }
-                updatedPullRequestCount += updatedPullRequestPage.count
             }
             try Task.checkCancellation()
             Self.logger.debug("Read \(updatedPullRequestCount, privacy: .public) pull requests updated since \(nextUpdateSearchStartDate.formatted(.iso8601), privacy: .public) in \(Self.millisecondsElapsed(since: refreshStartedAt), privacy: .public) ms")

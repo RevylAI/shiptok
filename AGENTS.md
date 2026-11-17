@@ -58,7 +58,7 @@ The rules below are binding for the whole repository.
 
 ## Feed Order
 
-- **[STRICT]** The feed holds the pull requests with media merged in the last 14 days, plus every pull request labeled `shiptok` whose hero is a ShipTok video, whatever its age, so tagged examples never age out. Nothing older is ever read. The feed is ordered by its hero's group, then newest merge first. The groups are tagged ShipTok videos, then other videos, then images and GIFs. A label alone does not tag the media.
+- **[STRICT]** The feed holds the pull requests with media merged in the last 14 days, plus every pull request labeled `shiptok` whose hero is a ShipTok video, whatever its age, so tagged examples never age out. Nothing older is ever read: a refresh searches the window, and before it only pull requests labeled `shiptok`. The feed is ordered by its hero's group, then newest merge first. The groups are tagged ShipTok videos, then other videos, then images and GIFs. A label alone does not tag the media.
 - **[STRICT]** A launch with nothing saved reads the labeled pull requests in one search and opens on them, so the first card shows within seconds, then reads the window in parallel merge-date ranges. A pull request found after the feed opened sorts only into the cards after the one in focus and the one after it, since both are already rendered, so nothing moves under the viewer. A newly merged pull request takes its sorted slot anywhere in the feed, and when that slot is above the viewer the "new" pill counts it and jumps to the first such card.
 - **[STRICT]** A pull request none of whose media loads, even from a renewed URL, leaves the feed while the viewer is still above it, so the feed never shows a dead card ahead of the viewer.
 
