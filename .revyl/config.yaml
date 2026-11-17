@@ -17,6 +17,8 @@ build:
         image: ios-macos-26-xcode-27.2
 pr_review:
   enabled: true
+  triggers:
+    drafts: true
   build:
     kind: ci_upload_to_revyl
     app_ids:

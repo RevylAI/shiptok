@@ -110,7 +110,8 @@ When developing or changing a feature in this repo, use the Revyl dev loop to ve
 
 ## CI And Releases
 
-- **[STRICT]** `.github/workflows/ci.yml` runs on every pull request and push to `main`: a gitleaks scan with `.gitleaks.toml`, then `scripts/revyl/remote-build.sh` (`setup`, `compile`, `zip`) on GitHub's `xcode-27` runner with Xcode 27.2, uploading the build to Revyl. On `main` it runs the ShipTok journeys workflow on that exact build and explores it with Atlas. Fork pull requests get no secrets, so they build without uploading.
+- **[STRICT]** `.github/workflows/ci.yml` runs on every pull request and push to `main`: a gitleaks scan with `.gitleaks.toml`, then `scripts/revyl/remote-build.sh` (`setup`, `compile`, `zip`) on GitHub's `xcode-27` runner with Xcode 27.2, uploading the build to Revyl. On `main` it runs the ShipTok journeys workflow on that exact build and explores it with Atlas, one exploration at a time with every build queued. Fork pull requests get no secrets, so they build without uploading.
+- **[STRICT]** `.revyl/config.yaml` is the only place that names the Revyl app and workflows: CI reads them from it with `revyl config show --json`, and the repository's GitHub settings hold only secrets.
 - **[STRICT]** `.github/workflows/release.yml`, run by hand with a build number, is the only way builds reach App Store Connect: it runs `upload-to-testflight` with the App Store Connect API key in the repository secrets `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID` and `APP_STORE_CONNECT_API_PRIVATE_KEY`.
 - **[STRICT]** This repository is public, and so are its Actions logs: no workflow prints a secret, token, internal hostname or customer data.
 - **[STRICT]** Workflows pin every action to a commit and the Revyl CLI and gitleaks to a release version.

@@ -51,7 +51,7 @@ App Store Connect builds go through the same script: `upload-to-testflight` arch
 
 ### CI and releases
 
-GitHub Actions runs `.github/workflows/ci.yml` on every pull request and every push to `main`: a gitleaks scan for secrets with `.gitleaks.toml`, then a build on GitHub's Xcode 27 runner with Xcode 27.2 that compiles the Debug simulator app through the script above and uploads it to Revyl. On `main`, it then runs the ShipTok journeys on that exact build and explores it with Atlas (see Built with Revyl).
+GitHub Actions runs `.github/workflows/ci.yml` on every pull request and every push to `main`: a gitleaks scan for secrets with `.gitleaks.toml`, then a build on GitHub's Xcode 27 runner with Xcode 27.2 that compiles the Debug simulator app through the script above and uploads it to Revyl. A fork's pull request builds without uploading, since GitHub gives forks none of the repository's secrets. On `main`, it then runs the ShipTok journeys on that exact build and explores it with Atlas (see Built with Revyl). CI takes the Revyl app and workflow from `.revyl/config.yaml`, so GitHub holds only secrets.
 
 `.github/workflows/release.yml` ships to App Store Connect. Run it by hand from the Actions tab with the next build number; it archives the Release build and uploads it through `upload-to-testflight`, with the team's App Store Connect API key from the repository's secrets.
 
@@ -61,9 +61,9 @@ ShipTok is built and tested with [Revyl](https://revyl.com), and git is the sour
 
 - **Configuration in git.** `.revyl/config.yaml` is the Revyl project's whole configuration: its build recipe, pull request automation and proof of changes. Revyl's GitHub App applies the file from `main` on every push, and Revyl refuses edits made anywhere else.
 - **Tests in git.** `.revyl/tests/` holds one plain-language test per journey through the app, and `.revyl/modules/` the steps they share. Every run reads these files from git: a pull request's runs read the pull request's files, and `main`'s runs read `main`'s. The tests go in signed out, through **Look around first**, so none needs a GitHub account.
-- **One workflow for every journey.** The ShipTok journeys workflow in Revyl holds every test. CI runs it on each `main` build, and Revyl runs it on each pull request's build.
+- **One workflow for every journey.** The ShipTok journeys workflow in Revyl holds every test. CI runs it on each `main` build, and Revyl runs it on each pull request build CI uploads, drafts included.
 - **Builds from CI.** CI uploads each build with its repository, commit, branch and pull request, which is how Revyl finds the build for a pull request. The `development` profile builds the same app on Revyl's cloud builder: `revyl build --profile development --platform ios` for a build, or `revyl dev --remote --profile development --platform ios` for a live cloud iPhone that rebuilds as you change the code.
-- **Proof of changes.** On every pull request, Revyl's agent reads the change, drives the pull request's build on a cloud iPhone, and comments with what it verified, screenshots and a recording.
+- **Proof of changes.** On every pull request from a branch of this repository, drafts included, Revyl's agent reads the change, drives the pull request's build on a cloud iPhone, and comments with what it verified, screenshots and a recording. A fork's pull request gets none, since CI can't upload its build.
 - **Atlas.** Each `main` build is explored, and Atlas keeps a map of its screens and flows.
 - **Agent skills.** `.agents/skills/` holds Revyl's skills for coding agents (the device dev loop, writing tests, reading Atlas, test-only sign-in), linked for Claude Code from `.claude/skills/`, and `AGENTS.md` asks agents to verify every change on a Revyl device.
 

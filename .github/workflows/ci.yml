@@ -36,6 +36,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     outputs:
+      app-id: ${{ steps.upload.outputs.app-id }}
       build-id: ${{ steps.upload.outputs.build-id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,10 +54,11 @@ jobs:
         if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
         run: |
-          revyl build upload --file build/ShipTok.app.zip --app "$REVYL_IOS_APP_ID" --platform ios --yes --json > "$RUNNER_TEMP/revyl-build-upload.json"
+          app_id="$(revyl config show --json | jq -er '.configuration.pr_review.build.app_ids.ios')"
+          revyl build upload --file build/ShipTok.app.zip --app "$app_id" --platform ios --yes --json > "$RUNNER_TEMP/revyl-build-upload.json"
           build_id="$(jq -er 'select(.success == true and .count == 1) | .build.build_id' "$RUNNER_TEMP/revyl-build-upload.json")"
+          echo "app-id=$app_id" >> "$GITHUB_OUTPUT"
           echo "build-id=$build_id" >> "$GITHUB_OUTPUT"
           jq -r '.build | "Uploaded Revyl build \(.build_id) (\(.build_version)) to Revyl branch \(.branch_name // "default")"' "$RUNNER_TEMP/revyl-build-upload.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -69,16 +71,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/install-revyl-cli
-      - name: Run the ShipTok journeys workflow on this build
+      - name: Run the workflows .revyl/config.yaml names on this build
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
-          REVYL_JOURNEYS_WORKFLOW_ID: ${{ vars.REVYL_JOURNEYS_WORKFLOW_ID }}
+          REVYL_IOS_APP_ID: ${{ needs.build.outputs.app-id }}
           REVYL_BUILD_ID: ${{ needs.build.outputs.build-id }}
         run: |
-          revyl workflow run "$REVYL_JOURNEYS_WORKFLOW_ID" \
-            --ios-app "$REVYL_IOS_APP_ID" --ios-build-id "$REVYL_BUILD_ID" \
-            --github-actions --no-open
+          workflow_ids="$(revyl config show --json | jq -er '.configuration.pr_review.workflows.workflow_ids[]')"
+          status=0
+          for workflow_id in $workflow_ids; do
+            revyl workflow run "$workflow_id" \
+              --ios-app "$REVYL_IOS_APP_ID" --ios-build-id "$REVYL_BUILD_ID" \
+              --github-actions --no-open || status=1
+          done
+          exit "$status"
 
   atlas:
     name: Explore the build with Atlas
@@ -86,17 +92,18 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # One exploration of main at a time keeps Atlas's map of main in upload order (Revyl docs, "Explore from the CLI").
+    # Explorations of main run one at a time, and up to 100 wait their turn instead of a newer build replacing a waiting one, so every main build is explored. They start in the order their jobs reach this group, which can differ from push order.
     concurrency:
       group: revyl-atlas-main
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/install-revyl-cli
       - name: Explore this build
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-          REVYL_IOS_APP_ID: ${{ vars.REVYL_IOS_APP_ID }}
+          REVYL_IOS_APP_ID: ${{ needs.build.outputs.app-id }}
           REVYL_BUILD_ID: ${{ needs.build.outputs.build-id }}
         run: |
           revyl explore run "$REVYL_IOS_APP_ID" --build-id "$REVYL_BUILD_ID" \
