@@ -21,11 +21,17 @@ actor ShipTokDemoFeed {
         }
         let read = Task { [shipTokAPI] in
             let snapshotData = try await shipTokAPI.fetchDemoFeed()
+            let snapshot: DemoFeedSnapshot
             do {
-                return try GitHubAPIClient.makeJSONDecoder().decode(DemoFeedSnapshot.self, from: snapshotData)
+                snapshot = try GitHubAPIClient.makeJSONDecoder().decode(DemoFeedSnapshot.self, from: snapshotData)
             } catch {
                 throw RevylShipTokAPIError.responseUnreadable(operationName: "the demo")
             }
+            // GitHubAPIClient reads the repository as owner/name.
+            guard snapshot.repositoryFullName.split(separator: "/").count == 2 else {
+                throw RevylShipTokAPIError.responseUnreadable(operationName: "the demo")
+            }
+            return snapshot
         }
         snapshotRead = read
         defer { snapshotRead = nil }
