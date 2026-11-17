@@ -26,7 +26,7 @@ struct RootView: View {
                     .id(teammate.user.githubUserID)
             }
         }
-        .task { signInSession.restoreSavedSession() }
+        .task { await signInSession.restoreSavedSession() }
     }
 }
 

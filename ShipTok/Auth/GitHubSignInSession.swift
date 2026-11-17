@@ -22,7 +22,7 @@ struct ShipTokDataDeletionUnfinishedError: LocalizedError {
     let keychainError: Error
 
     var errorDescription: String? {
-        "Revyl deleted your ShipTok data. \(keychainError.localizedDescription) Try again to finish on this iPhone."
+        "Revyl deleted your ShipTok data. \(keychainError.localizedDescription) Try again or open ShipTok again to finish on this iPhone."
     }
 }
 
@@ -38,14 +38,15 @@ final class GitHubSignInSession {
 
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "sign-in")
     private static let signedOutReasonDefaultsKey = "signed-out-reason"
+    // Revyl's deletion revokes the sign-in's token, so it can't run twice: once it's done, only this iPhone's part is left, across launches too.
+    private static let unfinishedDataDeletionGitHubUserIDDefaultsKey = "unfinished-data-deletion-github-user-id"
+    private static let dataDeletedMessage = "Your ShipTok data is deleted. Your comments, reactions and vibes stay on GitHub."
     private static let signInCallbackURLScheme = "shiptok"
 
     private(set) var phase: Phase = .restoring
     private(set) var isSigningIn = false
     private(set) var isOpeningDemo = false
     private(set) var isDeletingShipTokData = false
-    // Revyl's deletion revokes the sign-in's token, so it can't run twice, and trying again finishes only what's left on this iPhone.
-    private var revylDataDeletedSignInID: UUID?
     private let shipTokAPI = RevylShipTokAPI()
 
     var demoSignInFailureMessage: String? {
@@ -58,7 +59,15 @@ final class GitHubSignInSession {
         return demoVisitor
     }
 
-    func restoreSavedSession() {
+    func restoreSavedSession() async {
+        if Self.unfinishedDataDeletionGitHubUserID != nil {
+            do {
+                try await finishDeletingShipTokDataOnThisIPhone()
+            } catch {
+                phase = .signedOut(message: error.localizedDescription)
+            }
+            return
+        }
         let storedSignIn: StoredGitHubSignIn?
         do {
             storedSignIn = try GitHubSignInKeychainStore.loadStoredSignIn()
@@ -128,6 +137,10 @@ final class GitHubSignInSession {
             let tokens = try await shipTokAPI.exchangeGitHubSignInCode(authorizationCode, codeVerifier: proofKey.codeVerifier)
             let user = try await GitHubAccountAPI(accessTokenVault: GitHubAccessTokenVault(tokens: tokens)).fetchSignedInUserIdentity()
             let storedSignIn = StoredGitHubSignIn(tokens: tokens, user: user)
+            // An unfinished deletion would take this sign-in with it on the next launch, so it finishes first.
+            if Self.unfinishedDataDeletionGitHubUserID != nil {
+                try await finishDeletingShipTokDataOnThisIPhone()
+            }
             try GitHubSignInKeychainStore.saveStoredSignIn(storedSignIn)
             UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
             Self.logger.info("Signed in with Revyl")
@@ -149,26 +162,13 @@ final class GitHubSignInSession {
         guard case .signedIn(let teammate) = phase, !isDeletingShipTokData else { return }
         isDeletingShipTokData = true
         defer { isDeletingShipTokData = false }
-        if revylDataDeletedSignInID != teammate.signInID {
+        if Self.unfinishedDataDeletionGitHubUserID != teammate.user.githubUserID {
             try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
                 try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
             }
-            revylDataDeletedSignInID = teammate.signInID
+            UserDefaults.standard.set(teammate.user.githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
         }
-        do {
-            try GitHubSignInKeychainStore.deleteStoredSignIn()
-        } catch {
-            throw ShipTokDataDeletionUnfinishedError(keychainError: error)
-        }
-        teammate.analytics.capture(.signInEnded(reason: .dataDeleted))
-        if let bundleIdentifier = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
-        }
-        phase = .signedOut(message: "Your ShipTok data is deleted. Your comments, reactions and vibes stay on GitHub.")
-        PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
-        await PullRequestMediaDiskCache.finishPendingSaves()
-        Self.deleteCachedFiles()
-        Self.logger.info("Deleted this person's ShipTok data")
+        try await finishDeletingShipTokDataOnThisIPhone()
     }
 
     // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile. A sign-in the Keychain still holds would come back on the next launch, so it stays until the Keychain lets it go.
@@ -181,7 +181,7 @@ final class GitHubSignInSession {
     // A rejection ends only the sign-in its request ran for. Deleting the data revokes the sign-in's GitHub token, so rejections while it runs, or after only this iPhone's part is left, are its own doing.
     func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError, endingSignInID signInID: UUID) {
         guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData,
-              revylDataDeletedSignInID != signInID
+              Self.unfinishedDataDeletionGitHubUserID != teammate.user.githubUserID
         else { return }
         // GitHub no longer takes this sign-in, so one the Keychain fails to forget is only refused again on the next launch; the store logs the failure.
         try? GitHubSignInKeychainStore.deleteStoredSignIn()
@@ -198,11 +198,35 @@ final class GitHubSignInSession {
             .githubRefused
         case RevylShipTokAPIError.signInRejected:
             .revylRejected
-        case is GitHubSignInKeychainError:
+        case is GitHubSignInKeychainError, is ShipTokDataDeletionUnfinishedError:
             .keychainFailed
         default:
             .unavailable
         }
+    }
+
+    private static var unfinishedDataDeletionGitHubUserID: Int64? {
+        UserDefaults.standard.object(forKey: unfinishedDataDeletionGitHubUserIDDefaultsKey) as? Int64
+    }
+
+    // The record of the unfinished deletion goes last, with the defaults, so a failure or a quit midway is finished on the next try or launch.
+    private func finishDeletingShipTokDataOnThisIPhone() async throws {
+        do {
+            if let storedSignIn = try GitHubSignInKeychainStore.loadStoredSignIn() {
+                try GitHubSignInKeychainStore.deleteStoredSignIn()
+                ShipTokAnalytics(githubUserID: storedSignIn.user.githubUserID).capture(.signInEnded(reason: .dataDeleted))
+            }
+        } catch {
+            throw ShipTokDataDeletionUnfinishedError(keychainError: error)
+        }
+        phase = .signedOut(message: Self.dataDeletedMessage)
+        PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
+        await PullRequestMediaDiskCache.finishPendingSaves()
+        Self.deleteCachedFiles()
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+        }
+        Self.logger.info("Deleted this person's ShipTok data")
     }
 
     private static func deleteCachedFiles() {
