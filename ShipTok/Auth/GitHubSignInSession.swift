@@ -121,6 +121,13 @@ final class GitHubSignInSession {
         let proofKey = ProofKeyForCodeExchange.generate()
         let signInState = randomURLSafeString(byteCount: 32)
         do {
+            // An unfinished deletion would take a new sign-in with it on the next launch, and each sign-in spends one of the person's GitHub tokens from Revyl's App, so it finishes before GitHub opens.
+            if Self.unfinishedDataDeletionGitHubUserID != nil {
+                try await finishDeletingShipTokDataOnThisIPhone()
+                if demoVisitor == nil {
+                    phase = .signedOut(message: Self.dataDeletedMessage)
+                }
+            }
             let authorizationURL = try await shipTokAPI.gitHubSignInAuthorizationURL(state: signInState, codeChallenge: proofKey.codeChallenge)
             // Ephemeral, since the shared session's prompt breaks sign-in on an unfolded iPhone Duo (AGENTS.md, "iOS App").
             let callbackURL = try await webAuthenticationSession.authenticate(
@@ -138,10 +145,6 @@ final class GitHubSignInSession {
             let tokens = try await shipTokAPI.exchangeGitHubSignInCode(authorizationCode, codeVerifier: proofKey.codeVerifier)
             let user = try await GitHubAccountAPI(accessTokenVault: GitHubAccessTokenVault(tokens: tokens)).fetchSignedInUserIdentity()
             let storedSignIn = StoredGitHubSignIn(tokens: tokens, user: user)
-            // An unfinished deletion would take this sign-in with it on the next launch, so it finishes first.
-            if Self.unfinishedDataDeletionGitHubUserID != nil {
-                try await finishDeletingShipTokDataOnThisIPhone()
-            }
             try GitHubSignInKeychainStore.saveStoredSignIn(storedSignIn)
             UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
             Self.logger.info("Signed in with Revyl")
