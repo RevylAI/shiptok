@@ -41,6 +41,7 @@ final class MergedPullRequestFeedStore {
     // A fetch that started before a delete can still return the comment, so a comment the viewer deleted stays out of every later fetch.
     private var viewerDeletedCommentIDs: Set<String> = []
     private let githubAPIClient: GitHubAPIClient
+    private let reactionWriteQueue: ViewerReactionWriteQueue
     private let analytics: ShipTokAnalytics
     // A demo visitor has none, and their feed isn't saved (AGENTS.md, "Demo Mode").
     private let viewerGitHubLogin: String?
@@ -54,6 +55,7 @@ final class MergedPullRequestFeedStore {
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
     ) {
         self.githubAPIClient = githubAPIClient
+        reactionWriteQueue = ViewerReactionWriteQueue(githubAPIClient: githubAPIClient)
         self.analytics = analytics
         self.viewerGitHubLogin = viewerGitHubLogin
         self.handleRejectedGitHubAccess = handleRejectedGitHubAccess
@@ -553,17 +555,15 @@ final class MergedPullRequestFeedStore {
             let remainingWriteCount = reactionWriteCountByPullRequestID[pullRequestID, default: 1] - 1
             reactionWriteCountByPullRequestID[pullRequestID] = remainingWriteCount > 0 ? remainingWriteCount : nil
         }
-        do {
-            if isReacting {
-                try await githubAPIClient.addReaction(reaction, toSubjectID: pullRequestID)
-            } else {
-                try await githubAPIClient.removeReaction(reaction, fromSubjectID: pullRequestID)
-            }
+        switch await reactionWriteQueue.write(reaction, viewerHasReacted: isReacting, onSubjectID: pullRequestID) {
+        case .succeeded:
             analytics.capture(.mutationCompleted(attempt, outcome: .succeeded, commentID: nil, commentDatabaseID: nil))
-        } catch {
+        case .failed(let error, let restoredViewerHasReacted):
             analytics.capture(.mutationCompleted(attempt, outcome: error.isTaskCancellation ? .cancelled : .failed,
                                                   commentID: nil, commentDatabaseID: nil))
-            updateReactions(ofPullRequestID: pullRequestID) { $0.setViewerHasReacted(!isReacting, with: reaction) }
+            if let restoredViewerHasReacted {
+                updateReactions(ofPullRequestID: pullRequestID) { $0.setViewerHasReacted(restoredViewerHasReacted, with: reaction) }
+            }
             if error.isTaskCancellation { return }
             if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                 handleRejectedGitHubAccess(githubAPIError)

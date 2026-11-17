@@ -22,11 +22,13 @@ final class WeeklyEditionsStore {
     private var reactionWriteCountByWeeklyEditionID: [String: Int] = [:]
     private var viewerDeletedCommentIDs: Set<String> = []
     private let githubAPIClient: GitHubAPIClient
+    private let reactionWriteQueue: ViewerReactionWriteQueue
     private let analytics: ShipTokAnalytics
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
     init(githubAPIClient: GitHubAPIClient, analytics: ShipTokAnalytics, handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void) {
         self.githubAPIClient = githubAPIClient
+        reactionWriteQueue = ViewerReactionWriteQueue(githubAPIClient: githubAPIClient)
         self.analytics = analytics
         self.handleRejectedGitHubAccess = handleRejectedGitHubAccess
     }
@@ -136,17 +138,15 @@ final class WeeklyEditionsStore {
             let remainingWriteCount = reactionWriteCountByWeeklyEditionID[weeklyEditionID, default: 1] - 1
             reactionWriteCountByWeeklyEditionID[weeklyEditionID] = remainingWriteCount > 0 ? remainingWriteCount : nil
         }
-        do {
-            if isReacting {
-                try await githubAPIClient.addReaction(reaction, toSubjectID: weeklyEditionID)
-            } else {
-                try await githubAPIClient.removeReaction(reaction, fromSubjectID: weeklyEditionID)
-            }
+        switch await reactionWriteQueue.write(reaction, viewerHasReacted: isReacting, onSubjectID: weeklyEditionID) {
+        case .succeeded:
             analytics.capture(.mutationCompleted(attempt, outcome: .succeeded, commentID: nil, commentDatabaseID: nil))
-        } catch {
+        case .failed(let error, let restoredViewerHasReacted):
             analytics.capture(.mutationCompleted(attempt, outcome: error.isTaskCancellation ? .cancelled : .failed,
                                                   commentID: nil, commentDatabaseID: nil))
-            updateReactions(ofWeeklyEditionID: weeklyEditionID) { $0.setViewerHasReacted(!isReacting, with: reaction) }
+            if let restoredViewerHasReacted {
+                updateReactions(ofWeeklyEditionID: weeklyEditionID) { $0.setViewerHasReacted(restoredViewerHasReacted, with: reaction) }
+            }
             if error.isTaskCancellation { return }
             if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                 handleRejectedGitHubAccess(githubAPIError)

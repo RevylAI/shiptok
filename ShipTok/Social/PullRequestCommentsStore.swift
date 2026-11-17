@@ -14,6 +14,7 @@ final class PullRequestCommentsStore<Thread: GitHubCommentThread> {
     private var localChangeGeneration = 0
     private var deletedCommentIDs: Set<String> = []
     private let githubAPIClient: GitHubAPIClient
+    private let reactionWriteQueue: ViewerReactionWriteQueue
     private let analytics: ShipTokAnalytics
     private let analyticsSubject: ShipTokAnalyticsSubject
     private let fetchLatestThread: (Int) async throws -> Thread
@@ -29,6 +30,7 @@ final class PullRequestCommentsStore<Thread: GitHubCommentThread> {
     ) {
         self.thread = thread
         self.githubAPIClient = githubAPIClient
+        reactionWriteQueue = ViewerReactionWriteQueue(githubAPIClient: githubAPIClient)
         self.analytics = analytics
         self.analyticsSubject = analyticsSubject
         self.fetchLatestThread = fetchLatestThread
@@ -109,26 +111,21 @@ final class PullRequestCommentsStore<Thread: GitHubCommentThread> {
 
     func toggleReaction(_ reaction: GitHubReaction, onCommentID commentID: String) async {
         guard let commentIndex = thread.comments.firstIndex(where: { $0.id == commentID }) else { return }
-        let previousReactions = thread.comments[commentIndex].reactions
-        let isAddingReaction = !previousReactions.viewerReactions.contains(reaction)
+        let isAddingReaction = !thread.comments[commentIndex].reactions.viewerReactions.contains(reaction)
         let attempt = analytics.requestMutation(.reaction, change: isAddingReaction ? .add : .remove,
                                                 subject: analyticsSubject, reaction: reaction, commentID: commentID)
         localChangeGeneration += 1
         thread.comments[commentIndex].reactions.setViewerHasReacted(isAddingReaction, with: reaction)
         defer { localChangeGeneration += 1 }
-        do {
-            if isAddingReaction {
-                try await githubAPIClient.addReaction(reaction, toSubjectID: commentID)
-            } else {
-                try await githubAPIClient.removeReaction(reaction, fromSubjectID: commentID)
-            }
+        switch await reactionWriteQueue.write(reaction, viewerHasReacted: isAddingReaction, onSubjectID: commentID) {
+        case .succeeded:
             analytics.capture(.mutationCompleted(attempt, outcome: .succeeded, commentID: commentID, commentDatabaseID: nil))
             onThreadChanged(thread)
-        } catch {
+        case .failed(let error, let restoredViewerHasReacted):
             analytics.capture(.mutationCompleted(attempt, outcome: error.isTaskCancellation ? .cancelled : .failed,
                                                   commentID: commentID, commentDatabaseID: nil))
-            if let revertIndex = thread.comments.firstIndex(where: { $0.id == commentID }) {
-                thread.comments[revertIndex].reactions = previousReactions
+            if let restoredViewerHasReacted, let restoreIndex = thread.comments.firstIndex(where: { $0.id == commentID }) {
+                thread.comments[restoreIndex].reactions.setViewerHasReacted(restoredViewerHasReacted, with: reaction)
             }
             actionFailureMessage = error.localizedDescription
         }
