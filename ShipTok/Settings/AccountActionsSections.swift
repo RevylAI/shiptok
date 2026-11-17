@@ -4,14 +4,29 @@ struct AccountActionsSections: View {
     let signInSession: GitHubSignInSession
     @State private var confirmsDataDeletion = false
     @State private var dataDeletionFailureMessage: String?
+    @State private var signOutFailureMessage: String?
 
     private var isDeletingData: Bool { signInSession.isDeletingShipTokData }
 
     var body: some View {
         PrivacyAndSupportSection()
         Section {
-            Button("Sign out", role: .destructive) { signInSession.signOut() }
-                .disabled(isDeletingData)
+            Button("Sign out", role: .destructive) {
+                do {
+                    try signInSession.signOut()
+                } catch {
+                    signOutFailureMessage = error.localizedDescription
+                }
+            }
+            .disabled(isDeletingData)
+            .alert(
+                "Couldn't sign out",
+                isPresented: Binding(get: { signOutFailureMessage != nil }, set: { if !$0 { signOutFailureMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(signOutFailureMessage ?? "")
+            }
         }
         Section {
             Button(role: .destructive) {

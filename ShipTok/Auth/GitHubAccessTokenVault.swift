@@ -6,8 +6,15 @@ actor GitHubAccessTokenVault {
     private static let refreshMarginSeconds: TimeInterval = 5 * 60
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "sign-in")
 
+    private struct TokenRotation {
+        let rotatedTokens: GitHubUserAccessTokens
+        let spentRefreshToken: String
+    }
+
     private var tokens: GitHubUserAccessTokens
     private var inFlightRefresh: Task<GitHubUserAccessTokens, Error>?
+    // GitHub honors only this pair's refresh token once it's issued, so a pair the Keychain failed to save is saved again instead of refreshing anew.
+    private var unsavedRotation: TokenRotation?
     private let shipTokAPI = RevylShipTokAPI()
 
     init(tokens: GitHubUserAccessTokens) {
@@ -44,29 +51,46 @@ actor GitHubAccessTokenVault {
         }
     }
 
+    // Saved inside the task, so every caller waits for the save and the rotated pair reaches the Keychain even if they've all gone away.
     private func refreshedTokens() async throws -> GitHubUserAccessTokens {
         if let inFlightRefresh {
             return try await inFlightRefresh.value
         }
-        guard let refreshToken = tokens.refreshToken else {
-            throw GitHubAPIError.accessTokenRejected
-        }
-        // Saved inside the task, so the rotated pair reaches the Keychain even if every caller has gone away.
-        let refreshTask = Task { [shipTokAPI] in
+        let refreshTask = Task { try await rotateAndSaveTokens() }
+        inFlightRefresh = refreshTask
+        defer { inFlightRefresh = nil }
+        let savedTokens = try await refreshTask.value
+        tokens = savedTokens
+        return savedTokens
+    }
+
+    private func rotateAndSaveTokens() async throws -> GitHubUserAccessTokens {
+        let rotation: TokenRotation
+        if let unsavedRotation {
+            rotation = unsavedRotation
+        } else {
+            guard let refreshToken = tokens.refreshToken else {
+                throw GitHubAPIError.accessTokenRejected
+            }
             do {
-                let rotatedTokens = try await shipTokAPI.refreshGitHubAccessToken(refreshToken: refreshToken)
-                GitHubSignInKeychainStore.saveRotatedTokens(rotatedTokens, rotatedFromRefreshToken: refreshToken)
-                Self.logger.info("Refreshed the GitHub sign-in")
-                return rotatedTokens
+                rotation = TokenRotation(
+                    rotatedTokens: try await shipTokAPI.refreshGitHubAccessToken(refreshToken: refreshToken),
+                    spentRefreshToken: refreshToken
+                )
             } catch RevylShipTokAPIError.signInRejected {
                 Self.logger.error("GitHub refused to refresh the sign-in")
                 throw GitHubAPIError.accessTokenRejected
             }
+            unsavedRotation = rotation
         }
-        inFlightRefresh = refreshTask
-        defer { inFlightRefresh = nil }
-        let rotatedTokens = try await refreshTask.value
-        tokens = rotatedTokens
-        return rotatedTokens
+        let saveOutcome = try GitHubSignInKeychainStore.saveRotatedTokens(rotation.rotatedTokens, rotatedFromRefreshToken: rotation.spentRefreshToken)
+        unsavedRotation = nil
+        switch saveOutcome {
+        case .saved:
+            Self.logger.info("Refreshed the GitHub sign-in")
+            return rotation.rotatedTokens
+        case .signInEnded:
+            throw CancellationError()
+        }
     }
 }

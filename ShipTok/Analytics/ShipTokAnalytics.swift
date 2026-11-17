@@ -57,6 +57,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case stateMismatch = "state_mismatch"
         case githubRefused = "github_refused"
         case revylRejected = "revyl_rejected"
+        case keychainFailed = "keychain_failed"
         case unavailable
     }
 

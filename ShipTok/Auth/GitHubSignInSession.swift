@@ -17,6 +17,15 @@ enum GitHubSignInCallbackError: LocalizedError {
     }
 }
 
+// Revyl's part of Delete my ShipTok data is done, and only this iPhone's is left to try again.
+struct ShipTokDataDeletionUnfinishedError: LocalizedError {
+    let keychainError: Error
+
+    var errorDescription: String? {
+        "Revyl deleted your ShipTok data. \(keychainError.localizedDescription) Try again to finish on this iPhone."
+    }
+}
+
 @Observable
 @MainActor
 final class GitHubSignInSession {
@@ -35,6 +44,8 @@ final class GitHubSignInSession {
     private(set) var isSigningIn = false
     private(set) var isOpeningDemo = false
     private(set) var isDeletingShipTokData = false
+    // Revyl's deletion revokes the sign-in's token, so it can't run twice, and trying again finishes only what's left on this iPhone.
+    private var revylDataDeletedSignInID: UUID?
     private let shipTokAPI = RevylShipTokAPI()
 
     var demoSignInFailureMessage: String? {
@@ -48,7 +59,14 @@ final class GitHubSignInSession {
     }
 
     func restoreSavedSession() {
-        guard let storedSignIn = GitHubSignInKeychainStore.loadStoredSignIn() else {
+        let storedSignIn: StoredGitHubSignIn?
+        do {
+            storedSignIn = try GitHubSignInKeychainStore.loadStoredSignIn()
+        } catch {
+            phase = .signedOut(message: error.localizedDescription)
+            return
+        }
+        guard let storedSignIn else {
             phase = .signedOut(message: UserDefaults.standard.string(forKey: Self.signedOutReasonDefaultsKey))
             return
         }
@@ -110,7 +128,7 @@ final class GitHubSignInSession {
             let tokens = try await shipTokAPI.exchangeGitHubSignInCode(authorizationCode, codeVerifier: proofKey.codeVerifier)
             let user = try await GitHubAccountAPI(accessTokenVault: GitHubAccessTokenVault(tokens: tokens)).fetchSignedInUserIdentity()
             let storedSignIn = StoredGitHubSignIn(tokens: tokens, user: user)
-            GitHubSignInKeychainStore.saveStoredSignIn(storedSignIn)
+            try GitHubSignInKeychainStore.saveStoredSignIn(storedSignIn)
             UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
             Self.logger.info("Signed in with Revyl")
             activate(storedSignIn).analytics.capture(.signInCompleted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
@@ -131,11 +149,18 @@ final class GitHubSignInSession {
         guard case .signedIn(let teammate) = phase, !isDeletingShipTokData else { return }
         isDeletingShipTokData = true
         defer { isDeletingShipTokData = false }
-        try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
-            try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
+        if revylDataDeletedSignInID != teammate.signInID {
+            try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
+                try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
+            }
+            revylDataDeletedSignInID = teammate.signInID
+        }
+        do {
+            try GitHubSignInKeychainStore.deleteStoredSignIn()
+        } catch {
+            throw ShipTokDataDeletionUnfinishedError(keychainError: error)
         }
         teammate.analytics.capture(.signInEnded(reason: .dataDeleted))
-        GitHubSignInKeychainStore.deleteStoredSignIn()
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
         }
@@ -146,16 +171,21 @@ final class GitHubSignInSession {
         Self.logger.info("Deleted this person's ShipTok data")
     }
 
-    // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile.
-    func signOut() {
-        guard !isDeletingShipTokData else { return }
-        discardSession(reason: .signedOut, message: nil)
+    // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile. A sign-in the Keychain still holds would come back on the next launch, so it stays until the Keychain lets it go.
+    func signOut() throws {
+        guard case .signedIn(let teammate) = phase, !isDeletingShipTokData else { return }
+        try GitHubSignInKeychainStore.deleteStoredSignIn()
+        end(teammate, reason: .signedOut, message: nil)
     }
 
-    // A rejection ends only the sign-in its request ran for. Deleting the data revokes the sign-in's GitHub token, so rejections while it runs are its own doing.
+    // A rejection ends only the sign-in its request ran for. Deleting the data revokes the sign-in's GitHub token, so rejections while it runs, or after only this iPhone's part is left, are its own doing.
     func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError, endingSignInID signInID: UUID) {
-        guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData else { return }
-        discardSession(reason: .githubRejected, message: githubAPIError.localizedDescription)
+        guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData,
+              revylDataDeletedSignInID != signInID
+        else { return }
+        // GitHub no longer takes this sign-in, so one the Keychain fails to forget is only refused again on the next launch; the store logs the failure.
+        try? GitHubSignInKeychainStore.deleteStoredSignIn()
+        end(teammate, reason: .githubRejected, message: githubAPIError.localizedDescription)
     }
 
     private static func signInFailureReason(for error: Error) -> ShipTokAnalyticsEvent.SignInFailureReason {
@@ -168,6 +198,8 @@ final class GitHubSignInSession {
             .githubRefused
         case RevylShipTokAPIError.signInRejected:
             .revylRejected
+        case is GitHubSignInKeychainError:
+            .keychainFailed
         default:
             .unavailable
         }
@@ -205,10 +237,8 @@ final class GitHubSignInSession {
     }
 
     // The reason outlives the process, so a sign-in GitHub rejected while the app was in the background still says why on the next launch.
-    private func discardSession(reason: ShipTokAnalyticsEvent.SignInEndReason, message: String?) {
-        guard case .signedIn(let teammate) = phase else { return }
+    private func end(_ teammate: SignedInTeammate, reason: ShipTokAnalyticsEvent.SignInEndReason, message: String?) {
         teammate.analytics.capture(.signInEnded(reason: reason))
-        GitHubSignInKeychainStore.deleteStoredSignIn()
         UserDefaults.standard.set(message, forKey: Self.signedOutReasonDefaultsKey)
         phase = .signedOut(message: message)
     }
