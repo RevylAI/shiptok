@@ -34,6 +34,7 @@ final class GitHubSignInSession {
     private(set) var phase: Phase = .restoring
     private(set) var isSigningIn = false
     private(set) var isOpeningDemo = false
+    private(set) var isDeletingShipTokData = false
     private let shipTokAPI = RevylShipTokAPI()
 
     var demoSignInFailureMessage: String? {
@@ -127,7 +128,9 @@ final class GitHubSignInSession {
 
     // GitHub keeps what the person wrote there, so this deletes what Revyl and this iPhone hold and revokes ShipTok's GitHub token (AGENTS.md, "Ownership And Boundaries").
     func deleteShipTokData() async throws {
-        guard case .signedIn(let teammate) = phase else { return }
+        guard case .signedIn(let teammate) = phase, !isDeletingShipTokData else { return }
+        isDeletingShipTokData = true
+        defer { isDeletingShipTokData = false }
         try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
             try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
         }
@@ -143,11 +146,15 @@ final class GitHubSignInSession {
         Self.logger.info("Deleted this person's ShipTok data")
     }
 
+    // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile.
     func signOut() {
+        guard !isDeletingShipTokData else { return }
         discardSession(reason: .signedOut, message: nil)
     }
 
-    func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError) {
+    // A rejection ends only the sign-in its request ran for. Deleting the data revokes the sign-in's GitHub token, so rejections while it runs are its own doing.
+    func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError, endingSignInID signInID: UUID) {
+        guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData else { return }
         discardSession(reason: .githubRejected, message: githubAPIError.localizedDescription)
     }
 

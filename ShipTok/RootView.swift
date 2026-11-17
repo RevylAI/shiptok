@@ -63,7 +63,7 @@ private struct SignedInView: View {
                     chosenRepositoryFullName: nil,
                     message: lostRepositoryMessage,
                     choosesDefaultRepositoryWhenReachable: lostRepositoryMessage == nil,
-                    onSignInRejected: { signInSession.handleRejectedGitHubAccess($0) },
+                    onSignInRejected: { signInSession.handleRejectedGitHubAccess($0, endingSignInID: teammate.signInID) },
                     onChoose: { repositoryFullName in
                         lostRepositoryMessage = nil
                         chosenRepositoryFullName = repositoryFullName

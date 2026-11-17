@@ -3,13 +3,15 @@ import SwiftUI
 struct AccountActionsSections: View {
     let signInSession: GitHubSignInSession
     @State private var confirmsDataDeletion = false
-    @State private var isDeletingData = false
     @State private var dataDeletionFailureMessage: String?
+
+    private var isDeletingData: Bool { signInSession.isDeletingShipTokData }
 
     var body: some View {
         PrivacyAndSupportSection()
         Section {
             Button("Sign out", role: .destructive) { signInSession.signOut() }
+                .disabled(isDeletingData)
         }
         Section {
             Button(role: .destructive) {
@@ -44,14 +46,12 @@ struct AccountActionsSections: View {
     }
 
     private func deleteShipTokData() {
-        isDeletingData = true
         Task {
             do {
                 try await signInSession.deleteShipTokData()
             } catch {
                 dataDeletionFailureMessage = error.localizedDescription
             }
-            isDeletingData = false
         }
     }
 }

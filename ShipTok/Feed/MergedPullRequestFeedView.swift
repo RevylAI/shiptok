@@ -117,8 +117,8 @@ struct MergedPullRequestFeedView: View {
         let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void = { githubAPIError in
             if case .feedRepositoryNotVisible = githubAPIError {
                 onFeedRepositoryLost(githubAPIError.localizedDescription)
-            } else {
-                signInSession.handleRejectedGitHubAccess(githubAPIError)
+            } else if let teammate = viewer.teammate {
+                signInSession.handleRejectedGitHubAccess(githubAPIError, endingSignInID: teammate.signInID)
             }
         }
         let feedStore = MergedPullRequestFeedStore(
@@ -445,6 +445,7 @@ struct MergedPullRequestFeedView: View {
                 if let userSettingsStore {
                     SettingsView(
                         viewer: teammate.user,
+                        signInID: teammate.signInID,
                         userSettingsStore: userSettingsStore,
                         hiddenPeopleStore: teammate.hiddenPeopleStore,
                         accountAPI: teammate.accountAPI,

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     let viewer: GitHubUserIdentity
+    let signInID: UUID
     let userSettingsStore: UserSettingsStore
     let hiddenPeopleStore: HiddenPeopleStore
     let accountAPI: GitHubAccountAPI
@@ -32,7 +33,7 @@ struct SettingsView: View {
                             chosenRepositoryFullName: chosenRepositoryFullName,
                             message: nil,
                             choosesDefaultRepositoryWhenReachable: false,
-                            onSignInRejected: { signInSession.handleRejectedGitHubAccess($0) },
+                            onSignInRejected: { signInSession.handleRejectedGitHubAccess($0, endingSignInID: signInID) },
                             onChoose: onChooseRepository
                         )
                     } label: {
