@@ -13,13 +13,11 @@ final class WeeklyEditionsStore {
     private(set) var isLoaded = false
     private(set) var loadFailureMessage: String?
     private(set) var isPullToRefreshRunning = false
-    private(set) var unloadableMediaItemIDs: Set<String> = []
     var transientErrorMessage: String?
 
     private var isRefreshRunning = false
     private var fetchedAt: Date?
-    private var failedLoadURLByMediaItemID: [String: URL] = [:]
-    private var urlRenewalDateAfterLoadFailureByMediaItemID: [String: Date] = [:]
+    private var mediaLoadFailureRecovery = MediaLoadFailureRecovery()
     private var reactionWriteCountByWeeklyEditionID: [String: Int] = [:]
     private var viewerDeletedCommentIDs: Set<String> = []
     private let githubAPIClient: GitHubAPIClient
@@ -32,6 +30,10 @@ final class WeeklyEditionsStore {
         reactionWriteQueue = ViewerReactionWriteQueue(githubAPIClient: githubAPIClient)
         self.analytics = analytics
         self.handleRejectedGitHubAccess = handleRejectedGitHubAccess
+    }
+
+    var unloadableMediaItemIDs: Set<String> {
+        mediaLoadFailureRecovery.unloadableMediaItemIDs
     }
 
     func weeklyEdition(withID weeklyEditionID: String) -> WeeklyEdition? {
@@ -58,14 +60,8 @@ final class WeeklyEditionsStore {
         await refresh(reportsFailure: false)
     }
 
-    // A media item is given up on only once the URL renewed after its failed load fails too, or the next read brings back the URL that failed, so an expired signed URL never hides it. The next read may be one already running, so it settles the failure.
     func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem) async {
-        if let urlRenewalDate = urlRenewalDateAfterLoadFailureByMediaItemID[mediaItem.id],
-           Date.now.timeIntervalSince(urlRenewalDate) < Self.mediaURLRenewalAgeSeconds {
-            unloadableMediaItemIDs.insert(mediaItem.id)
-            return
-        }
-        failedLoadURLByMediaItemID[mediaItem.id] = mediaItem.url
+        guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem) else { return }
         await refresh(reportsFailure: false)
     }
 
@@ -98,34 +94,38 @@ final class WeeklyEditionsStore {
         await setViewerReaction(.heart, isReacting: true, on: weeklyEdition)
     }
 
+    // A media load that fails while a read runs is newer than that read, which settles only older failures, so the refresh reads once more for it.
     private func refresh(reportsFailure: Bool) async {
         guard !isRefreshRunning else { return }
         isRefreshRunning = true
         defer { isRefreshRunning = false }
-        let fetchStartedAt = Date.now
+        var fetchStartedAt = Date.now
+        while await fetchAndApplyWeeklyEditions(startedAt: fetchStartedAt, reportsFailure: reportsFailure),
+              mediaLoadFailureRecovery.hasLoadFailureRecorded(after: fetchStartedAt) {
+            fetchStartedAt = .now
+        }
+    }
+
+    private func fetchAndApplyWeeklyEditions(startedAt fetchStartedAt: Date, reportsFailure: Bool) async -> Bool {
         do {
             let fetchedWeeklyEditions = try await githubAPIClient.fetchWeeklyEditions()
             weeklyEditions = fetchedWeeklyEditions.map { fetchedWeeklyEdition in
                 guard let existingWeeklyEdition = weeklyEdition(withID: fetchedWeeklyEdition.id) else { return fetchedWeeklyEdition }
                 return keepingLocalWrites(of: existingWeeklyEdition, in: fetchedWeeklyEdition)
             }
-            for renewedMediaItem in weeklyEditions.flatMap(\.mediaItems) {
-                guard let failedLoadURL = failedLoadURLByMediaItemID.removeValue(forKey: renewedMediaItem.id) else { continue }
-                if failedLoadURL == renewedMediaItem.url {
-                    unloadableMediaItemIDs.insert(renewedMediaItem.id)
-                } else {
-                    urlRenewalDateAfterLoadFailureByMediaItemID[renewedMediaItem.id] = .now
-                }
+            if mediaLoadFailureRecovery.hasPendingLoadFailure {
+                mediaLoadFailureRecovery.settleLoadFailures(of: fetchedWeeklyEditions.flatMap(\.mediaItems), readStartedAt: fetchStartedAt)
             }
             fetchedAt = fetchStartedAt
             isLoaded = true
             loadFailureMessage = nil
             Self.logger.info("Read \(fetchedWeeklyEditions.count, privacy: .public) weekly editions in \(Int(Date.now.timeIntervalSince(fetchStartedAt) * 1000), privacy: .public) ms")
+            return true
         } catch {
-            if error.isTaskCancellation { return }
+            if error.isTaskCancellation { return false }
             if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                 handleRejectedGitHubAccess(githubAPIError)
-                return
+                return false
             }
             Self.logger.error("Reading the weekly editions failed: \(error.publicLogDescription, privacy: .public)")
             if !isLoaded {
@@ -133,6 +133,7 @@ final class WeeklyEditionsStore {
             } else if reportsFailure {
                 transientErrorMessage = "Couldn't refresh. \(error.localizedDescription)"
             }
+            return false
         }
     }
 
