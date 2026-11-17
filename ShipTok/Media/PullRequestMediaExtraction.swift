@@ -74,17 +74,18 @@ enum PullRequestMediaExtraction {
         return [heroMediaItem] + deckOrderedMediaItems.filter { $0.id != heroMediaItem.id }
     }
 
-    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes.
+    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes. Only media targets count, so an ordinary link with a query string stays.
     static func markdownWithoutCredentialMediaLinks(_ markdown: String) -> String {
         markdown
             .replacing(#/(!?)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])*)\]\(\s*<?(https?:\/\/[^\s<>()]+)>?(?:\s+"[^"]*")?\s*\)/#) { linkMatch in
-                guard let linkURL = URL(string: String(linkMatch.3)), PullRequestMediaItem.isCredentialMediaURL(linkURL) else {
-                    return String(linkMatch.0)
-                }
-                return linkMatch.1.isEmpty ? String(linkMatch.2) : ""
+                let isImageEmbed = !linkMatch.1.isEmpty
+                guard let linkURL = URL(string: String(linkMatch.3)), isImageEmbed || isMediaLinkTarget(linkURL),
+                      PullRequestMediaItem.isCredentialMediaURL(linkURL)
+                else { return String(linkMatch.0) }
+                return isImageEmbed ? "" : String(linkMatch.2)
             }
             .replacing(#/<?(https?:\/\/[^\s<>()"'`]+)>?/#) { urlMatch in
-                guard let url = URL(string: String(urlMatch.1)), PullRequestMediaItem.isCredentialMediaURL(url) else {
+                guard let url = URL(string: String(urlMatch.1)), isMediaLinkTarget(url), PullRequestMediaItem.isCredentialMediaURL(url) else {
                     return String(urlMatch.0)
                 }
                 return ""
@@ -207,6 +208,17 @@ enum PullRequestMediaExtraction {
             ? "shiptok-video:" + SHA256.hash(data: Data(canonicalIdentity.utf8)).map { String(format: "%02x", $0) }.joined()
             : canonicalIdentity
         return MediaReference(mediaItemID: mediaItemID, kind: kind, displayURL: displayURL)
+    }
+
+    // GitHub serves uploads from its own hosts, often without a file extension, and any other host's media is a video or image file.
+    private static func isMediaLinkTarget(_ url: URL) -> Bool {
+        if PullRequestMediaItem.isHostedShipTokVideoURL(url) { return true }
+        if let host = url.host()?.lowercased(),
+           host == "githubusercontent.com" || host.hasSuffix(".githubusercontent.com") || (host == "github.com" && url.path.hasPrefix("/user-attachments/")) {
+            return true
+        }
+        guard !url.pathExtension.isEmpty, let fileType = UTType(filenameExtension: url.pathExtension) else { return false }
+        return fileType.conforms(to: .image) || fileType.conforms(to: .movie)
     }
 
     private static func hasVideoFileExtension(_ url: URL) -> Bool {

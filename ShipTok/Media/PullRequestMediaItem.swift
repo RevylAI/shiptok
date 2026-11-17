@@ -28,12 +28,9 @@ struct PullRequestMediaItem: Identifiable, Hashable, Sendable, Codable {
         url.path.hasPrefix("/api/v1/shiptok/videos/")
     }
 
-    // A hosted video's tokened link and a GitHub upload signed in its query string each open the file for whoever holds them.
+    // A hosted video's tokened link and a media URL signed in its query string each open the file for whoever holds them, whatever the host.
     static func isCredentialMediaURL(_ url: URL) -> Bool {
-        if isHostedShipTokVideoURL(url) { return true }
-        guard url.query != nil, let host = url.host()?.lowercased() else { return false }
-        return host == "githubusercontent.com" || host.hasSuffix(".githubusercontent.com")
-            || (host == "github.com" && url.path.hasPrefix("/user-attachments/"))
+        isHostedShipTokVideoURL(url) || url.query != nil
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -52,7 +49,7 @@ struct PullRequestMediaItem: Identifiable, Hashable, Sendable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(kind, forKey: .kind)
-        if !hasExpiringSignedURL, !id.hasPrefix("shiptok-video:"), url.map(Self.isHostedShipTokVideoURL) != true {
+        if !id.hasPrefix("shiptok-video:"), url.map(Self.isCredentialMediaURL) != true {
             try container.encodeIfPresent(url, forKey: .url)
         }
         try container.encode(isShipTokVideo, forKey: .isShipTokVideo)
