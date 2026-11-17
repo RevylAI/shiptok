@@ -69,6 +69,7 @@ struct FeedCardView: View {
     @State private var heroPauseToggleTrigger = 0
     @State private var isHeroFastPlaybackHeld = false
     @Environment(\.shipTokAnalytics) private var analytics
+    @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
 
     private static let cardCornerRadius: CGFloat = 6
     private static let cardMargin: CGFloat = 8
@@ -486,12 +487,12 @@ struct FeedCardView: View {
                 .buttonStyle(.swipeYielding)
                 .accessibilityLabel(isHeroVideoMuted ? "Unmute video" : "Mute video")
                 Button {
-                    let previousRate = VideoPlaybackRateChoice.shared.chosenPlaybackRate
-                    VideoPlaybackRateChoice.shared.chooseNextOfferedPlaybackRate()
+                    let previousRate = playbackRateChoice.chosenPlaybackRate
+                    playbackRateChoice.chooseNextOfferedPlaybackRate()
                     analytics?.capture(.speedChanged(analyticsSubject, control: .feedRail, previousRate: previousRate,
-                                                      playbackRate: VideoPlaybackRateChoice.shared.chosenPlaybackRate))
+                                                      playbackRate: playbackRateChoice.chosenPlaybackRate))
                 } label: {
-                    Text(verbatim: VideoPlaybackRateChoice.shared.chosenPlaybackRateText)
+                    Text(verbatim: playbackRateChoice.chosenPlaybackRateText)
                         .font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundStyle(RevylBrandColor.textPrimary)
                         .contentTransition(.numericText())
@@ -499,11 +500,11 @@ struct FeedCardView: View {
                         .overlay(Capsule().strokeBorder(RevylBrandColor.textPrimary, lineWidth: 1.5))
                         .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
                         .actionRailGlyphStyle()
-                        .animation(.snappy(duration: 0.2), value: VideoPlaybackRateChoice.shared.chosenPlaybackRate)
+                        .animation(.snappy(duration: 0.2), value: playbackRateChoice.chosenPlaybackRate)
                 }
                 .buttonStyle(.swipeYielding)
                 .accessibilityLabel("Playback speed")
-                .accessibilityValue(VideoPlaybackRateChoice.shared.chosenPlaybackRateText)
+                .accessibilityValue(playbackRateChoice.chosenPlaybackRateText)
                 .accessibilityHint("Changes the speed of every video")
             }
             switch post {

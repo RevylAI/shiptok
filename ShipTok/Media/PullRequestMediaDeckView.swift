@@ -9,6 +9,7 @@ struct PullRequestMediaDeckView: View {
     let onLoadFailure: (PullRequestMediaItem) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.shipTokAnalytics) private var analytics
+    @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedMediaItemID: String?
     @State private var isMuted = false
@@ -66,12 +67,12 @@ struct PullRequestMediaDeckView: View {
             }
             Spacer(minLength: 0)
             Button {
-                let previousRate = VideoPlaybackRateChoice.shared.chosenPlaybackRate
-                VideoPlaybackRateChoice.shared.chooseNextOfferedPlaybackRate()
+                let previousRate = playbackRateChoice.chosenPlaybackRate
+                playbackRateChoice.chooseNextOfferedPlaybackRate()
                 analytics?.capture(.speedChanged(analyticsSubject, control: .mediaDeck, previousRate: previousRate,
-                                                  playbackRate: VideoPlaybackRateChoice.shared.chosenPlaybackRate))
+                                                  playbackRate: playbackRateChoice.chosenPlaybackRate))
             } label: {
-                Text(verbatim: VideoPlaybackRateChoice.shared.chosenPlaybackRateText)
+                Text(verbatim: playbackRateChoice.chosenPlaybackRateText)
                     .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(.white)
                     .contentTransition(.numericText())
@@ -80,11 +81,11 @@ struct PullRequestMediaDeckView: View {
                     .background(Capsule().fill(.white.opacity(0.14)))
                     .frame(height: 44)
                     .contentShape(Rectangle())
-                    .animation(.snappy(duration: 0.2), value: VideoPlaybackRateChoice.shared.chosenPlaybackRate)
+                    .animation(.snappy(duration: 0.2), value: playbackRateChoice.chosenPlaybackRate)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Playback speed")
-            .accessibilityValue(VideoPlaybackRateChoice.shared.chosenPlaybackRateText)
+            .accessibilityValue(playbackRateChoice.chosenPlaybackRateText)
             .accessibilityHint("Changes the speed of every video")
             .opacity(currentMediaItem?.kind == .video ? 1 : 0)
             .disabled(currentMediaItem?.kind != .video)

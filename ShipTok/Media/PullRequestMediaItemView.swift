@@ -35,6 +35,7 @@ struct PullRequestMediaItemView: View {
     @State private var hasReportedPlaybackFailure = false
     @State private var hasTerminalPlaybackFailure = false
     @Environment(\.shipTokAnalytics) private var analytics
+    @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
     @Environment(\.scenePhase) private var scenePhase
     static let heroProgressLineHorizontalInset: CGFloat = 16
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
@@ -111,7 +112,7 @@ struct PullRequestMediaItemView: View {
         .onChange(of: isFastPlaybackActive) { _, isActive in
             updateFastPlayback(isActive: isActive)
         }
-        .onChange(of: VideoPlaybackRateChoice.shared.chosenPlaybackRate) {
+        .onChange(of: playbackRateChoice.chosenPlaybackRate) {
             applyPlaybackRate()
         }
         .onChange(of: activeVideoScrubFraction) { previousFraction, fraction in
@@ -301,13 +302,13 @@ struct PullRequestMediaItemView: View {
 
     // A hold plays at 2x whatever speed is chosen, and letting go returns to the chosen speed.
     private func applyPlaybackRate() {
-        videoPlayback?.playbackRate = isFastPlaybackActive ? Self.fastPlaybackRate : VideoPlaybackRateChoice.shared.chosenPlaybackRate
+        videoPlayback?.playbackRate = isFastPlaybackActive ? Self.fastPlaybackRate : playbackRateChoice.chosenPlaybackRate
     }
 
     private func updateFastPlayback(isActive: Bool) {
         guard videoPlayback != nil else { return }
         if isActive || fastPlaybackStartInstant != nil {
-            let chosenRate = VideoPlaybackRateChoice.shared.chosenPlaybackRate
+            let chosenRate = playbackRateChoice.chosenPlaybackRate
             analytics?.capture(.speedChanged(analyticsMedia?.subject, control: .hold,
                                               previousRate: isActive ? chosenRate : Self.fastPlaybackRate,
                                               playbackRate: isActive ? Self.fastPlaybackRate : chosenRate))

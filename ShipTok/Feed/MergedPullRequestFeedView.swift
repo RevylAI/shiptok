@@ -57,7 +57,9 @@ struct MergedPullRequestFeedView: View {
     @State private var inboxStore: DeveloperInboxStore?
     @State private var userSettingsStore: UserSettingsStore?
     @State private var demoSignInPromptAction: DemoSignInPromptAction?
-    @AppStorage("feed-mode") private var feedMode: FeedMode = .perPullRequest
+    @AppStorage("feed-mode") private var savedFeedMode: FeedMode = .perPullRequest
+    @State private var demoVisitFeedMode: FeedMode = .perPullRequest
+    @State private var playbackRateChoice: VideoPlaybackRateChoice
     @State private var openWeeklyEdition: WeeklyEdition?
     @State private var pullRequestsPageIndex = 0
     @State private var weeklyEditionsPageIndex = 0
@@ -146,6 +148,19 @@ struct MergedPullRequestFeedView: View {
             DeveloperInboxStore(viewer: teammate.user, githubAPIClient: githubAPIClient, hiddenPeopleStore: teammate.hiddenPeopleStore)
         })
         _userSettingsStore = State(initialValue: viewer.teammate.map { UserSettingsStore(accessTokenVault: $0.accessTokenVault) })
+        _playbackRateChoice = State(initialValue: viewer.teammate == nil ? .forDemoVisit() : .savedOnDevice())
+    }
+
+    // A demo visit's choices last only as long as the visit (AGENTS.md, "Demo Mode").
+    private var feedMode: FeedMode {
+        get { viewer.teammate == nil ? demoVisitFeedMode : savedFeedMode }
+        nonmutating set {
+            if viewer.teammate == nil {
+                demoVisitFeedMode = newValue
+            } else {
+                savedFeedMode = newValue
+            }
+        }
     }
 
     private var feedContext: FeedContext {
@@ -391,6 +406,7 @@ struct MergedPullRequestFeedView: View {
         }
         .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
         .environment(\.shipTokAnalytics, viewer.analytics)
+        .environment(playbackRateChoice)
     }
 
     @ViewBuilder
@@ -469,7 +485,7 @@ struct MergedPullRequestFeedView: View {
     private func feedModeSwitch(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
         let cardFrame = FeedCardView.cardFrame(in: pageSize, pageChromeInsets: pageChromeInsets).card
         return FeedModeSwitch(
-            feedMode: $feedMode,
+            feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
             openWeekDatesText: feedContext == .openWeek ? openWeeklyEdition?.weekDatesText : nil,
             onCloseWeek: closeWeek
         )
