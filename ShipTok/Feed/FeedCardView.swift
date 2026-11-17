@@ -266,14 +266,14 @@ struct FeedCardView: View {
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
-    // Solid behind every line of the caption and fading out above it, so the caption reads on any frame.
+    // Solid behind every line of the caption and fading out above it, so the caption reads on any frame: from 0.6 black at its top line, its white text keeps at least 4.5:1 contrast even over pure white media.
     private func captionScrim(frames: CardFrames) -> some View {
         let captionTopInCard = frames.caption.maxY - captionHeight - frames.card.minY
         let scrimHeight = min(frames.card.height - captionTopInCard + Self.captionScrimFadeHeight, frames.card.height)
         return LinearGradient(
             stops: [
                 .init(color: .clear, location: 0),
-                .init(color: .black.opacity(0.45), location: Self.captionScrimFadeHeight / max(scrimHeight, Self.captionScrimFadeHeight)),
+                .init(color: .black.opacity(0.6), location: Self.captionScrimFadeHeight / max(scrimHeight, Self.captionScrimFadeHeight)),
                 .init(color: .black.opacity(0.7), location: 1),
             ],
             startPoint: .top,
