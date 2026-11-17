@@ -74,9 +74,30 @@ enum PullRequestMediaExtraction {
         return [heroMediaItem] + deckOrderedMediaItems.filter { $0.id != heroMediaItem.id }
     }
 
-    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes. Only media targets count, so an ordinary link with a query string stays.
+    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes. Only media targets count, so an ordinary link with a query string stays, while an image's reference definition counts whatever its URL looks like, since an upload's signed URL often has no file extension.
     static func markdownWithoutCredentialMediaLinks(_ markdown: String) -> String {
-        markdown
+        let imageReferencePattern = #/!\[([^\]]*)\](?:\[([^\]]*)\]|(?!\())/#
+        func normalizedReferenceLabel(_ label: Substring) -> String {
+            label.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+        }
+        func referenceLabel(of imageReference: Regex<(Substring, Substring, Substring?)>.Match) -> String {
+            normalizedReferenceLabel(imageReference.2.flatMap { $0.isEmpty ? nil : $0 } ?? imageReference.1)
+        }
+        let imageReferenceLabels = Set(markdown.matches(of: imageReferencePattern).map { referenceLabel(of: $0) })
+        var credentialImageReferenceLabels: Set<String> = []
+        let markdownWithoutCredentialImageReferences = markdown
+            .replacing(#/^\h{0,3}\[([^\]]+)\]:\h*<?(https?:\/\/[^\s<>]+)>?(?:\h+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\h*(?:\R|$)/#.anchorsMatchLineEndings()) { definition in
+                let label = normalizedReferenceLabel(definition.1)
+                guard imageReferenceLabels.contains(label), let definitionURL = URL(string: String(definition.2)),
+                      PullRequestMediaItem.isCredentialMediaURL(definitionURL)
+                else { return String(definition.0) }
+                credentialImageReferenceLabels.insert(label)
+                return ""
+            }
+            .replacing(imageReferencePattern) { imageReference in
+                credentialImageReferenceLabels.contains(referenceLabel(of: imageReference)) ? "" : String(imageReference.0)
+            }
+        return markdownWithoutCredentialImageReferences
             .replacing(#/(!?)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])*)\]\(\s*<?(https?:\/\/[^\s<>()]+)>?(?:\s+"[^"]*")?\s*\)/#) { linkMatch in
                 let isImageEmbed = !linkMatch.1.isEmpty
                 guard let linkURL = URL(string: String(linkMatch.3)), isImageEmbed || isMediaLinkTarget(linkURL),
