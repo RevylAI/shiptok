@@ -231,11 +231,12 @@ enum PullRequestMediaExtraction {
         return MediaReference(mediaItemID: mediaItemID, kind: kind, displayURL: displayURL)
     }
 
-    // GitHub serves uploads from its own hosts, often without a file extension, and any other host's media is a video or image file.
+    // GitHub serves uploads from these endpoints, often without a file extension; any other link, the rest of GitHub's hosts included, is media only as a video or image file.
     private static func isMediaLinkTarget(_ url: URL) -> Bool {
         if PullRequestMediaItem.isHostedShipTokVideoURL(url) { return true }
-        if let host = url.host()?.lowercased(),
-           host == "githubusercontent.com" || host.hasSuffix(".githubusercontent.com") || (host == "github.com" && url.path.hasPrefix("/user-attachments/")) {
+        let host = url.host()?.lowercased()
+        if host == "user-images.githubusercontent.com" || host == "private-user-images.githubusercontent.com"
+            || (host == "github.com" && url.path.hasPrefix("/user-attachments/")) {
             return true
         }
         guard !url.pathExtension.isEmpty, let fileType = UTType(filenameExtension: url.pathExtension) else { return false }
