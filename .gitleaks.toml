@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "PostHog project ingestion keys are write-only and public by design; the app ships one."
+regexes = ['''phc_[A-Za-z0-9]{43}''']

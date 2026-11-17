@@ -1,0 +1,242 @@
+import AuthenticationServices
+import CryptoKit
+import Observation
+import OSLog
+import SwiftUI
+
+struct SignedInTeammate {
+    let user: GitHubUserIdentity
+    let accountAPI: GitHubAccountAPI
+    let accessTokenVault: GitHubAccessTokenVault
+    let analytics: ShipTokAnalytics
+    let hiddenPeopleStore: HiddenPeopleStore
+}
+
+enum GitHubSignInCallbackError: LocalizedError {
+    case stateMismatch
+    case codeMissing(reason: String?)
+
+    var errorDescription: String? {
+        switch self {
+        case .stateMismatch:
+            "Sign-in came back from a different attempt. Try again."
+        case .codeMissing(let reason):
+            reason ?? "Sign-in didn't finish. Try again."
+        }
+    }
+}
+
+struct ProofKeyForCodeExchange: Sendable {
+    let codeVerifier: String
+    let codeChallenge: String
+
+    static func generate() -> ProofKeyForCodeExchange {
+        let codeVerifier = randomURLSafeString(byteCount: 48)
+        let challengeDigest = SHA256.hash(data: Data(codeVerifier.utf8))
+        return ProofKeyForCodeExchange(codeVerifier: codeVerifier, codeChallenge: Data(challengeDigest).base64URLEncodedString())
+    }
+}
+
+func randomURLSafeString(byteCount: Int) -> String {
+    var randomNumberGenerator = SystemRandomNumberGenerator()
+    return Data((0..<byteCount).map { _ in UInt8.random(in: .min ... .max, using: &randomNumberGenerator) }).base64URLEncodedString()
+}
+
+extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+@Observable
+@MainActor
+final class GitHubSignInSession {
+    enum Phase {
+        case restoring
+        case signedOut(message: String?)
+        case exploringDemo(DemoVisitor, signInFailureMessage: String?)
+        case signedIn(SignedInTeammate)
+    }
+
+    private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "sign-in")
+    private static let signedOutReasonDefaultsKey = "signedOutReason"
+    private static let signInCallbackURLScheme = "shiptok"
+
+    private(set) var phase: Phase = .restoring
+    private(set) var isSigningIn = false
+    private(set) var isOpeningDemo = false
+    private let shipTokAPI = RevylShipTokAPI()
+
+    var demoSignInFailureMessage: String? {
+        guard case .exploringDemo(_, let signInFailureMessage) = phase else { return nil }
+        return signInFailureMessage
+    }
+
+    private var demoVisitor: DemoVisitor? {
+        guard case .exploringDemo(let demoVisitor, _) = phase else { return nil }
+        return demoVisitor
+    }
+
+    func restoreSavedSession() {
+        guard let storedSignIn = GitHubSignInKeychainStore.loadStoredSignIn() else {
+            phase = .signedOut(message: UserDefaults.standard.string(forKey: Self.signedOutReasonDefaultsKey))
+            return
+        }
+        activate(storedSignIn)
+    }
+
+    // The demo needs no account, so it opens on whatever the demo feed holds; a demo Revyl's backend can't serve leaves the person on the sign-in screen with why.
+    func exploreDemo() async {
+        isOpeningDemo = true
+        defer { isOpeningDemo = false }
+        let demoFeed = ShipTokDemoFeed()
+        do {
+            let repositoryFullName = try await demoFeed.repositoryFullName()
+            let visitID = UUID()
+            let demoVisitor = DemoVisitor(
+                visitID: visitID,
+                repositoryFullName: repositoryFullName,
+                demoFeed: demoFeed,
+                analytics: ShipTokAnalytics(demoVisitID: visitID),
+                hiddenPeopleStore: .forDemoVisit()
+            )
+            demoVisitor.analytics.capture(.demoEntered)
+            Self.logger.info("Opened the demo feed")
+            phase = .exploringDemo(demoVisitor, signInFailureMessage: nil)
+        } catch {
+            Self.logger.error("Opening the demo feed failed")
+            phase = .signedOut(message: error.localizedDescription)
+        }
+    }
+
+    // From the demo, a completed sign-in lands in the signed-in app and a failed one keeps the demo, saying why.
+    func signIn(using webAuthenticationSession: WebAuthenticationSession) async {
+        isSigningIn = true
+        defer { isSigningIn = false }
+        let demoVisitor = self.demoVisitor
+        if let demoVisitor {
+            phase = .exploringDemo(demoVisitor, signInFailureMessage: nil)
+        }
+        let signInAttemptID = UUID()
+        let signInAttemptAnalytics = ShipTokAnalytics(signInAttemptID: signInAttemptID)
+        signInAttemptAnalytics.capture(.signInStarted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
+        let proofKey = ProofKeyForCodeExchange.generate()
+        let signInState = randomURLSafeString(byteCount: 32)
+        do {
+            let authorizationURL = try await shipTokAPI.gitHubSignInAuthorizationURL(state: signInState, codeChallenge: proofKey.codeChallenge)
+            // Ephemeral by design: shiptok/AGENTS.md, "iOS App" (the shared session's prompt breaks sign-in on an unfolded iPhone Duo).
+            let callbackURL = try await webAuthenticationSession.authenticate(
+                using: authorizationURL,
+                callbackURLScheme: Self.signInCallbackURLScheme,
+                preferredBrowserSession: .ephemeral
+            )
+            let callbackQueryItems = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            guard callbackQueryItems.first(where: { $0.name == "state" })?.value == signInState else {
+                throw GitHubSignInCallbackError.stateMismatch
+            }
+            guard let authorizationCode = callbackQueryItems.first(where: { $0.name == "code" })?.value else {
+                throw GitHubSignInCallbackError.codeMissing(reason: callbackQueryItems.first(where: { $0.name == "error_description" })?.value)
+            }
+            let tokens = try await shipTokAPI.exchangeGitHubSignInCode(authorizationCode, codeVerifier: proofKey.codeVerifier)
+            let user = try await GitHubAccountAPI(accessTokenVault: GitHubAccessTokenVault(tokens: tokens)).fetchSignedInUserIdentity()
+            let storedSignIn = StoredGitHubSignIn(tokens: tokens, user: user)
+            GitHubSignInKeychainStore.saveStoredSignIn(storedSignIn)
+            UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
+            Self.logger.info("Signed in with Revyl")
+            activate(storedSignIn).analytics.capture(.signInCompleted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
+        } catch {
+            let failureReason = Self.signInFailureReason(for: error)
+            signInAttemptAnalytics.capture(.signInFailed(attemptID: signInAttemptID, reason: failureReason, demoVisitID: demoVisitor?.visitID))
+            if failureReason == .cancelled { return }
+            if let demoVisitor {
+                phase = .exploringDemo(demoVisitor, signInFailureMessage: error.localizedDescription)
+            } else {
+                phase = .signedOut(message: error.localizedDescription)
+            }
+        }
+    }
+
+    // GitHub keeps what the person wrote there, so this deletes what Revyl and this iPhone hold and revokes ShipTok's GitHub token (shiptok/AGENTS.md, "Ownership And Boundaries").
+    func deleteShipTokData() async throws {
+        guard case .signedIn(let teammate) = phase else { return }
+        try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
+            try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
+        }
+        teammate.analytics.capture(.signInEnded(reason: .dataDeleted))
+        GitHubSignInKeychainStore.deleteStoredSignIn()
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+        }
+        phase = .signedOut(message: "Your ShipTok data is deleted. Your comments, reactions and vibes stay on GitHub.")
+        PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
+        await PullRequestMediaDiskCache.finishPendingSaves()
+        Self.deleteCachedFiles()
+        Self.logger.info("Deleted this person's ShipTok data")
+    }
+
+    func signOut() {
+        discardSession(reason: .signedOut, message: nil)
+    }
+
+    func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError) {
+        discardSession(reason: .githubRejected, message: githubAPIError.localizedDescription)
+    }
+
+    private static func signInFailureReason(for error: Error) -> ShipTokAnalyticsEvent.SignInFailureReason {
+        switch error {
+        case let webAuthenticationError as ASWebAuthenticationSessionError where webAuthenticationError.code == .canceledLogin:
+            .cancelled
+        case GitHubSignInCallbackError.stateMismatch:
+            .stateMismatch
+        case GitHubSignInCallbackError.codeMissing:
+            .githubRefused
+        case RevylShipTokAPIError.signInRejected:
+            .revylRejected
+        default:
+            .unavailable
+        }
+    }
+
+    private static func deleteCachedFiles() {
+        let cachedFileURLs: [URL]
+        do {
+            cachedFileURLs = try FileManager.default.contentsOfDirectory(at: .cachesDirectory, includingPropertiesForKeys: nil)
+        } catch {
+            logger.error("Listing ShipTok's cached files to delete failed")
+            return
+        }
+        for cachedFileURL in cachedFileURLs {
+            do {
+                try FileManager.default.removeItem(at: cachedFileURL)
+            } catch {
+                logger.error("Deleting a cached ShipTok file failed")
+            }
+        }
+    }
+
+    @discardableResult
+    private func activate(_ storedSignIn: StoredGitHubSignIn) -> SignedInTeammate {
+        let accessTokenVault = GitHubAccessTokenVault(tokens: storedSignIn.tokens)
+        let teammate = SignedInTeammate(
+            user: storedSignIn.user,
+            accountAPI: GitHubAccountAPI(accessTokenVault: accessTokenVault),
+            accessTokenVault: accessTokenVault,
+            analytics: ShipTokAnalytics(githubUserID: storedSignIn.user.githubUserID),
+            hiddenPeopleStore: HiddenPeopleStore(githubUserID: storedSignIn.user.githubUserID)
+        )
+        phase = .signedIn(teammate)
+        return teammate
+    }
+
+    // The reason outlives the process, so a sign-in GitHub rejected while the app was in the background still says why on the next launch.
+    private func discardSession(reason: ShipTokAnalyticsEvent.SignInEndReason, message: String?) {
+        guard case .signedIn(let teammate) = phase else { return }
+        teammate.analytics.capture(.signInEnded(reason: reason))
+        GitHubSignInKeychainStore.deleteStoredSignIn()
+        UserDefaults.standard.set(message, forKey: Self.signedOutReasonDefaultsKey)
+        phase = .signedOut(message: message)
+    }
+}

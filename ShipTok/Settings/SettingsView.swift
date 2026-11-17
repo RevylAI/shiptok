@@ -1,0 +1,92 @@
+import SwiftUI
+
+struct SettingsView: View {
+    let viewer: GitHubUserIdentity
+    let userSettingsStore: UserSettingsStore
+    let hiddenPeopleStore: HiddenPeopleStore
+    let accountAPI: GitHubAccountAPI
+    let chosenRepositoryFullName: String
+    let signInSession: GitHubSignInSession
+    let onChooseRepository: @MainActor (String) async -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Account") {
+                    HStack(spacing: 12) {
+                        GitHubAvatarView(avatarURL: viewer.githubAvatarURL, diameter: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("@\(viewer.githubLogin)")
+                                .font(.headline)
+                                .foregroundStyle(RevylBrandColor.textPrimary)
+                            Text("Signed in with Revyl, using your GitHub account")
+                                .font(.caption)
+                                .foregroundStyle(RevylBrandColor.textMuted)
+                        }
+                    }
+                }
+                Section("Feed") {
+                    NavigationLink {
+                        FeedRepositoryPickerView(
+                            accountAPI: accountAPI,
+                            chosenRepositoryFullName: chosenRepositoryFullName,
+                            message: nil,
+                            choosesDefaultRepositoryWhenReachable: false,
+                            onSignInRejected: { signInSession.handleRejectedGitHubAccess($0) },
+                            onChoose: onChooseRepository
+                        )
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Repository")
+                                .foregroundStyle(RevylBrandColor.textPrimary)
+                            Text(verbatim: chosenRepositoryFullName)
+                                .font(.caption)
+                                .foregroundStyle(RevylBrandColor.textMuted)
+                        }
+                    }
+                }
+                Section {
+                    Toggle("Ask for feedback on good vibes", isOn: feedbackBoxBinding(for: .good))
+                    Toggle("Ask for feedback on bad vibes", isOn: feedbackBoxBinding(for: .bad))
+                } header: {
+                    Text("Vibe feedback")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Every vibe posts to GitHub as a comment from you. The feedback box is optional and never blocks a swipe.")
+                        if let refreshFailureMessage = userSettingsStore.refreshFailureMessage {
+                            Text("Couldn't load your saved settings: \(refreshFailureMessage)")
+                                .foregroundStyle(RevylBrandColor.warning)
+                        }
+                    }
+                }
+                HiddenPeopleSection(
+                    hiddenPeopleStore: hiddenPeopleStore,
+                    footerText: "Their pull requests, weekly videos, comments, vibes and media don't show in ShipTok on this iPhone. They aren't told, and nothing changes on GitHub."
+                )
+                GesturesSection()
+                AccountActionsSections(signInSession: signInSession)
+            }
+            .scrollContentBackground(.hidden)
+            .scrollContentCenteredInReadableContentColumn()
+            .background(RevylBrandColor.surface)
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .task { await userSettingsStore.refresh() }
+        .alert(
+            "Couldn't save your setting",
+            isPresented: Binding(get: { userSettingsStore.saveFailureMessage != nil }, set: { if !$0 { userSettingsStore.saveFailureMessage = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(userSettingsStore.saveFailureMessage ?? "")
+        }
+    }
+
+    private func feedbackBoxBinding(for vibe: PullRequestVibe) -> Binding<Bool> {
+        Binding(
+            get: { userSettingsStore.showsFeedbackBox(for: vibe) },
+            set: { showsFeedbackBox in Task { await userSettingsStore.setShowsFeedbackBox(showsFeedbackBox, for: vibe) } }
+        )
+    }
+}

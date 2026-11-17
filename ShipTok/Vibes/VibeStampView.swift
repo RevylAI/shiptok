@@ -1,0 +1,37 @@
+import SwiftUI
+
+struct VibeStampView: View {
+    let horizontalDragProgress: CGFloat
+
+    var body: some View {
+        let castVibe = FeedSwipeGestureMapping.action(for: horizontalDragProgress >= 0 ? .right : .left).castVibe
+        if let castVibe {
+            Text(castVibe.displayName.uppercased())
+                .font(.system(size: 34, weight: .black))
+                .tracking(2)
+                .foregroundStyle(castVibe.tintColor)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(castVibe.tintColor, lineWidth: 5))
+                .rotationEffect(.degrees(horizontalDragProgress >= 0 ? -14 : 14))
+                .opacity(min(1, Double(abs(horizontalDragProgress)) * 3))
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+extension PullRequestVibe {
+    var tintColor: Color {
+        switch self {
+        case .good: RevylBrandColor.success
+        case .bad: RevylBrandColor.danger
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .good: "hand.thumbsup"
+        case .bad: "hand.thumbsdown"
+        }
+    }
+}
