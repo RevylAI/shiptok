@@ -2,7 +2,7 @@ import Foundation
 
 enum GitHubCommentBodyText {
     static func visibleMarkdown(fromBodyMarkdown bodyMarkdown: String) -> String {
-        let markupFreeMarkdown = bodyMarkdown
+        let markupFreeMarkdown = PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(bodyMarkdown)
             .replacing(#/<!--[\s\S]*?-->/#, with: "")
             .replacing(#/<br\s*\/?>/#.ignoresCase(), with: "\n")
             .replacing(#/!\[[^\]]*\]\([^)]*\)/#, with: "")

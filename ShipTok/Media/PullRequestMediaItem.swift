@@ -28,6 +28,14 @@ struct PullRequestMediaItem: Identifiable, Hashable, Sendable, Codable {
         url.path.hasPrefix("/api/v1/shiptok/videos/")
     }
 
+    // A hosted video's tokened link and a GitHub upload signed in its query string each open the file for whoever holds them.
+    static func isCredentialMediaURL(_ url: URL) -> Bool {
+        if isHostedShipTokVideoURL(url) { return true }
+        guard url.query != nil, let host = url.host()?.lowercased() else { return false }
+        return host == "githubusercontent.com" || host.hasSuffix(".githubusercontent.com")
+            || (host == "github.com" && url.path.hasPrefix("/user-attachments/"))
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case kind

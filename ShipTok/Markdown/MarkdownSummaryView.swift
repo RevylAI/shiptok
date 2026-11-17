@@ -21,7 +21,7 @@ enum MarkdownSummaryParser {
             paragraphLines.removeAll()
         }
 
-        let markdownWithoutHTMLComments = markdown
+        let markdownWithoutHTMLComments = PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(markdown)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
         for rawLine in markdownWithoutHTMLComments.components(separatedBy: "\n") {

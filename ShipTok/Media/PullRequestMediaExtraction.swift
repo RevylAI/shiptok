@@ -74,6 +74,23 @@ enum PullRequestMediaExtraction {
         return [heroMediaItem] + deckOrderedMediaItems.filter { $0.id != heroMediaItem.id }
     }
 
+    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes.
+    static func markdownWithoutCredentialMediaLinks(_ markdown: String) -> String {
+        markdown
+            .replacing(#/(!?)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])*)\]\(\s*<?(https?:\/\/[^\s<>()]+)>?(?:\s+"[^"]*")?\s*\)/#) { linkMatch in
+                guard let linkURL = URL(string: String(linkMatch.3)), PullRequestMediaItem.isCredentialMediaURL(linkURL) else {
+                    return String(linkMatch.0)
+                }
+                return linkMatch.1.isEmpty ? String(linkMatch.2) : ""
+            }
+            .replacing(#/<?(https?:\/\/[^\s<>()"'`]+)>?/#) { urlMatch in
+                guard let url = URL(string: String(urlMatch.1)), PullRequestMediaItem.isCredentialMediaURL(url) else {
+                    return String(urlMatch.0)
+                }
+                return ""
+            }
+    }
+
     static func containsShipTokVideoTag(_ markdown: String) -> Bool {
         containsShipTokHashtag(markdown)
             || markdown.range(of: #"<!--\s*shiptok:video(?:\s[^>]*?)?\s*-->"#, options: [.regularExpression, .caseInsensitive]) != nil
