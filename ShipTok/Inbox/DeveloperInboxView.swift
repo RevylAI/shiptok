@@ -3,10 +3,20 @@ import SwiftUI
 struct DeveloperInboxView: View {
     let store: DeveloperInboxStore
     let onOpenPullRequest: (Int) -> Void
+    let onReport: (GitHubPostedContent) -> Void
+    let onHide: (GitHubPostedContent) -> Void
+    @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
 
-    init(store: DeveloperInboxStore, onOpenPullRequest: @escaping (Int) -> Void) {
+    init(
+        store: DeveloperInboxStore,
+        onOpenPullRequest: @escaping (Int) -> Void,
+        onReport: @escaping (GitHubPostedContent) -> Void,
+        onHide: @escaping (GitHubPostedContent) -> Void
+    ) {
         self.store = store
         self.onOpenPullRequest = onOpenPullRequest
+        self.onReport = onReport
+        self.onHide = onHide
     }
 
     var body: some View {
@@ -44,6 +54,15 @@ struct DeveloperInboxView: View {
                                 DeveloperInboxRow(inboxItem: inboxItem, isUnseen: inboxItem.occurredAt > store.lastSeenOccurredAt)
                             }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                if let postedContent = inboxItem.postedContent {
+                                    GitHubPostedContentModerationButtons(
+                                        postedContent: postedContent,
+                                        onReport: onReport,
+                                        onHide: { postedContentAwaitingHideConfirmation = $0 }
+                                    )
+                                }
+                            }
                             .listRowBackground(RevylBrandColor.surface)
                             .listRowSeparatorTint(RevylBrandColor.border)
                         }
@@ -58,6 +77,7 @@ struct DeveloperInboxView: View {
             .navigationTitle("Inbox")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .confirmingHide(of: $postedContentAwaitingHideConfirmation, onHide: onHide)
         .task { await store.refresh() }
         .onDisappear { store.markAllItemsSeen() }
     }

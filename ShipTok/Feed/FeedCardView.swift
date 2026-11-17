@@ -31,13 +31,6 @@ struct FeedCardVibes {
     let onRemoveViewerVibe: () -> Void
 }
 
-// The rail's More menu: report each description or comment the card shows on GitHub, or hide its poster (AGENTS.md, "Report And Hide").
-struct FeedCardModeration {
-    let reportableContents: [GitHubPostedContent]
-    let onReport: (GitHubPostedContent) -> Void
-    let onHide: (GitHubPostedContent) -> Void
-}
-
 // One feed page laid out like Instagram Reels: a pull request, or a week's video in weekly mode. Its layout follows AGENTS.md, "Card Layout".
 struct FeedCardView: View {
     private struct CardFrames: Equatable {
@@ -56,7 +49,7 @@ struct FeedCardView: View {
     let isBehindVibeFeedbackComposer: Bool
     let isKeyboardShown: Bool
     let vibes: FeedCardVibes
-    let moderation: FeedCardModeration
+    let moderation: GitHubPostedContentModeration
     let isPlaybackActive: Bool
     let isOccludedForAnalytics: Bool
     let horizontalDragProgress: CGFloat
@@ -539,31 +532,11 @@ struct FeedCardView: View {
     }
 
     private var moderationMenu: some View {
-        Menu {
-            ForEach(moderation.reportableContents) { postedContent in
-                Section(moderationMenuSectionTitle(for: postedContent)) {
-                    Button { moderation.onReport(postedContent) } label: {
-                        Label("Report on GitHub", systemImage: "flag")
-                    }
-                    Button(role: .destructive) { moderation.onHide(postedContent) } label: {
-                        Label("Hide @\(postedContent.postedBy.login)", systemImage: "eye.slash")
-                    }
-                }
-            }
-        } label: {
+        GitHubPostedContentModerationMenu(moderation: moderation) {
             railItem(systemImageName: "ellipsis", tint: RevylBrandColor.textPrimary, countText: nil)
         }
-        .menuOrder(.fixed)
         .accessibilityLabel("More")
         .accessibilityHint("Report on GitHub or hide a person")
-    }
-
-    private func moderationMenuSectionTitle(for postedContent: GitHubPostedContent) -> String {
-        switch (postedContent.kind, post) {
-        case (.comment, _): "Comment by @\(postedContent.postedBy.login)"
-        case (.description, .pullRequest): "Pull request by @\(postedContent.postedBy.login)"
-        case (.description, .weeklyEdition): "Weekly video by @\(postedContent.postedBy.login)"
-        }
     }
 
     private var vibesMenu: some View {

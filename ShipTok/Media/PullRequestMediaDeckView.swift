@@ -3,6 +3,9 @@ import SwiftUI
 struct PullRequestMediaDeckView: View {
     let mediaItems: [PullRequestMediaItem]
     let analyticsSubject: ShipTokAnalyticsSubject?
+    let reportableContent: (PullRequestMediaItem) -> GitHubPostedContent?
+    let onReport: (GitHubPostedContent) -> Void
+    let onHide: (GitHubPostedContent) -> Void
     let onLoadFailure: (PullRequestMediaItem) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.shipTokAnalytics) private var analytics
@@ -50,6 +53,17 @@ struct PullRequestMediaDeckView: View {
     private var deckControls: some View {
         HStack(spacing: 8) {
             deckControlButton(systemImageName: "xmark", accessibilityLabel: "Close") { dismiss() }
+            if let currentReportableContent = currentMediaItem.flatMap(reportableContent) {
+                GitHubPostedContentModerationMenu(moderation: GitHubPostedContentModeration(
+                    reportableContents: [currentReportableContent],
+                    onReport: onReport,
+                    onHide: onHide
+                )) {
+                    deckControlIcon(systemImageName: "ellipsis")
+                }
+                .accessibilityLabel("More")
+                .accessibilityHint("Report on GitHub or hide a person")
+            }
             Spacer(minLength: 0)
             Button {
                 let previousRate = VideoPlaybackRateChoice.shared.chosenPlaybackRate
@@ -107,15 +121,19 @@ struct PullRequestMediaDeckView: View {
 
     private func deckControlButton(systemImageName: String, accessibilityLabel: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: systemImageName)
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-                .background(Circle().fill(.white.opacity(0.14)))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            deckControlIcon(systemImageName: systemImageName)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func deckControlIcon(systemImageName: String) -> some View {
+        Image(systemName: systemImageName)
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 40, height: 40)
+            .background(Circle().fill(.white.opacity(0.14)))
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
     }
 }

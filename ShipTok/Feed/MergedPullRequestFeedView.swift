@@ -342,7 +342,7 @@ struct MergedPullRequestFeedView: View {
             )
         }
         .fullScreenCover(item: $mediaDeckPullRequestID) { presentedPullRequestID in
-            MediaDeckCoverContent(feedStore: feedStore, hiddenPeopleStore: viewer.hiddenPeopleStore, pullRequestID: presentedPullRequestID.id)
+            MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, signInSession: signInSession, pullRequestID: presentedPullRequestID.id)
         }
         .task { await feedStore.loadFeed() }
         .task { await feedStore.runLiveRefreshLoop() }
@@ -426,7 +426,18 @@ struct MergedPullRequestFeedView: View {
             EmptyView()
         case .inbox:
             if let inboxStore {
-                DeveloperInboxView(store: inboxStore, onOpenPullRequest: openPullRequest(number:))
+                DeveloperInboxView(
+                    store: inboxStore,
+                    onOpenPullRequest: openPullRequest(number:),
+                    onReport: { postedContent in
+                        viewer.analytics.capture(.contentReportOpened(postedContent, control: .inboxRow))
+                        openURL(postedContent.githubReportURL)
+                    },
+                    onHide: { postedContent in
+                        viewer.hiddenPeopleStore.hide(postedContent.postedBy)
+                        viewer.analytics.capture(.personHidden(postedContent, control: .inboxRow))
+                    }
+                )
             }
         case .settings:
             switch viewer {
@@ -725,8 +736,8 @@ struct MergedPullRequestFeedView: View {
         )
     }
 
-    private func feedCardModeration(reportableContents: [GitHubPostedContent]) -> FeedCardModeration {
-        FeedCardModeration(
+    private func feedCardModeration(reportableContents: [GitHubPostedContent]) -> GitHubPostedContentModeration {
+        GitHubPostedContentModeration(
             reportableContents: reportableContents,
             onReport: { postedContent in
                 guard !promptsSignIn(for: .report) else { return }
@@ -1131,16 +1142,48 @@ struct MergedPullRequestFeedView: View {
 
 private struct MediaDeckCoverContent: View {
     let feedStore: MergedPullRequestFeedStore
-    let hiddenPeopleStore: HiddenPeopleStore
+    let viewer: FeedViewer
+    let signInSession: GitHubSignInSession
     let pullRequestID: String
+    @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
+    @State private var demoSignInPromptAction: DemoSignInPromptAction?
+    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
+
+    private var visiblePullRequest: MergedPullRequest? {
+        feedStore.pullRequest(withID: pullRequestID)?.withoutHiddenPeople(viewer.hiddenPeopleStore)
+    }
 
     var body: some View {
-        let pullRequest = feedStore.pullRequest(withID: pullRequestID)?.withoutHiddenPeople(hiddenPeopleStore)
-        PullRequestMediaDeckView(mediaItems: pullRequest?.mediaItems ?? [], analyticsSubject: pullRequest.map {
-            VibeTarget(pullRequest: $0).analyticsSubject
-        }) { failedMediaItem in
-            Task { await feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPullRequestID: pullRequestID) }
+        let pullRequest = visiblePullRequest
+        let analyticsSubject = pullRequest.map { VibeTarget(pullRequest: $0).analyticsSubject }
+        PullRequestMediaDeckView(
+            mediaItems: pullRequest?.mediaItems ?? [],
+            analyticsSubject: analyticsSubject,
+            reportableContent: { mediaItem in
+                guard let pullRequest, let analyticsSubject else { return nil }
+                return pullRequest.reportableContent(of: mediaItem, postedOn: analyticsSubject, excludingContentBy: viewer.githubLogin)
+            },
+            onReport: { postedContent in
+                if case .demoVisitor(let demoVisitor) = viewer {
+                    demoVisitor.analytics.capture(.demoSignInPrompted(.report))
+                    demoSignInPromptAction = .report
+                    return
+                }
+                viewer.analytics.capture(.contentReportOpened(postedContent, control: .mediaDeck))
+                openURL(postedContent.githubReportURL)
+            },
+            onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent },
+            onLoadFailure: { failedMediaItem in
+                Task { await feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPullRequestID: pullRequestID) }
+            }
+        )
+        .confirmingHide(of: $postedContentAwaitingHideConfirmation) { postedContent in
+            viewer.hiddenPeopleStore.hide(postedContent.postedBy)
+            viewer.analytics.capture(.personHidden(postedContent, control: .mediaDeck))
+            if visiblePullRequest == nil { dismiss() }
         }
+        .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
     }
 }
 
@@ -1151,7 +1194,10 @@ private struct DetailSheetContent: View {
     let signInSession: GitHubSignInSession
     let repositoryFullName: String
     let presentedPullRequest: MergedPullRequest
+    @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
     @State private var demoSignInPromptAction: DemoSignInPromptAction?
+    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let storedPullRequest = feedStore.pullRequest(withID: presentedPullRequest.id) ?? presentedPullRequest
@@ -1163,15 +1209,35 @@ private struct DetailSheetContent: View {
                 viewerGitHubLogin: viewer.githubLogin,
                 viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: pullRequest.id)
             ),
+            moderation: GitHubPostedContentModeration(
+                reportableContents: pullRequest.reportableContents(
+                    postedOn: VibeTarget(pullRequest: pullRequest).analyticsSubject,
+                    excludingContentBy: viewer.githubLogin
+                ).filter { $0.kind == .description },
+                onReport: { postedContent in
+                    guard !promptsSignIn(for: .report) else { return }
+                    viewer.analytics.capture(.contentReportOpened(postedContent, control: .detailSheet))
+                    openURL(postedContent.githubReportURL)
+                },
+                onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent }
+            ),
             onToggleReaction: { reaction in
-                if case .demoVisitor(let demoVisitor) = viewer {
-                    demoVisitor.analytics.capture(.demoSignInPrompted(.reaction))
-                    demoSignInPromptAction = .reaction
-                    return
-                }
+                guard !promptsSignIn(for: .reaction) else { return }
                 Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) }
             }
         )
+        .confirmingHide(of: $postedContentAwaitingHideConfirmation) { postedContent in
+            viewer.hiddenPeopleStore.hide(postedContent.postedBy)
+            viewer.analytics.capture(.personHidden(postedContent, control: .detailSheet))
+            dismiss()
+        }
         .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
+    }
+
+    private func promptsSignIn(for action: DemoSignInPromptAction) -> Bool {
+        guard case .demoVisitor(let demoVisitor) = viewer else { return false }
+        demoVisitor.analytics.capture(.demoSignInPrompted(action))
+        demoSignInPromptAction = action
+        return true
     }
 }

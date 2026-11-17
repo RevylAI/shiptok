@@ -10,6 +10,8 @@ struct DeveloperInboxItem: Identifiable, Equatable, Sendable {
 
     let id: String
     let actor: GitHubActor?
+    // Nil for a deleted account's activity, which has nobody to report or hide.
+    let postedContent: GitHubPostedContent?
     let action: Action
     let occurredAt: Date
     let pullRequestNumber: Int
@@ -116,6 +118,7 @@ final class DeveloperInboxStore {
             return DeveloperInboxItem(
                 id: comment.id,
                 actor: comment.author,
+                postedContent: comment.author.map { GitHubPostedContent(kind: .comment, postedBy: $0, githubURL: comment.url, postedOn: nil) },
                 action: action,
                 occurredAt: comment.createdAt,
                 pullRequestNumber: pullRequestNode.number,
@@ -129,6 +132,12 @@ final class DeveloperInboxStore {
             return DeveloperInboxItem(
                 id: reactionNode.id,
                 actor: reactor,
+                postedContent: GitHubPostedContent(
+                    kind: .reaction,
+                    postedBy: reactor,
+                    githubURL: githubAPIClient.pullRequestURL(number: pullRequestNode.number),
+                    postedOn: nil
+                ),
                 action: .reaction(reaction),
                 occurredAt: reactionNode.createdAt,
                 pullRequestNumber: pullRequestNode.number,

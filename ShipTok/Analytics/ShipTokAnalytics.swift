@@ -44,7 +44,13 @@ enum ShipTokAnalyticsEvent: Sendable {
     enum SpeedControl: String, Sendable { case feedRail = "feed_rail", mediaDeck = "media_deck", hold }
     enum LikeControl: String, Sendable { case doubleTap = "double_tap", feedRail = "feed_rail" }
     enum WatchEndReason: String, Sendable { case hidden, background, playbackFailed = "playback_failed" }
-    enum ModerationControl: String, Sendable { case feedRail = "feed_rail", commentActions = "comment_actions" }
+    enum ModerationControl: String, Sendable {
+        case feedRail = "feed_rail"
+        case commentActions = "comment_actions"
+        case inboxRow = "inbox_row"
+        case detailSheet = "detail_sheet"
+        case mediaDeck = "media_deck"
+    }
     enum SignInEndReason: String, Sendable { case signedOut = "signed_out", githubRejected = "github_rejected", dataDeleted = "data_deleted" }
     enum SignInFailureReason: String, Sendable {
         case cancelled
@@ -183,7 +189,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .signInEnded(let reason):
             properties["end_reason"] = .string(reason.rawValue)
         case .contentReportOpened(let postedContent, let control), .personHidden(let postedContent, let control):
-            addSubject(postedContent.postedOn)
+            if let subject = postedContent.postedOn { addSubject(subject) }
             properties["content_kind"] = .string(postedContent.kind.rawValue)
             properties["control"] = .string(control.rawValue)
         case .demoSignInPrompted(let action):

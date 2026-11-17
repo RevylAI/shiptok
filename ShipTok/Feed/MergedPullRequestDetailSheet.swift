@@ -4,6 +4,7 @@ struct MergedPullRequestDetailSheet: View {
     let pullRequest: MergedPullRequest
     let repositoryFullName: String
     let vibeTally: PullRequestVibeTally
+    let moderation: GitHubPostedContentModeration
     let onToggleReaction: (GitHubReaction) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -57,6 +58,15 @@ struct MergedPullRequestDetailSheet: View {
             .navigationTitle(Text(verbatim: "#\(pullRequest.number)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if !moderation.reportableContents.isEmpty {
+                        GitHubPostedContentModerationMenu(moderation: moderation) {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("More")
+                        .accessibilityHint("Report on GitHub or hide a person")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
