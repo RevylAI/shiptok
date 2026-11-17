@@ -100,7 +100,7 @@ private struct DeveloperInboxRow: View {
                         .foregroundStyle(RevylBrandColor.textBody)
                         .lineLimit(3)
                 }
-                Text("on #\(inboxItem.pullRequestNumber) \(inboxItem.pullRequestTitle)")
+                Text(verbatim: "on #\(inboxItem.pullRequestNumber) \(inboxItem.pullRequestTitle)")
                     .font(.caption)
                     .foregroundStyle(RevylBrandColor.textMuted)
                     .lineLimit(1)
