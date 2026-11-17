@@ -13,7 +13,7 @@ final class VibeOutbox {
         let feedbackText: String
     }
 
-    static let undoWindowSeconds = 5
+    private static let undoWindowSeconds = 5
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "vibe-outbox")
 
     private(set) var queuedVibes: [QueuedVibe] = []

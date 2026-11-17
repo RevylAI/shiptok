@@ -13,10 +13,6 @@ enum MergedPullRequestFeedGroup: Int, Sendable {
         }
     }
 
-    var hasVideo: Bool {
-        self != .imageOrAnimatedImage
-    }
-
     var isShipTokVideo: Bool {
         self == .shipTokVideo
     }

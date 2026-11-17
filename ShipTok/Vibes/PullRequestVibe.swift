@@ -31,7 +31,7 @@ enum PullRequestVibe: String, CaseIterable, Hashable, Sendable {
 }
 
 // The vibe comment's markers and layout are the ShipTok format's "Vibes" section in PR #6690.
-struct PullRequestVibeComment: Hashable, Sendable {
+struct PullRequestVibeComment: Sendable {
     let vibe: PullRequestVibe
     let feedbackText: String
     let comment: PullRequestComment

@@ -437,12 +437,12 @@ private struct PullRequestVibeBadge: View {
     let vibe: PullRequestVibe
 
     var body: some View {
-        Label(vibe.displayName, systemImage: vibe == .good ? "hand.thumbsup.fill" : "hand.thumbsdown.fill")
+        Label(vibe.displayName, systemImage: "\(vibe.systemImageName).fill")
             .font(.caption2.weight(.bold))
-            .foregroundStyle(vibe == .good ? RevylBrandColor.success : RevylBrandColor.danger)
+            .foregroundStyle(vibe.tintColor)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
-            .background(Capsule().fill((vibe == .good ? RevylBrandColor.success : RevylBrandColor.danger).opacity(0.15)))
+            .background(Capsule().fill(vibe.tintColor.opacity(0.15)))
     }
 }
 

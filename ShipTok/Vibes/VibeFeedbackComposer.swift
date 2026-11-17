@@ -5,7 +5,7 @@ struct VibeFeedbackComposer: View {
     let vibe: PullRequestVibe
     let targetTitle: String
     @Binding var feedbackText: String
-    let onSend: (String) -> Void
+    let onSend: () -> Void
     let onSkip: () -> Void
     let onCancel: () -> Void
     @State private var feedbackTextBeforeDictation = ""
@@ -18,20 +18,13 @@ struct VibeFeedbackComposer: View {
         feedbackText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var vibeColor: Color {
-        switch vibe {
-        case .good: RevylBrandColor.success
-        case .bad: RevylBrandColor.danger
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Circle().fill(vibeColor).frame(width: 8, height: 8)
+                Circle().fill(vibe.tintColor).frame(width: 8, height: 8)
                 Text(vibe.displayName)
                     .font(.subheadline.bold())
-                    .foregroundStyle(vibeColor)
+                    .foregroundStyle(vibe.tintColor)
                 Text("on “\(targetTitle)”")
                     .font(.footnote)
                     .foregroundStyle(RevylBrandColor.textMuted)
@@ -45,7 +38,7 @@ struct VibeFeedbackComposer: View {
                 Button("Skip") { finish { onSkip() } }
                     .buttonStyle(.revylSecondary)
                 Button {
-                    finish { onSend(trimmedFeedbackText) }
+                    finish(onSend)
                 } label: {
                     Text("Send").frame(maxWidth: .infinity)
                 }

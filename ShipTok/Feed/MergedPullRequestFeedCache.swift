@@ -14,14 +14,11 @@ struct SavedMergedPullRequestFeed: Codable, Sendable {
 // The feed and the moment every update before it was applied, saved on the device so a launch opens on it at once and asks GitHub only for what changed since (shiptok/AGENTS.md, Feed Caching).
 actor MergedPullRequestFeedCache {
     private static let savedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "merged-pull-request-feeds", directoryHint: .isDirectory)
-    private static let retiredVideoIndexDefaultsKey = "saved-video-pull-request-index"
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
     private var newestSavedFeedGeneration = 0
 
     // A feed saved for another GitHub login or before the window began is of no use, since its updates would take longer to read than the window itself.
     func loadSavedFeed(viewerGitHubLogin: String, repositoryFullName: String, appliedSince earliestUsefulDate: Date) -> SavedMergedPullRequestFeed? {
-        UserDefaults.standard.removeObject(forKey: Self.retiredVideoIndexDefaultsKey)
-        try? FileManager.default.removeItem(at: URL.cachesDirectory.appending(path: "merged-pull-request-feed.json"))
         let savedFeedFileURLs = (try? FileManager.default.contentsOfDirectory(at: Self.savedFeedsDirectoryURL, includingPropertiesForKeys: nil)) ?? []
         let savedMediaItemIDs = Set(savedFeedFileURLs.flatMap { fileURL -> [String] in
             guard let feedData = try? Data(contentsOf: fileURL),

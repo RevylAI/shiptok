@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum MarkdownSummaryBlock: Hashable {
+enum MarkdownSummaryBlock {
     case heading(String)
     case paragraph(String)
     case bulletItem(String)
@@ -120,19 +120,9 @@ enum MarkdownSummaryParser {
 
 struct MarkdownSummaryView: View {
     let markdown: String
-    var maximumBlockCount: Int?
-    var includesHeadings = true
-    var includesTables = true
 
     private var visibleBlocks: [MarkdownSummaryBlock] {
-        let includedBlocks = MarkdownSummaryParser.blocks(from: markdown).filter { block in
-            switch block {
-            case .heading: includesHeadings
-            case .tableRow: includesTables
-            case .paragraph, .bulletItem, .numberedItem, .codeBlock: true
-            }
-        }
-        var visibleBlocks = maximumBlockCount.map { Array(includedBlocks.prefix($0)) } ?? includedBlocks
+        var visibleBlocks = MarkdownSummaryParser.blocks(from: markdown)
         while case .heading = visibleBlocks.last {
             visibleBlocks.removeLast()
         }

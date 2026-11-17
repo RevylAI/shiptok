@@ -833,7 +833,7 @@ struct MergedPullRequestFeedView: View {
                     vibe: vibeAwaitingFeedback.vibe,
                     targetTitle: vibeAwaitingFeedback.target.title,
                     feedbackText: feedbackTextBinding(forVibeAwaitingFeedbackID: vibeAwaitingFeedback.id),
-                    onSend: { _ in postVibeAwaitingFeedback() },
+                    onSend: postVibeAwaitingFeedback,
                     onSkip: {
                         self.vibeAwaitingFeedback?.feedbackText = ""
                         postVibeAwaitingFeedback()

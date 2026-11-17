@@ -37,5 +37,4 @@ struct RevylButtonStyle: ButtonStyle {
 extension ButtonStyle where Self == RevylButtonStyle {
     static var revylPrimary: RevylButtonStyle { RevylButtonStyle(prominence: .primary) }
     static var revylSecondary: RevylButtonStyle { RevylButtonStyle(prominence: .secondary) }
-    static var revylDestructive: RevylButtonStyle { RevylButtonStyle(prominence: .destructive) }
 }

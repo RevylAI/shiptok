@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-struct DeveloperInboxItem: Identifiable, Hashable, Sendable {
-    enum Action: Hashable, Sendable {
+struct DeveloperInboxItem: Identifiable, Equatable, Sendable {
+    enum Action: Equatable, Sendable {
         case vibe(PullRequestVibe, feedbackText: String)
         case comment(bodyMarkdown: String)
         case reaction(GitHubReaction)
