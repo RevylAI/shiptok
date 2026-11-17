@@ -57,7 +57,7 @@ struct MergedPullRequestFeedView: View {
     @State private var inboxStore: DeveloperInboxStore?
     @State private var userSettingsStore: UserSettingsStore?
     @State private var demoSignInPromptAction: DemoSignInPromptAction?
-    @AppStorage("feedMode") private var feedMode: FeedMode = .perPullRequest
+    @AppStorage("feed-mode") private var feedMode: FeedMode = .perPullRequest
     @State private var openWeeklyEdition: WeeklyEdition?
     @State private var pullRequestsPageIndex = 0
     @State private var weeklyEditionsPageIndex = 0

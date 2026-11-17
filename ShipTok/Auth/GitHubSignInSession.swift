@@ -28,7 +28,7 @@ final class GitHubSignInSession {
     }
 
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "sign-in")
-    private static let signedOutReasonDefaultsKey = "signedOutReason"
+    private static let signedOutReasonDefaultsKey = "signed-out-reason"
     private static let signInCallbackURLScheme = "shiptok"
 
     private(set) var phase: Phase = .restoring

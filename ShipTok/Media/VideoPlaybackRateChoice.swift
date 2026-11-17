@@ -7,7 +7,7 @@ import OSLog
 final class VideoPlaybackRateChoice {
     static let shared = VideoPlaybackRateChoice()
     static let offeredPlaybackRates: [Float] = [1, 1.5, 2]
-    private static let chosenPlaybackRateDefaultsKey = "videoPlaybackRate"
+    private static let chosenPlaybackRateDefaultsKey = "video-playback-rate"
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
     private(set) var chosenPlaybackRate: Float
