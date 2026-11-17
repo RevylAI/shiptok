@@ -59,6 +59,10 @@ final class GitHubAPIClient: Sendable {
             if graphQLErrors.contains(where: { $0.type == "NOT_FOUND" && $0.path == ["feedRepository"] }) {
                 throw GitHubAPIError.feedRepositoryNotVisible(repositoryFullName: repositoryFullName)
             }
+            // A pull request number the repository doesn't hold reads as null beside this error, so a by-number read can say it isn't there.
+            if graphQLErrors.allSatisfy({ $0.type == "NOT_FOUND" && $0.path == ["feedRepository", "pullRequest"] }), let responseData = responseEnvelope.data {
+                return responseData
+            }
             Self.logger.error("GitHub refused \(operationName, privacy: .public): \(graphQLErrors.compactMap(\.type).joined(separator: ","), privacy: .public)")
             throw GitHubAPIError.graphQLErrors(operationName: operationName, messages: graphQLErrors.map(\.message))
         }

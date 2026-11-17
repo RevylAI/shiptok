@@ -34,6 +34,7 @@ final class MergedPullRequestFeedStore {
     private var isRefreshRunning = false
     private var savedFeedGeneration = 0
     private var mediaFetchedAtByPullRequestID: [String: Date] = [:]
+    private var pastWindowRecheckDateByPullRequestID: [String: Date] = [:]
     private var mediaLoadFailureRecovery = MediaLoadFailureRecovery()
     private var pullRequestIDsRenewingMediaURLsAfterLoadFailure: Set<String> = []
     private var reactionWriteCountByPullRequestID: [String: Int] = [:]
@@ -402,15 +403,17 @@ final class MergedPullRequestFeedStore {
         unseenNewerPullRequestIDs.remove(pullRequest.id)
     }
 
-    // A card from before the window stays only while labeled, and removing the label takes it out of both refresh searches, so each refresh reads again the one read longest ago, which drops it once it no longer belongs (AGENTS.md, "Feed Order").
+    // A card from before the window stays only while labeled, and removing the label takes it out of both refresh searches, so each refresh reads again the one read or tried longest ago, which drops it once it no longer belongs. Counting tries keeps a card that can't be read from taking every turn (AGENTS.md, "Feed Order").
     private var pastWindowPullRequestDueForRecheck: MergedPullRequest? {
         let windowStartDate = feedWindowStartDate
-        let lastReadDate = { (pullRequest: MergedPullRequest) in self.mediaFetchedAtByPullRequestID[pullRequest.id] ?? .distantPast }
+        let lastReadOrRecheckDate = { (pullRequest: MergedPullRequest) in
+            max(self.mediaFetchedAtByPullRequestID[pullRequest.id] ?? .distantPast, self.pastWindowRecheckDateByPullRequestID[pullRequest.id] ?? .distantPast)
+        }
         let pastWindowPullRequests = pullRequests.filter { $0.id != focusedPullRequestID && $0.mergedAt < windowStartDate }
-        guard let leastRecentlyReadPullRequest = pastWindowPullRequests.min(by: { lastReadDate($0) < lastReadDate($1) }),
-              Date.now.timeIntervalSince(lastReadDate(leastRecentlyReadPullRequest)) > Self.pastWindowRecheckAgeSeconds
+        guard let longestUncheckedPullRequest = pastWindowPullRequests.min(by: { lastReadOrRecheckDate($0) < lastReadOrRecheckDate($1) }),
+              Date.now.timeIntervalSince(lastReadOrRecheckDate(longestUncheckedPullRequest)) > Self.pastWindowRecheckAgeSeconds
         else { return nil }
-        return leastRecentlyReadPullRequest
+        return longestUncheckedPullRequest
     }
 
     private func isMediaURLRenewalDue(forPullRequestID pullRequestID: String) -> Bool {
@@ -429,6 +432,7 @@ final class MergedPullRequestFeedStore {
             await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
         }
         if let pastWindowPullRequest = pastWindowPullRequestDueForRecheck {
+            pastWindowRecheckDateByPullRequestID[pastWindowPullRequest.id] = .now
             await fetchAndApplyPullRequest(number: pastWindowPullRequest.number, forcesMediaURLRenewal: false)
         }
         let refreshStartedAt = Date.now
@@ -496,6 +500,10 @@ final class MergedPullRequestFeedStore {
         do {
             let fetchedPullRequest = try await githubAPIClient.fetchMergedPullRequest(number: number)
             apply(fetchedPullRequest, fetchedAt: fetchStartedAt, forcesMediaURLRenewal: forcesMediaURLRenewal)
+        } catch GitHubAPIError.pullRequestNotMerged {
+            pullRequests.removeAll { $0.number == number && $0.id != focusedPullRequestID }
+            unseenNewerPullRequestIDs.formIntersection(pullRequests.map(\.id))
+            Self.logger.info("#\(number, privacy: .public) is no longer a merged pull request here, so its card leaves the feed")
         } catch {
             if error.isTaskCancellation { return }
             if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
