@@ -34,7 +34,6 @@ A swipe posts a top-level comment as the person who swiped:
 
 ```markdown
 <!-- shiptok:vibe good -->
-
 **Good vibes** via ShipTok
 
 <optional feedback, typed or transcribed>
