@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PullRequestMediaDeckView: View {
     let mediaItems: [PullRequestMediaItem]
+    let unloadableMediaItemIDs: Set<String>
     let analyticsSubject: ShipTokAnalyticsSubject?
     let reportableContent: (PullRequestMediaItem) -> GitHubPostedContent?
     let onReport: (GitHubPostedContent) -> Void
@@ -16,6 +17,11 @@ struct PullRequestMediaDeckView: View {
 
     private var currentMediaItem: PullRequestMediaItem? {
         mediaItems.first { $0.id == selectedMediaItemID } ?? mediaItems.first
+    }
+
+    private var isCurrentMediaItemLoadableVideo: Bool {
+        guard let currentMediaItem else { return false }
+        return currentMediaItem.kind == .video && !unloadableMediaItemIDs.contains(currentMediaItem.id)
     }
 
     var body: some View {
@@ -33,6 +39,7 @@ struct PullRequestMediaDeckView: View {
                         },
                         isMuted: isMuted,
                         isPlaybackActive: scenePhase == .active && mediaItem.id == currentMediaItem?.id,
+                        isUnloadable: unloadableMediaItemIDs.contains(mediaItem.id),
                         onLoadFailure: { onLoadFailure(mediaItem) }
                     )
                     .tag(Optional(mediaItem.id))
@@ -87,14 +94,14 @@ struct PullRequestMediaDeckView: View {
             .accessibilityLabel("Playback speed")
             .accessibilityValue(playbackRateChoice.chosenPlaybackRateText)
             .accessibilityHint("Changes the speed of every video")
-            .opacity(currentMediaItem?.kind == .video ? 1 : 0)
-            .disabled(currentMediaItem?.kind != .video)
+            .opacity(isCurrentMediaItemLoadableVideo ? 1 : 0)
+            .disabled(!isCurrentMediaItemLoadableVideo)
             deckControlButton(
                 systemImageName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
                 accessibilityLabel: isMuted ? "Unmute" : "Mute"
             ) { isMuted.toggle() }
-            .opacity(currentMediaItem?.kind == .video ? 1 : 0)
-            .disabled(currentMediaItem?.kind != .video)
+            .opacity(isCurrentMediaItemLoadableVideo ? 1 : 0)
+            .disabled(!isCurrentMediaItemLoadableVideo)
         }
         .overlay {
             HStack(spacing: 8) {

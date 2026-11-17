@@ -640,6 +640,7 @@ struct MergedPullRequestFeedView: View {
             feedCard(
                 .pullRequest(pullRequest),
                 heroMediaItem: feedStore.heroMediaItem(of: pullRequest),
+                unloadableMediaItemIDs: feedStore.unloadableMediaItemIDs,
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
                 pageChromeInsets: pageChromeInsets,
@@ -656,6 +657,7 @@ struct MergedPullRequestFeedView: View {
             feedCard(
                 .weeklyEdition(weeklyEdition),
                 heroMediaItem: weeklyEditionsStore.heroMediaItem(of: weeklyEdition),
+                unloadableMediaItemIDs: weeklyEditionsStore.unloadableMediaItemIDs,
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
                 pageChromeInsets: pageChromeInsets,
@@ -676,6 +678,7 @@ struct MergedPullRequestFeedView: View {
     private func feedCard(
         _ post: FeedCardPost,
         heroMediaItem: PullRequestMediaItem?,
+        unloadableMediaItemIDs: Set<String>,
         isCurrentPage: Bool,
         deckSize: CGSize,
         pageChromeInsets: EdgeInsets,
@@ -692,6 +695,7 @@ struct MergedPullRequestFeedView: View {
         return FeedCardView(
             post: post,
             heroMediaItem: heroMediaItem,
+            isHeroMediaUnloadable: heroMediaItem.map { unloadableMediaItemIDs.contains($0.id) } ?? false,
             analyticsSubject: analyticsSubject,
             pageChromeInsets: pageChromeInsets,
             systemOcclusionFrames: systemOcclusionFrames,
@@ -886,7 +890,7 @@ struct MergedPullRequestFeedView: View {
                 if activeDeckDrag == nil {
                     if abs(dragValue.translation.width) <= abs(dragValue.translation.height) {
                         activeDeckDrag = .pageSwipe
-                    } else if heroMediaItem(of: feedPages[clampedPageIndex])?.kind == .video,
+                    } else if isHeroLoadableVideo(of: feedPages[clampedPageIndex]),
                               FeedCardView.videoScrubZone(cardFrame: cardFrame).contains(dragValue.startLocation) {
                         activeDeckDrag = .videoScrub
                     } else {
@@ -921,12 +925,14 @@ struct MergedPullRequestFeedView: View {
             }
     }
 
-    private func heroMediaItem(of page: FeedPage) -> PullRequestMediaItem? {
-        switch page {
-        case .pullRequest(let pullRequest): feedStore.heroMediaItem(of: pullRequest)
-        case .weeklyEdition(let weeklyEdition): weeklyEditionsStore.heroMediaItem(of: weeklyEdition)
-        case .feedEnd: nil
+    private func isHeroLoadableVideo(of page: FeedPage) -> Bool {
+        let (heroMediaItem, unloadableMediaItemIDs): (PullRequestMediaItem?, Set<String>) = switch page {
+        case .pullRequest(let pullRequest): (feedStore.heroMediaItem(of: pullRequest), feedStore.unloadableMediaItemIDs)
+        case .weeklyEdition(let weeklyEdition): (weeklyEditionsStore.heroMediaItem(of: weeklyEdition), weeklyEditionsStore.unloadableMediaItemIDs)
+        case .feedEnd: (nil, [])
         }
+        guard let heroMediaItem else { return false }
+        return heroMediaItem.kind == .video && !unloadableMediaItemIDs.contains(heroMediaItem.id)
     }
 
     // The Duo's status strip, an expanded island included, is an occlusion region from iOS 27.1, and no earlier device has a strip beside the card.
@@ -1176,6 +1182,7 @@ private struct MediaDeckCoverContent: View {
         let analyticsSubject = pullRequest.map { VibeTarget(pullRequest: $0).analyticsSubject }
         PullRequestMediaDeckView(
             mediaItems: pullRequest?.mediaItems ?? [],
+            unloadableMediaItemIDs: feedStore.unloadableMediaItemIDs,
             analyticsSubject: analyticsSubject,
             reportableContent: { mediaItem in
                 guard let pullRequest, let analyticsSubject else { return nil }

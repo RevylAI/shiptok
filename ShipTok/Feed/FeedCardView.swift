@@ -41,6 +41,7 @@ struct FeedCardView: View {
 
     let post: FeedCardPost
     let heroMediaItem: PullRequestMediaItem?
+    let isHeroMediaUnloadable: Bool
     let analyticsSubject: ShipTokAnalyticsSubject
     let pageChromeInsets: EdgeInsets
     let systemOcclusionFrames: [CGRect]
@@ -97,6 +98,10 @@ struct FeedCardView: View {
         isBehindVibeFeedbackComposer && isKeyboardShown
     }
 
+    private var isHeroLoadableVideo: Bool {
+        heroMediaItem?.kind == .video && !isHeroMediaUnloadable
+    }
+
     // The 2x hint and the scrub readout sit where the caption's last lines do.
     private var isHeroPlaybackGestureActive: Bool {
         isHeroFastPlaybackHeld || videoScrubFraction != nil
@@ -113,7 +118,7 @@ struct FeedCardView: View {
                 .frame(width: arrangedFrames.card.width, height: arrangedFrames.card.height)
                 .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
                 .overlay {
-                    if heroMediaItem?.kind == .video {
+                    if isHeroLoadableVideo {
                         heroFastPlaybackHoldArea
                     }
                 }
@@ -246,6 +251,7 @@ struct FeedCardView: View {
                 analyticsSubject: analyticsSubject,
                 mediaPosition: post.mediaItems.firstIndex(where: { $0.id == heroMediaItem.id }) ?? 0,
                 isPlaybackActive: isPlaybackActive,
+                isUnloadable: isHeroMediaUnloadable,
                 isOccludedForAnalytics: isOccludedForAnalytics,
                 pauseToggleTrigger: heroPauseToggleTrigger,
                 isFastPlaybackHeld: isHeroFastPlaybackHeld,
@@ -475,7 +481,7 @@ struct FeedCardView: View {
                 reactButtonFrameInCard = reactButtonFrame
             }
             vibesMenu
-            if heroMediaItem?.kind == .video {
+            if isHeroLoadableVideo {
                 Button { HeroVideoMuteChoice.shared.isMuted.toggle() } label: {
                     railItem(
                         systemImageName: isHeroVideoMuted ? "speaker.slash" : "speaker.wave.2",

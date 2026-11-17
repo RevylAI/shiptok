@@ -16,6 +16,7 @@ struct PullRequestMediaItemView: View {
     let analyticsMedia: ShipTokAnalyticsMedia?
     let isMuted: Bool
     let isPlaybackActive: Bool
+    let isUnloadable: Bool
     var isOccludedForAnalytics = false
     var pauseToggleTrigger = 0
     var isFastPlaybackHeld = false
@@ -76,17 +77,17 @@ struct PullRequestMediaItemView: View {
     var body: some View {
         ZStack {
             Color.black
-            if let videoPlayback {
+            if let videoPlayback, !(isUnloadable && hasFailedToLoad) {
                 videoView(videoPlayback)
             } else if let loadedImage {
                 imageView(loadedImage)
             }
-            if hasFailedToLoad {
-                Image(systemName: mediaItem.kind == .video ? "video.slash" : "photo")
-                    .font(.title)
-                    .foregroundStyle(RevylBrandColor.textSubtle)
-            } else if !isShowingLoadedMedia {
-                ProgressView().tint(RevylBrandColor.textMuted)
+            if !isShowingLoadedMedia {
+                if isUnloadable {
+                    unavailableLabel
+                } else {
+                    ProgressView().tint(RevylBrandColor.textMuted)
+                }
             }
         }
         .task(id: MediaLoadRequest(mediaURL: mediaItem.url, renewalRequestCount: renewalRequestCount)) { await loadUnlessAlreadyLoaded() }
@@ -128,6 +129,19 @@ struct PullRequestMediaItemView: View {
         .onDisappear {
             videoPlayback?.setAnalyticsVisibility(false)
             videoPlayback?.pause()
+        }
+    }
+
+    // A failed load keeps the loading look while its URL is renewed, so this shows only once the store gives the item up, and a given-up video drops its player with its hold, pause and scrub line (AGENTS.md, "Feed Order").
+    private var unavailableLabel: some View {
+        VStack(spacing: 8) {
+            Image(systemName: mediaItem.kind == .video ? "video.slash" : "photo")
+                .font(.title)
+                .foregroundStyle(RevylBrandColor.textSubtle)
+                .accessibilityHidden(true)
+            Text(mediaItem.kind == .video ? "Video unavailable" : "Image unavailable")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(RevylBrandColor.textMuted)
         }
     }
 

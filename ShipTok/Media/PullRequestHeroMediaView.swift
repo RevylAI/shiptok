@@ -5,6 +5,7 @@ struct PullRequestHeroMediaView: View {
     let analyticsSubject: ShipTokAnalyticsSubject
     let mediaPosition: Int
     let isPlaybackActive: Bool
+    let isUnloadable: Bool
     let isOccludedForAnalytics: Bool
     let pauseToggleTrigger: Int
     let isFastPlaybackHeld: Bool
@@ -18,6 +19,7 @@ struct PullRequestHeroMediaView: View {
             analyticsMedia: ShipTokAnalyticsMedia(subject: analyticsSubject, surface: .feed, mediaItem: mediaItem, mediaPosition: mediaPosition),
             isMuted: HeroVideoMuteChoice.shared.isMuted,
             isPlaybackActive: isPlaybackActive,
+            isUnloadable: isUnloadable,
             isOccludedForAnalytics: isOccludedForAnalytics,
             pauseToggleTrigger: pauseToggleTrigger,
             isFastPlaybackHeld: isFastPlaybackHeld,

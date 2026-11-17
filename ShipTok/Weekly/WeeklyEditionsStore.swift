@@ -18,6 +18,7 @@ final class WeeklyEditionsStore {
 
     private var isRefreshRunning = false
     private var fetchedAt: Date?
+    private var failedLoadURLByMediaItemID: [String: URL] = [:]
     private var urlRenewalDateAfterLoadFailureByMediaItemID: [String: Date] = [:]
     private var reactionWriteCountByWeeklyEditionID: [String: Int] = [:]
     private var viewerDeletedCommentIDs: Set<String> = []
@@ -57,14 +58,14 @@ final class WeeklyEditionsStore {
         await refresh(reportsFailure: false)
     }
 
-    // A media item is given up on only once the URL renewed after its failed load fails too, so an expired signed URL never hides it.
+    // A media item is given up on only once the URL renewed after its failed load fails too, or the next read brings back the URL that failed, so an expired signed URL never hides it. The next read may be one already running, so it settles the failure.
     func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem) async {
         if let urlRenewalDate = urlRenewalDateAfterLoadFailureByMediaItemID[mediaItem.id],
            Date.now.timeIntervalSince(urlRenewalDate) < Self.mediaURLRenewalAgeSeconds {
             unloadableMediaItemIDs.insert(mediaItem.id)
             return
         }
-        urlRenewalDateAfterLoadFailureByMediaItemID[mediaItem.id] = .now
+        failedLoadURLByMediaItemID[mediaItem.id] = mediaItem.url
         await refresh(reportsFailure: false)
     }
 
@@ -107,6 +108,14 @@ final class WeeklyEditionsStore {
             weeklyEditions = fetchedWeeklyEditions.map { fetchedWeeklyEdition in
                 guard let existingWeeklyEdition = weeklyEdition(withID: fetchedWeeklyEdition.id) else { return fetchedWeeklyEdition }
                 return keepingLocalWrites(of: existingWeeklyEdition, in: fetchedWeeklyEdition)
+            }
+            for renewedMediaItem in weeklyEditions.flatMap(\.mediaItems) {
+                guard let failedLoadURL = failedLoadURLByMediaItemID.removeValue(forKey: renewedMediaItem.id) else { continue }
+                if failedLoadURL == renewedMediaItem.url {
+                    unloadableMediaItemIDs.insert(renewedMediaItem.id)
+                } else {
+                    urlRenewalDateAfterLoadFailureByMediaItemID[renewedMediaItem.id] = .now
+                }
             }
             fetchedAt = fetchStartedAt
             isLoaded = true
