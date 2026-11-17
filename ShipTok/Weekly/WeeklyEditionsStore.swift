@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-// The weekly mode's cards: every published weekly edition, read whole from GitHub (shiptok/AGENTS.md, Weekly Mode).
+// The weekly mode's cards: every published weekly edition, read whole from GitHub (AGENTS.md, "Weekly Mode").
 @Observable
 @MainActor
 final class WeeklyEditionsStore {

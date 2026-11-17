@@ -93,7 +93,7 @@ final class GitHubSignInSession {
         let signInState = randomURLSafeString(byteCount: 32)
         do {
             let authorizationURL = try await shipTokAPI.gitHubSignInAuthorizationURL(state: signInState, codeChallenge: proofKey.codeChallenge)
-            // Ephemeral by design: shiptok/AGENTS.md, "iOS App" (the shared session's prompt breaks sign-in on an unfolded iPhone Duo).
+            // Ephemeral, since the shared session's prompt breaks sign-in on an unfolded iPhone Duo (AGENTS.md, "iOS App").
             let callbackURL = try await webAuthenticationSession.authenticate(
                 using: authorizationURL,
                 callbackURLScheme: Self.signInCallbackURLScheme,
@@ -125,7 +125,7 @@ final class GitHubSignInSession {
         }
     }
 
-    // GitHub keeps what the person wrote there, so this deletes what Revyl and this iPhone hold and revokes ShipTok's GitHub token (shiptok/AGENTS.md, "Ownership And Boundaries").
+    // GitHub keeps what the person wrote there, so this deletes what Revyl and this iPhone hold and revokes ShipTok's GitHub token (AGENTS.md, "Ownership And Boundaries").
     func deleteShipTokData() async throws {
         guard case .signedIn(let teammate) = phase else { return }
         try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in

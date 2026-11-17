@@ -1,6 +1,6 @@
 import Foundation
 
-// Reads a weekly edition's description; the format is the "Weekly editions" part of the ShipTok format in PR #6690.
+// Reads a weekly edition's description, in the "Weekly editions" format of docs/shiptok-format.md.
 enum WeeklyEditionFormat {
     static let labelName = "shiptok-weekly"
     static let weekTimeZone = TimeZone(identifier: "America/Los_Angeles")!

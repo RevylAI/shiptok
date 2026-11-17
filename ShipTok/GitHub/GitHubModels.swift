@@ -85,7 +85,7 @@ struct PullRequestComment: Identifiable, Hashable, Sendable, Codable {
 }
 
 extension PullRequestComment {
-    // Bots and comments carrying a ShipTok tag are never discussion comments: shiptok/AGENTS.md, "Ownership And Boundaries".
+    // Bots and comments carrying a ShipTok tag are never discussion comments (AGENTS.md, "Ownership And Boundaries").
     var isWrittenByPerson: Bool {
         author?.isBot != true && !PullRequestMediaExtraction.containsShipTokVideoTag(bodyMarkdown)
     }
@@ -135,7 +135,7 @@ protocol GitHubCommentThread: Hashable, Sendable {
 }
 
 extension GitHubCommentThread {
-    // Discussion excludes bots, vibes and comments carrying a ShipTok tag: the ShipTok format section of PR #6690.
+    // Discussion leaves out bots, vibes and comments carrying a ShipTok tag (AGENTS.md, "Ownership And Boundaries").
     var discussionComments: [PullRequestComment] {
         comments.filter { $0.isWrittenByPerson && PullRequestVibeComment(comment: $0) == nil }
     }

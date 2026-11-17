@@ -1,7 +1,7 @@
 import Foundation
 
 // What someone sees before signing in: one public repository's merged pull requests and weekly videos, which Revyl's backend reads with its GitHub App
-// and holds for about half a minute. GitHub signs the media links in it for about five minutes, so the app holds it about as long (shiptok/AGENTS.md, "Demo Mode").
+// (AGENTS.md, "Demo Mode"). GitHub signs the media links in it for only minutes, so a snapshot is reused only briefly before it's read again.
 actor ShipTokDemoFeed {
     private static let freshnessSeconds: TimeInterval = 15
     private let shipTokAPI = RevylShipTokAPI()

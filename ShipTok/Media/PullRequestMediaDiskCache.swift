@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
-// Media under one id never changes, so a video or image downloaded once plays from the device on every later launch. Files are named by a hash of the media item's id, which never carries a signed query string (shiptok/AGENTS.md, Feed Caching).
+// Media under one id never changes, so a video or image downloaded once plays from the device on every later launch. Files are named by a hash of the media item's id, which never carries a signed query string (AGENTS.md, "Feed Caching").
 enum PullRequestMediaDiskCache {
     private static let directoryURL = URL.cachesDirectory.appending(path: "pull-request-media", directoryHint: .isDirectory)
     private static let videoFileExtensions = ["mp4", "mov", "m4v"]

@@ -1,6 +1,6 @@
 import Foundation
 
-// What a vibe goes on: a merged pull request, or a weekly edition's issue, which takes vibes the same way (shiptok/AGENTS.md, "Vibes").
+// What a vibe goes on: a merged pull request, or a weekly edition's issue, which takes vibes the same way (AGENTS.md, "Vibes").
 struct VibeTarget: Hashable {
     enum Kind: Hashable {
         case pullRequest

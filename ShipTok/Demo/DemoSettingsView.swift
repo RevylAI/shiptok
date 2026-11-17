@@ -1,6 +1,6 @@
 import SwiftUI
 
-// A demo visitor's settings: what demo mode is, a way to sign in, and what works without an account (shiptok/AGENTS.md, "Demo Mode").
+// A demo visitor's settings: what demo mode is, a way to sign in, and what works without an account (AGENTS.md, "Demo Mode").
 struct DemoSettingsView: View {
     let demoVisitor: DemoVisitor
     let signInSession: GitHubSignInSession

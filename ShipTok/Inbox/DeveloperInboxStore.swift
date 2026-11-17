@@ -56,7 +56,7 @@ final class DeveloperInboxStore {
         lastSeenOccurredAt = UserDefaults.standard.object(forKey: lastSeenOccurredAtDefaultsKey) as? Date ?? .distantPast
     }
 
-    // People the viewer hid never reach the inbox (shiptok/AGENTS.md, "Report And Hide").
+    // People the viewer hid never reach the inbox (AGENTS.md, "Report And Hide").
     var inboxItems: [DeveloperInboxItem] {
         fetchedInboxItems.filter { !hiddenPeopleStore.isHidden($0.actor) }
     }

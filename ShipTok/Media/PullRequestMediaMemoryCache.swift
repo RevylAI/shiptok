@@ -29,7 +29,7 @@ enum PullRequestMediaMemoryCache {
     // An image load compares it before keeping what it downloaded, so a load that began before a removal keeps nothing.
     private(set) static var allMediaRemovalCount = 0
 
-    // Deleting a person's ShipTok data leaves no media behind: every download stops without saving, and every loaded image and video is forgotten (shiptok/AGENTS.md, "Ownership And Boundaries").
+    // Deleting a person's ShipTok data leaves no media behind: every download stops without saving, and every loaded image and video is forgotten (AGENTS.md, "Ownership And Boundaries").
     static func removeAllLoadedMediaAndStopDownloads() {
         allMediaRemovalCount += 1
         for videoResourceLoader in downloadingVideoResourceLoaders.allObjects {
@@ -43,12 +43,12 @@ enum PullRequestMediaMemoryCache {
         mediaItemIDsWithFailedLastLoad.removeAll()
     }
 
-    // An expiring signed URL that failed once is never requested again; the feed fetches a fresh one instead (shiptok/AGENTS.md, Signed Media URLs).
+    // An expiring signed URL that failed once is never requested again; the feed fetches a fresh one instead (AGENTS.md, "Signed Media URLs").
     static func hasExpiringSignedURLFailed(for mediaItem: PullRequestMediaItem) -> Bool {
         mediaItem.url.map(failedExpiringSignedURLs.contains) ?? false
     }
 
-    // A first failure is expected and renews the URL, so only a failure after renewal is an error (shiptok/AGENTS.md, Signed Media URLs).
+    // A first failure is expected and renews the URL, so only a failure after renewal is an error (AGENTS.md, "Signed Media URLs").
     static func loadFailureLogLevel(for mediaItem: PullRequestMediaItem) -> OSLogType {
         mediaItemIDsWithFailedLastLoad.contains(mediaItem.id) ? .error : .debug
     }
@@ -82,7 +82,7 @@ enum PullRequestMediaMemoryCache {
         }
     }
 
-    // Nil while a saved card waits for its refetch to bring a URL for a video that isn't saved on the device (shiptok/AGENTS.md, Feed Caching).
+    // Nil while a saved card waits for its refetch to bring a URL for a video that isn't saved on the device (AGENTS.md, "Feed Caching").
     static func reuseOrStartVideoLoad(for mediaItem: PullRequestMediaItem) -> SingleRequestVideoResourceLoader? {
         let cacheKey = mediaItem.id as NSString
         if let videoResourceLoader = videoResourceLoadersByMediaItemID.object(forKey: cacheKey), !videoResourceLoader.hasFailed {

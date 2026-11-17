@@ -9,12 +9,12 @@ struct PullRequestMediaItem: Identifiable, Hashable, Sendable, Codable {
 
     let id: String
     let kind: Kind
-    // Nil on a saved card whose URL was signed: its media plays from the device or waits for the card's refetch (shiptok/AGENTS.md, Feed Caching).
+    // Nil on a saved card whose URL was signed: its media plays from the device or waits for the card's refetch (AGENTS.md, "Feed Caching").
     let url: URL?
     let isShipTokVideo: Bool
     let sourceCommentID: String?
     var sourceCommentDatabaseID: Int? = nil
-    // Who posted the description or comment the media came from, so hiding a person hides their media (shiptok/AGENTS.md, "Report And Hide").
+    // Who posted the description or comment the media came from, so hiding a person hides their media (AGENTS.md, "Report And Hide").
     let postedBy: GitHubActor?
     // When the description or comment the media came from was last edited, or posted if never edited, so the newest tagged video leads the deck.
     let sourceLastEditedAt: Date
@@ -39,7 +39,7 @@ struct PullRequestMediaItem: Identifiable, Hashable, Sendable, Codable {
         case sourceLastEditedAt
     }
 
-    // A signed media URL is a credential, so a saved media item never holds one (shiptok/AGENTS.md, iOS App).
+    // A signed media URL is a credential, so a saved media item never holds one (AGENTS.md, "iOS App").
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)

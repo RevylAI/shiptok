@@ -1,6 +1,6 @@
 import Foundation
 
-// Someone looking around the demo feed before signing in, App Review included. Nothing of the visit outlives it (shiptok/AGENTS.md, "Demo Mode").
+// Someone looking around the demo feed before signing in, App Review included. Nothing of the visit outlives it (AGENTS.md, "Demo Mode").
 struct DemoVisitor {
     let visitID: UUID
     let repositoryFullName: String

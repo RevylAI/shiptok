@@ -23,7 +23,7 @@ enum DemoSignInPromptAction: String, Identifiable, Sendable {
     }
 }
 
-// Asks a demo visitor to sign in when they try something that posts to GitHub as them; signing in from here lands in the signed-in app (shiptok/AGENTS.md, "Demo Mode").
+// Asks a demo visitor to sign in when they try something that posts to GitHub as them; signing in from here lands in the signed-in app (AGENTS.md, "Demo Mode").
 struct DemoSignInPromptSheet: View {
     let action: DemoSignInPromptAction
     let signInSession: GitHubSignInSession

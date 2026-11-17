@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-// The people the viewer hid, by GitHub login: kept only on this iPhone per signed-in person, and only in memory for a demo visit. Deleting ShipTok data clears them with the rest of the app's defaults (shiptok/AGENTS.md, "Report And Hide").
+// The people the viewer hid, by GitHub login: kept only on this iPhone per signed-in person, and only in memory for a demo visit. Deleting ShipTok data clears them with the rest of the app's defaults (AGENTS.md, "Report And Hide").
 @Observable
 @MainActor
 final class HiddenPeopleStore {

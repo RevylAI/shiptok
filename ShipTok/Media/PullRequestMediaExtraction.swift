@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 import UniformTypeIdentifiers
 
-// Parses the ShipTok format section of PR #6690: which media a pull request carries, its ShipTok tags, and which one shows first.
+// Parses the ShipTok format (docs/shiptok-format.md): which media a pull request carries, its ShipTok tags, and which one shows first.
 enum PullRequestMediaExtraction {
     static func mediaItems(
         descriptionMarkdown: String,

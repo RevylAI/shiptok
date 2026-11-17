@@ -248,7 +248,7 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    // Media within an eighth of the card's shape crops to fill it, as Reels fill a phone with a 9:16 video; any other shape shows whole over a blurred copy of itself (shiptok/AGENTS.md, Card Layout).
+    // Media within an eighth of the card's shape crops to fill it, as Reels fill a phone with a 9:16 video; any other shape shows whole over a blurred copy of itself (AGENTS.md, "Card Layout").
     private func heroFrame<Media: View, Backdrop: View>(
         @ViewBuilder media: @escaping (ContentMode) -> Media,
         @ViewBuilder backdrop: @escaping () -> Backdrop
@@ -343,7 +343,7 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    // Media under one id never changes, so it loads from memory, then the device, and only then the network, and a fresh signed URL matters only after a failed load. A saved card with nothing on the device waits for its refetch to bring a URL (shiptok/AGENTS.md, Signed Media URLs and Feed Caching).
+    // Media under one id never changes, so it loads from memory, then the device, and only then the network, and a fresh signed URL matters only after a failed load. A saved card with nothing on the device waits for its refetch to bring a URL (AGENTS.md, "Signed Media URLs" and "Feed Caching").
     private func loadUnlessAlreadyLoaded() async {
         guard hasFailedToLoad || (loadedImage == nil && videoPlayback == nil) else { return }
         guard !PullRequestMediaMemoryCache.hasExpiringSignedURLFailed(for: mediaItem) else {
@@ -424,7 +424,7 @@ struct PullRequestMediaItemView: View {
         naturalSize = resolvedNaturalSize
     }
 
-    // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported (shiptok/AGENTS.md, Signed Media URLs).
+    // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported (AGENTS.md, "Signed Media URLs").
     private func handleLoadFailure() {
         guard !hasFailedToLoad else { return }
         hasTerminalPlaybackFailure = PullRequestMediaMemoryCache.loadFailureLogLevel(for: mediaItem) == .error
@@ -509,7 +509,7 @@ private struct MediaLoadRequest: Equatable {
 }
 
 extension View {
-    // Held past a tap's length without moving, so a tap still pauses and a swipe still swipes (shiptok/AGENTS.md, "Swipe Gestures"), then held wherever the finger
+    // Held past a tap's length without moving, so a tap still pauses and a swipe still swipes (AGENTS.md, "Swipe Gestures"), then held wherever the finger
     // goes until it lifts. A SwiftUI long press here stops every single tap from pausing, so it's UIKit's, which needs iOS 18.
     func fastPlaybackHold(isHeld: Binding<Bool>) -> some View {
         modifier(FastPlaybackHoldModifier(isHeld: isHeld))

@@ -20,7 +20,7 @@ final class MergedPullRequestFeedStore {
     private(set) var unseenNewerPullRequestIDs: Set<String> = []
     private(set) var unloadableMediaItemIDs: Set<String> = []
     var transientErrorMessage: String?
-    // The pull requests of the weekly edition whose deck is open, in its video's order (shiptok/AGENTS.md, Weekly Mode).
+    // The pull requests of the weekly edition whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
     private(set) var openWeekPullRequests: [MergedPullRequest] = []
     private(set) var isOpenWeekLoaded = false
     private(set) var openWeekLoadFailureMessage: String?
@@ -42,7 +42,7 @@ final class MergedPullRequestFeedStore {
     private var viewerDeletedCommentIDs: Set<String> = []
     private let githubAPIClient: GitHubAPIClient
     private let analytics: ShipTokAnalytics
-    // A demo visitor has none, and their feed isn't saved (shiptok/AGENTS.md, "Demo Mode").
+    // A demo visitor has none, and their feed isn't saved (AGENTS.md, "Demo Mode").
     private let viewerGitHubLogin: String?
     private let feedCache = MergedPullRequestFeedCache()
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
@@ -163,7 +163,7 @@ final class MergedPullRequestFeedStore {
         Self.logger.info("Read a week's \(self.openWeekPullRequests.count, privacy: .public) of \(pullRequestNumbers.count, privacy: .public) pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
     }
 
-    // A launch opens on the saved feed at once and asks GitHub only for what changed since. With nothing saved it opens on the ShipTok-labeled pull requests, which lead the feed, then reads the window behind them (shiptok/AGENTS.md, Feed Order and Feed Caching).
+    // A launch opens on the saved feed at once and asks GitHub only for what changed since. With nothing saved it opens on the ShipTok-labeled pull requests, which lead the feed, then reads the window behind them (AGENTS.md, "Feed Order" and "Feed Caching").
     func loadFeed() async {
         guard !isFeedLoadRunning, nextUpdateSearchStartDate == nil else { return }
         isFeedLoadRunning = true
@@ -267,7 +267,7 @@ final class MergedPullRequestFeedStore {
         Task { await refetchPullRequestsAroundFocus() }
     }
 
-    // Newly merged pull requests sort into their groups, so the first unseen one can sit anywhere above the viewer (shiptok/AGENTS.md, Feed Order).
+    // Newly merged pull requests sort into their groups, so the first unseen one can sit anywhere above the viewer (AGENTS.md, "Feed Order").
     private var firstUnseenNewerPageIndex: Int? {
         pullRequests.firstIndex { unseenNewerPullRequestIDs.contains($0.id) }
     }
@@ -276,7 +276,7 @@ final class MergedPullRequestFeedStore {
         pullRequest.mediaItems.first { !unloadableMediaItemIDs.contains($0.id) } ?? pullRequest.mediaItems.first
     }
 
-    // A media item is given up on only once the URL renewed after its failed load fails too, so an expired signed URL never hides it. A pull request none of whose media loads leaves the feed while the viewer is still above it (shiptok/AGENTS.md, Feed Order).
+    // A media item is given up on only once the URL renewed after its failed load fails too, so an expired signed URL never hides it. A pull request none of whose media loads leaves the feed while the viewer is still above it (AGENTS.md, "Feed Order").
     func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String) async {
         guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
         defer {
@@ -355,7 +355,7 @@ final class MergedPullRequestFeedStore {
         Date.now.addingTimeInterval(-Self.feedWindowSeconds)
     }
 
-    // The focused card and the one after it are already rendered under the viewer's finger, so a newly found card never lands above or between them unless it's flagged as unseen (Feed Order in shiptok/AGENTS.md).
+    // The focused card and the one after it are already rendered under the viewer's finger, so a newly found card never lands above or between them unless it's flagged as unseen (AGENTS.md, "Feed Order").
     private var firstUnrenderedPageIndex: Int {
         hasFocusedPage ? min(focusedPageIndex + 2, pullRequests.count) : 0
     }
@@ -364,7 +364,7 @@ final class MergedPullRequestFeedStore {
         focusedPullRequestID != nil || isFeedEndFocused
     }
 
-    // A pull request found after the feed opened sorts only into the cards after the one in focus and the one after it, since both are already rendered (Feed Order in shiptok/AGENTS.md).
+    // A pull request found after the feed opened sorts only into the cards after the one in focus and the one after it, since both are already rendered (AGENTS.md, "Feed Order").
     private func insertFoundPullRequests(_ foundPullRequests: [MergedPullRequest], mergedWindowStartDate: Date, fetchedAt: Date) {
         var knownPullRequestIDs = Set(pullRequests.map(\.id))
         for foundPullRequest in foundPullRequests {
@@ -391,7 +391,7 @@ final class MergedPullRequestFeedStore {
         }
     }
 
-    // A card ages out of the window without GitHub reporting a change, so each refresh drops the ones the feed's rules no longer admit, except the one under the viewer's finger (Feed Order in shiptok/AGENTS.md).
+    // A card ages out of the window without GitHub reporting a change, so each refresh drops the ones the feed's rules no longer admit, except the one under the viewer's finger (AGENTS.md, "Feed Order").
     private func removeCardsThatLeftTheFeed() {
         let windowStartDate = feedWindowStartDate
         pullRequests.removeAll { $0.id != focusedPullRequestID && !$0.belongsInFeed(mergedWindowStartDate: windowStartDate) }

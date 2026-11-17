@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-// The signed-in person's GitHub API. Every request carries their access token, and a refused one renews the sign-in once and tries again, since GitHub also refuses a token another refresh just retired (shiptok/AGENTS.md, "iOS App").
+// The signed-in person's GitHub API. Every request carries their access token, and a refused one renews the sign-in once and tries again, since GitHub also refuses a token another refresh just retired (AGENTS.md, "iOS App").
 final class GitHubAccountAPI: Sendable {
     private static let requestTimeoutSeconds: TimeInterval = 60
     private static let restPageSize = 100
@@ -54,7 +54,7 @@ final class GitHubAccountAPI: Sendable {
         return GitHubUserIdentity(githubUserID: signedInUser.id, githubLogin: signedInUser.login, githubAvatarURLString: signedInUser.avatarUrl)
     }
 
-    // Exactly the repositories where an organization installed this build's GitHub App and the person has access, with no other allowlist (shiptok/AGENTS.md, "iOS App").
+    // Exactly the repositories where an organization installed this build's GitHub App and the person has access, with no other allowlist (AGENTS.md, "iOS App").
     func fetchReachableRepositoryFullNames() async throws -> [String] {
         let installations = try await fetchEveryRESTPage(path: "/user/installations", operationName: "your GitHub App installations") { (page: InstallationsPage) in
             (page.totalCount, page.installations)

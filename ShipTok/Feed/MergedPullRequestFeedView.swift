@@ -155,7 +155,7 @@ struct MergedPullRequestFeedView: View {
         }
     }
 
-    // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (shiptok/AGENTS.md, "Report And Hide").
+    // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
     private var visiblePullRequests: [MergedPullRequest] {
         feedStore.pullRequests.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
@@ -234,7 +234,7 @@ struct MergedPullRequestFeedView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Pages fill the screen under the status bar, tab bar and home indicator, and each lays its card out between the top of the status bar and the
-            // tab bar; the box rides the keyboard over the card, so the keyboard never relayouts it (shiptok/AGENTS.md, "Card Layout").
+            // tab bar; the box rides the keyboard over the card, so the keyboard never relayouts it (AGENTS.md, "Card Layout").
             GeometryReader { safeAreaGeometry in
                 let pageChromeInsets = EdgeInsets(
                     top: safeAreaGeometry.safeAreaInsets.top,
@@ -453,7 +453,7 @@ struct MergedPullRequestFeedView: View {
         }
     }
 
-    // Over the card's top left, inside the format's top safe zone, and never under the status bar (shiptok/AGENTS.md, "Weekly Mode").
+    // Over the card's top left, inside the format's top safe zone, and never under the status bar (AGENTS.md, "Weekly Mode").
     private func feedModeSwitch(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
         let cardFrame = FeedCardView.cardFrame(in: pageSize, pageChromeInsets: pageChromeInsets).card
         return FeedModeSwitch(
@@ -849,7 +849,7 @@ struct MergedPullRequestFeedView: View {
         )
     }
 
-    // A sideways drag from the strip around a video's progress line scrubs it; from anywhere else it casts a vibe (shiptok/AGENTS.md, "Swipe Gestures").
+    // A sideways drag from the strip around a video's progress line scrubs it; from anywhere else it casts a vibe (AGENTS.md, "Swipe Gestures").
     private func deckDragGesture(deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some Gesture {
         DragGesture(minimumDistance: 14)
             .onChanged { dragValue in
@@ -1025,7 +1025,7 @@ struct MergedPullRequestFeedView: View {
         }
     }
 
-    // The feedback box never blocks the swipe: shiptok/AGENTS.md, "Vibes".
+    // The feedback box never blocks the swipe (AGENTS.md, "Vibes").
     private func castVibe(_ vibe: PullRequestVibe, on vibeTarget: VibeTarget, selectionID: UUID) {
         postVibeAwaitingFeedback()
         if userSettingsStore?.showsFeedbackBox(for: vibe) == true {
@@ -1073,7 +1073,7 @@ struct MergedPullRequestFeedView: View {
         isPageTransitionRunning = false
     }
 
-    // A demo visitor is asked to sign in instead of posting to GitHub; true when that's what happened (shiptok/AGENTS.md, "Demo Mode").
+    // A demo visitor is asked to sign in instead of posting to GitHub; true when that's what happened (AGENTS.md, "Demo Mode").
     private func promptsSignIn(for action: DemoSignInPromptAction) -> Bool {
         guard case .demoVisitor(let demoVisitor) = viewer else { return false }
         demoVisitor.analytics.capture(.demoSignInPrompted(action))

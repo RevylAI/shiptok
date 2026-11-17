@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-// GitHub App user access tokens expire after 8 hours and each refresh token works once, so one refresh at a time renews the pair and saves it before anyone uses it; two at once would retire each other's tokens and sign the person out. A sign-in ends only when GitHub refuses the refresh (shiptok/AGENTS.md, "iOS App").
+// GitHub App user access tokens expire after 8 hours and each refresh token works once, so one refresh at a time renews the pair and saves it before anyone uses it; two at once would retire each other's tokens and sign the person out. A sign-in ends only when GitHub refuses the refresh (AGENTS.md, "iOS App").
 actor GitHubAccessTokenVault {
     private static let refreshMarginSeconds: TimeInterval = 5 * 60
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "sign-in")

@@ -206,7 +206,7 @@ final class VibeOutbox {
         }
     }
 
-    // A person has one vibe per pull request or week, so a new vibe comment replaces their earlier ones: shiptok/AGENTS.md, "Vibes".
+    // A person has one vibe per pull request or week, so a new vibe comment replaces their earlier ones (AGENTS.md, "Vibes").
     private func deleteViewerEarlierVibeComments(replacedBy postedVibeComment: PullRequestComment, of queuedVibe: QueuedVibe) async {
         let target = queuedVibe.target
         do {

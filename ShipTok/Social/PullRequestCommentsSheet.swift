@@ -257,7 +257,7 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
         commentsStore.thread.mediaItems.filter { $0.sourceCommentID == comment.id }
     }
 
-    // Someone else's comment can be reported on GitHub or its author hidden (shiptok/AGENTS.md, "Report And Hide").
+    // Someone else's comment can be reported on GitHub or its author hidden (AGENTS.md, "Report And Hide").
     private func reportableContent(of comment: PullRequestComment) -> GitHubPostedContent? {
         guard let author = comment.author, !(viewer.map { author.hasLogin($0.githubLogin) } ?? false) else { return nil }
         return GitHubPostedContent(kind: .comment, postedBy: author, githubURL: comment.url, postedOn: analyticsSubject)

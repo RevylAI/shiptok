@@ -6,7 +6,7 @@ enum AppTab: CaseIterable {
     case settings
 }
 
-// A floating pill like Instagram's tab bar; the inbox and settings tabs replace the feed while it pauses (shiptok/AGENTS.md, "Card Layout").
+// A floating pill like Instagram's tab bar; the inbox and settings tabs replace the feed while it pauses (AGENTS.md, "Card Layout").
 struct AppTabBar: View {
     static let height: CGFloat = 60
 

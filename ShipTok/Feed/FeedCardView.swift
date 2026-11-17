@@ -31,14 +31,14 @@ struct FeedCardVibes {
     let onRemoveViewerVibe: () -> Void
 }
 
-// The rail's More menu: report each description or comment the card shows on GitHub, or hide its poster (shiptok/AGENTS.md, "Report And Hide").
+// The rail's More menu: report each description or comment the card shows on GitHub, or hide its poster (AGENTS.md, "Report And Hide").
 struct FeedCardModeration {
     let reportableContents: [GitHubPostedContent]
     let onReport: (GitHubPostedContent) -> Void
     let onHide: (GitHubPostedContent) -> Void
 }
 
-// One feed page laid out like Instagram Reels: a pull request, or a week's video in weekly mode. The layout decisions are shiptok/AGENTS.md, "Card Layout".
+// One feed page laid out like Instagram Reels: a pull request, or a week's video in weekly mode. Its layout follows AGENTS.md, "Card Layout".
 struct FeedCardView: View {
     private struct CardFrames: Equatable {
         let card: CGRect
@@ -193,7 +193,7 @@ struct FeedCardView: View {
         return (card, systemRailStripWidth.map { pageSize.width - $0 })
     }
 
-    // The strip under the caption around the video's progress line, where a sideways drag scrubs the hero video instead of casting a vibe; it stops well above the tab bar (shiptok/AGENTS.md, "Swipe Gestures").
+    // The strip under the caption around the video's progress line, where a sideways drag scrubs the hero video instead of casting a vibe; it stops well above the tab bar (AGENTS.md, "Swipe Gestures").
     static func videoScrubZone(cardFrame: CGRect) -> CGRect {
         CGRect(
             x: cardFrame.minX,
@@ -224,7 +224,7 @@ struct FeedCardView: View {
             railBottom = card.maxY - Self.railBottomInsetOverCard
             captionTrailingInset = Self.railTrailingInsetOverCard + Self.railWidth + Self.captionToRailSpacing
         }
-        // The Duo's status strip (its clock, battery and an expanded island) lies inside the safe area, so only the regions the system reserves say where the rail can start (shiptok/AGENTS.md, "Card Layout").
+        // The Duo's status strip (its clock, battery and an expanded island) lies inside the safe area, so only the regions the system reserves say where the rail can start (AGENTS.md, "Card Layout").
         let unobstructedRailTop = card.minY + Self.overlayInset
         let railTop = systemOcclusionFrames
             .filter { $0.minY <= unobstructedRailTop && $0.minX < railX + Self.railWidth && $0.maxX > railX }
@@ -401,7 +401,7 @@ struct FeedCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // The badge is how a person removes their vibe later: shiptok/AGENTS.md, "Vibes".
+    // The badge is how a person removes their vibe later (AGENTS.md, "Vibes").
     @ViewBuilder
     private var viewerVibeBadge: some View {
         if let viewerVibe = vibes.tally.viewerVibe {
@@ -515,7 +515,7 @@ struct FeedCardView: View {
             }
             switch post {
             case .pullRequest(let pullRequest):
-                // The deck is where a still or GIF zooms (shiptok/AGENTS.md, Card Layout).
+                // The deck is where a still or GIF zooms (AGENTS.md, "Card Layout").
                 if pullRequest.mediaItems.count > 1 || heroMediaItem?.kind == .image || heroMediaItem?.kind == .animatedImage {
                     PullRequestMediaDeckButton(mediaItems: pullRequest.mediaItems, action: onOpenDeck)
                 }
@@ -598,7 +598,6 @@ struct FeedCardView: View {
         }
     }
 
-    // Left of the rail at the React button's height, kept inside the card; the caption fades while it shows.
     private func reactionPickerOffset(cardFrame: CGRect) -> CGSize {
         let pickerSize = GitHubReactionPicker.fittedSize
         let railLeadingX = reactButtonFrameInCard.midX - Self.railWidth / 2
@@ -631,7 +630,7 @@ struct FeedCardView: View {
     }
 }
 
-// Stacks the rail from the bottom like Reels, closing its gaps when a tall status strip leaves less room, and never letting its top climb above its frame (shiptok/AGENTS.md, "Card Layout").
+// Stacks the rail from the bottom like Reels, closing its gaps when a tall status strip leaves less room, and never letting its top climb above its frame (AGENTS.md, "Card Layout").
 private struct ActionRailStack: Layout {
     private static let preferredSpacing: CGFloat = 14
     // A glyph's 40-point frame pads its 26-point symbol by 7 points above and below, so neighbors may overlap 6 points of it before the symbols crowd.

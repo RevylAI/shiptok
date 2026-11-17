@@ -11,7 +11,7 @@ struct SavedMergedPullRequestFeed: Codable, Sendable {
     let pullRequests: [MergedPullRequest]
 }
 
-// The feed and the moment every update before it was applied, saved on the device so a launch opens on it at once and asks GitHub only for what changed since (shiptok/AGENTS.md, Feed Caching).
+// The feed and the moment every update before it was applied, saved on the device so a launch opens on it at once and asks GitHub only for what changed since (AGENTS.md, "Feed Caching").
 actor MergedPullRequestFeedCache {
     private static let savedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "merged-pull-request-feeds", directoryHint: .isDirectory)
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")

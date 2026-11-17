@@ -6,7 +6,7 @@ struct MediaDownloadRejectedError: Error {
     let httpStatusCode: Int
 }
 
-// GitHub's signed media URLs expire five minutes after the fetch, so the video arrives in one request that keeps streaming past expiry and every later read, loops included, comes from memory. A finished download is saved on the device, and a saved video plays from there (shiptok/AGENTS.md, Signed Media URLs and Feed Caching).
+// GitHub's signed media URLs expire five minutes after the fetch, so the video arrives in one request that keeps streaming past expiry and every later read, loops included, comes from memory. A finished download is saved on the device, and a saved video plays from there (AGENTS.md, "Signed Media URLs" and "Feed Caching").
 final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate, @unchecked Sendable {
     let assetURL = SingleRequestVideoResourceLoader.makeAssetURL()
     let delegateQueue = DispatchQueue(label: "ai.revyl.shiptok.single-request-video-resource-loader")

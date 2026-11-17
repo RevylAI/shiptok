@@ -68,7 +68,7 @@ final class GitHubAPIClient: Sendable {
         return responseData
     }
 
-    // Every merged pull request in a merge-date range, updated since a date if one is given, read in full; each page arrives as it loads, so the caller can show it at once (shiptok/AGENTS.md, Feed Order).
+    // Every merged pull request in a merge-date range, updated since a date if one is given, read in full; each page arrives as it loads, so the caller can show it at once (AGENTS.md, "Feed Order").
     func searchMergedPullRequests(
         updatedSince earliestUpdateDate: Date?,
         mergedFrom earliestMergeDate: Date?,
@@ -111,7 +111,7 @@ final class GitHubAPIClient: Sendable {
         }
     }
 
-    // One cheap search, so a launch with nothing saved opens on the labeled pull requests before it reads the window (shiptok/AGENTS.md, Feed Order).
+    // One cheap search, so a launch with nothing saved opens on the labeled pull requests before it reads the window (AGENTS.md, "Feed Order").
     func fetchMergedPullRequests(labeled labelName: String) async throws -> [MergedPullRequest] {
         if case .demoFeed(let demoFeed) = source {
             var mergedPullRequests: [MergedPullRequest] = []
@@ -213,7 +213,7 @@ final class GitHubAPIClient: Sendable {
     }
 
     // Every published weekly edition, newest week first: the closed issues carrying the weekly label, read through the issues API, never search,
-    // so a week shows the moment it closes (shiptok/AGENTS.md, Weekly Mode).
+    // so a week shows the moment it closes (AGENTS.md, "Weekly Mode").
     func fetchWeeklyEditions() async throws -> [WeeklyEdition] {
         if case .demoFeed(let demoFeed) = source {
             var weeklyEditions: [WeeklyEdition] = []

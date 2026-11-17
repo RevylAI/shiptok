@@ -5,7 +5,7 @@ enum FeedMode: String, Sendable {
     case weekly
 }
 
-// The PRs / Weekly switch over the feed's top left; while a week's pull requests are open it becomes the way back to the weeks (shiptok/AGENTS.md, "Weekly Mode").
+// The PRs / Weekly switch over the feed's top left; while a week's pull requests are open it becomes the way back to the weeks (AGENTS.md, "Weekly Mode").
 struct FeedModeSwitch: View {
     @Binding var feedMode: FeedMode
     let openWeekDatesText: String?

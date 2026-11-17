@@ -1,6 +1,6 @@
 import Foundation
 
-// A description or top-level comment someone posted on a pull request or week. The viewer can report it through GitHub's own report form, since GitHub hosts it and acts on reports, or hide its poster (shiptok/AGENTS.md, "Report And Hide").
+// A description or top-level comment someone posted on a pull request or week. The viewer can report it through GitHub's own report form, since GitHub hosts it and acts on reports, or hide its poster (AGENTS.md, "Report And Hide").
 struct GitHubPostedContent: Hashable, Identifiable, Sendable {
     enum Kind: String, Hashable, Sendable {
         case description

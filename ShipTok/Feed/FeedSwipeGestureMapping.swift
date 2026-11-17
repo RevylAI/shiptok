@@ -41,7 +41,7 @@ enum FeedSwipeAction {
 }
 
 enum FeedSwipeGestureMapping {
-    // Swipe directions are a product decision: shiptok/AGENTS.md, "Swipe Gestures".
+    // Swipe directions are a product decision (AGENTS.md, "Swipe Gestures").
     static func action(for direction: FeedSwipeDirection) -> FeedSwipeAction {
         switch direction {
         case .up: .showNextPullRequest
