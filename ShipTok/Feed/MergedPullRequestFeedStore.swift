@@ -19,7 +19,6 @@ final class MergedPullRequestFeedStore {
     private(set) var feedLoadFailureMessage: String?
     private(set) var isPullToRefreshRunning = false
     private(set) var unseenNewerPullRequestIDs: Set<String> = []
-    private(set) var unloadableMediaItemIDs: Set<String> = []
     var transientErrorMessage: String?
     // The pull requests of the weekly edition whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
     private(set) var openWeekPullRequests: [MergedPullRequest] = []
@@ -35,8 +34,7 @@ final class MergedPullRequestFeedStore {
     private var isRefreshRunning = false
     private var savedFeedGeneration = 0
     private var mediaFetchedAtByPullRequestID: [String: Date] = [:]
-    private var failedLoadURLByMediaItemID: [String: URL] = [:]
-    private var urlRenewalDateAfterLoadFailureByMediaItemID: [String: Date] = [:]
+    private var mediaLoadFailureRecovery = MediaLoadFailureRecovery()
     private var pullRequestIDsRenewingMediaURLsAfterLoadFailure: Set<String> = []
     private var reactionWriteCountByPullRequestID: [String: Int] = [:]
     // A fetch that started before a delete can still return the comment, so a comment the viewer deleted stays out of every later fetch.
@@ -60,6 +58,10 @@ final class MergedPullRequestFeedStore {
         self.analytics = analytics
         self.viewerGitHubLogin = viewerGitHubLogin
         self.handleRejectedGitHubAccess = handleRejectedGitHubAccess
+    }
+
+    var unloadableMediaItemIDs: Set<String> {
+        mediaLoadFailureRecovery.unloadableMediaItemIDs
     }
 
     func pullRequest(withID pullRequestID: String) -> MergedPullRequest? {
@@ -279,40 +281,24 @@ final class MergedPullRequestFeedStore {
         pullRequest.mediaItems.first { !unloadableMediaItemIDs.contains($0.id) } ?? pullRequest.mediaItems.first
     }
 
-    // A media item is given up on only once the URL renewed after its failed load fails too, so an expired signed URL never hides it. A pull request none of whose media loads leaves the feed while the viewer is still above it (AGENTS.md, "Feed Order").
+    // A failed load renews the pull request's media URLs at once, and when that read fails, the next one that succeeds settles the failure.
     func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String) async {
         guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
         defer {
-            if let pullRequestIndex = index(ofPullRequestID: pullRequestID), pullRequestIndex > focusedPageIndex, !hasLoadableMedia(pullRequests[pullRequestIndex]) {
-                pullRequests.remove(at: pullRequestIndex)
+            if let feedPullRequest = pullRequests.first(where: { $0.id == pullRequestID }) {
+                removeIfNoMediaLoadsAheadOfViewer(feedPullRequest)
             }
         }
-        if let urlRenewalDate = urlRenewalDateAfterLoadFailureByMediaItemID[mediaItem.id],
-           Date.now.timeIntervalSince(urlRenewalDate) < Self.mediaURLRenewalAgeSeconds {
-            unloadableMediaItemIDs.insert(mediaItem.id)
-            return
-        }
-        failedLoadURLByMediaItemID[mediaItem.id] = mediaItem.url
-        guard pullRequestIDsRenewingMediaURLsAfterLoadFailure.insert(pullRequestID).inserted else { return }
-        defer { pullRequestIDsRenewingMediaURLsAfterLoadFailure.remove(pullRequestID) }
-        let renewalStartedAt = Date.now
-        await fetchAndApplyPullRequest(number: pullRequest.number, forcesMediaURLRenewal: true)
-        guard let renewedPullRequest = self.pullRequest(withID: pullRequestID),
-              let mediaFetchedAt = mediaFetchedAtByPullRequestID[pullRequestID],
-              mediaFetchedAt >= renewalStartedAt
+        guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem),
+              pullRequestIDsRenewingMediaURLsAfterLoadFailure.insert(pullRequestID).inserted
         else { return }
-        for renewedMediaItem in renewedPullRequest.mediaItems {
-            guard let failedLoadURL = failedLoadURLByMediaItemID.removeValue(forKey: renewedMediaItem.id) else { continue }
-            if failedLoadURL == renewedMediaItem.url {
-                unloadableMediaItemIDs.insert(renewedMediaItem.id)
-            } else {
-                urlRenewalDateAfterLoadFailureByMediaItemID[renewedMediaItem.id] = .now
-            }
-        }
+        defer { pullRequestIDsRenewingMediaURLsAfterLoadFailure.remove(pullRequestID) }
+        await fetchAndApplyPullRequest(number: pullRequest.number, forcesMediaURLRenewal: true)
     }
 
+    // A read made elsewhere has no known start, so it leaves failed media loads for the store's own reads to settle.
     func applyFetchedPullRequest(_ fetchedPullRequest: MergedPullRequest) {
-        apply(fetchedPullRequest, fetchedAt: .now, forcesMediaURLRenewal: false)
+        apply(fetchedPullRequest, fetchedAt: .now, forcesMediaURLRenewal: false, settlesMediaLoadFailures: false)
     }
 
     func appendComment(_ comment: PullRequestComment, toPullRequestID pullRequestID: String) {
@@ -407,6 +393,13 @@ final class MergedPullRequestFeedStore {
 
     private func hasLoadableMedia(_ pullRequest: MergedPullRequest) -> Bool {
         pullRequest.mediaItems.contains { !unloadableMediaItemIDs.contains($0.id) }
+    }
+
+    // A pull request none of whose media loads leaves the feed while the viewer is still above it (AGENTS.md, "Feed Order").
+    private func removeIfNoMediaLoadsAheadOfViewer(_ pullRequest: MergedPullRequest) {
+        guard !hasLoadableMedia(pullRequest), let pullRequestIndex = index(ofPullRequestID: pullRequest.id), pullRequestIndex > focusedPageIndex else { return }
+        pullRequests.remove(at: pullRequestIndex)
+        unseenNewerPullRequestIDs.remove(pullRequest.id)
     }
 
     // A card from before the window stays only while labeled, and removing the label takes it out of both refresh searches, so each refresh reads again the one read longest ago, which drops it once it no longer belongs (AGENTS.md, "Feed Order").
@@ -514,7 +507,11 @@ final class MergedPullRequestFeedStore {
     }
 
     // The focused card keeps its signed media URLs so a playing video isn't reloaded; a load failure renews them.
-    private func apply(_ fetchedPullRequest: MergedPullRequest, fetchedAt: Date, forcesMediaURLRenewal: Bool) {
+    private func apply(_ fetchedPullRequest: MergedPullRequest, fetchedAt: Date, forcesMediaURLRenewal: Bool, settlesMediaLoadFailures: Bool = true) {
+        let renewedMediaItemIDs = settlesMediaLoadFailures && mediaLoadFailureRecovery.hasPendingLoadFailure
+            ? mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPullRequest.mediaItems, readStartedAt: fetchedAt)
+            : []
+        removeIfNoMediaLoadsAheadOfViewer(fetchedPullRequest)
         updateOpenWeekCopy(ofPullRequestID: fetchedPullRequest.id) { openWeekPullRequest in
             var updatedOpenWeekPullRequest = fetchedPullRequest
             updatedOpenWeekPullRequest.comments.removeAll { viewerDeletedCommentIDs.contains($0.id) }
@@ -548,7 +545,7 @@ final class MergedPullRequestFeedStore {
             mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
         } else {
             let existingMediaItemsByID = Dictionary(
-                existingPullRequest.mediaItems.filter { $0.url != nil }.map { ($0.id, $0) },
+                existingPullRequest.mediaItems.filter { $0.url != nil && !renewedMediaItemIDs.contains($0.id) }.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
             updatedPullRequest.mediaItems = fetchedPullRequest.mediaItems.map { fetchedMediaItem in
