@@ -19,10 +19,10 @@ enum GitHubSignInCallbackError: LocalizedError {
 
 // Revyl's part of Delete my ShipTok data is done, and only this iPhone's is left to try again.
 struct ShipTokDataDeletionUnfinishedError: LocalizedError {
-    let keychainError: Error
+    let cleanupError: Error
 
     var errorDescription: String? {
-        "Revyl deleted your ShipTok data. \(keychainError.localizedDescription) Try again or open ShipTok again to finish on this iPhone."
+        "Revyl deleted your ShipTok data. \(cleanupError.localizedDescription) Try again or open ShipTok again to finish on this iPhone."
     }
 }
 
@@ -63,6 +63,7 @@ final class GitHubSignInSession {
         if Self.unfinishedDataDeletionGitHubUserID != nil {
             do {
                 try await finishDeletingShipTokDataOnThisIPhone()
+                phase = .signedOut(message: Self.dataDeletedMessage)
             } catch {
                 phase = .signedOut(message: error.localizedDescription)
             }
@@ -169,6 +170,7 @@ final class GitHubSignInSession {
             UserDefaults.standard.set(teammate.user.githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
         }
         try await finishDeletingShipTokDataOnThisIPhone()
+        phase = .signedOut(message: Self.dataDeletedMessage)
     }
 
     // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile. A sign-in the Keychain still holds would come back on the next launch, so it stays until the Keychain lets it go.
@@ -198,7 +200,9 @@ final class GitHubSignInSession {
             .githubRefused
         case RevylShipTokAPIError.signInRejected:
             .revylRejected
-        case is GitHubSignInKeychainError, is ShipTokDataDeletionUnfinishedError:
+        case let dataDeletionUnfinishedError as ShipTokDataDeletionUnfinishedError:
+            signInFailureReason(for: dataDeletionUnfinishedError.cleanupError)
+        case is GitHubSignInKeychainError:
             .keychainFailed
         default:
             .unavailable
@@ -209,39 +213,41 @@ final class GitHubSignInSession {
         UserDefaults.standard.object(forKey: unfinishedDataDeletionGitHubUserIDDefaultsKey) as? Int64
     }
 
-    // The record of the unfinished deletion goes last, with the defaults, so a failure or a quit midway is finished on the next try or launch.
+    // The record of the unfinished deletion goes last, with the defaults, so a failure or a quit midway is finished on the next try or launch; callers report success only once this returns.
     private func finishDeletingShipTokDataOnThisIPhone() async throws {
         do {
             if let storedSignIn = try GitHubSignInKeychainStore.loadStoredSignIn() {
                 try GitHubSignInKeychainStore.deleteStoredSignIn()
                 ShipTokAnalytics(githubUserID: storedSignIn.user.githubUserID).capture(.signInEnded(reason: .dataDeleted))
             }
+            PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
+            await PullRequestMediaDiskCache.finishPendingSaves()
+            try Self.deleteCachedFiles()
         } catch {
-            throw ShipTokDataDeletionUnfinishedError(keychainError: error)
+            throw ShipTokDataDeletionUnfinishedError(cleanupError: error)
         }
-        phase = .signedOut(message: Self.dataDeletedMessage)
-        PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
-        await PullRequestMediaDiskCache.finishPendingSaves()
-        Self.deleteCachedFiles()
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
         }
         Self.logger.info("Deleted this person's ShipTok data")
     }
 
-    private static func deleteCachedFiles() {
+    private static func deleteCachedFiles() throws {
         let cachedFileURLs: [URL]
         do {
             cachedFileURLs = try FileManager.default.contentsOfDirectory(at: .cachesDirectory, includingPropertiesForKeys: nil)
         } catch {
             logger.error("Listing ShipTok's cached files to delete failed")
-            return
+            throw error
         }
         for cachedFileURL in cachedFileURLs {
             do {
                 try FileManager.default.removeItem(at: cachedFileURL)
+            } catch CocoaError.fileNoSuchFile {
+                continue
             } catch {
                 logger.error("Deleting a cached ShipTok file failed")
+                throw error
             }
         }
     }
