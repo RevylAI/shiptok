@@ -7,7 +7,7 @@ struct PullRequestMediaDeckView: View {
     let reportableContent: (PullRequestMediaItem) -> GitHubPostedContent?
     let onReport: (GitHubPostedContent) -> Void
     let onHide: (GitHubPostedContent) -> Void
-    let onLoadFailure: (PullRequestMediaItem) -> Void
+    let onLoadFailure: (PullRequestMediaItem, _ wasRefusedByRevyl: Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.shipTokAnalytics) private var analytics
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
@@ -40,7 +40,7 @@ struct PullRequestMediaDeckView: View {
                         isMuted: isMuted,
                         isPlaybackActive: scenePhase == .active && mediaItem.id == currentMediaItem?.id,
                         isUnloadable: unloadableMediaItemIDs.contains(mediaItem.id),
-                        onLoadFailure: { onLoadFailure(mediaItem) }
+                        onLoadFailure: { onLoadFailure(mediaItem, $0) }
                     )
                     .tag(Optional(mediaItem.id))
                 }

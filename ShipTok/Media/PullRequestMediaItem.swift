@@ -24,8 +24,11 @@ struct PullRequestMediaItem: Identifiable, Hashable, Sendable, Codable {
         url?.query != nil
     }
 
+    // A Revyl-hosted upload's link on any Revyl backend, under whatever path that backend is served from: its hosted video route, then the upload's token and its MP4 or MOV container, read as a backend decodes the path, so an escaped spelling of a working link counts too. Extraction, media ids, saved feeds and redaction all recognize hosted links here (docs/shiptok-format.md, "ShipTok video").
     static func isHostedShipTokVideoURL(_ url: URL) -> Bool {
-        url.path.hasPrefix("/api/v1/shiptok/videos/")
+        let pathSegments = url.path(percentEncoded: false).split(separator: "/")
+        return pathSegments.dropLast().suffix(4).elementsEqual(["api", "v1", "shiptok", "videos"])
+            && pathSegments.last?.wholeMatch(of: #/[A-Za-z0-9_-]{43}\.(?:mp4|mov)/#) != nil
     }
 
     // A hosted video's tokened link and a media URL signed in its query string each open the file for whoever holds them, whatever the host.

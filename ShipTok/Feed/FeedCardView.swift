@@ -61,7 +61,7 @@ struct FeedCardView: View {
     let onOpenComments: () -> Void
     let onOpenDeck: () -> Void
     let onTapCaption: () -> Void
-    let onHeroMediaLoadFailure: (PullRequestMediaItem) -> Void
+    let onHeroMediaLoadFailure: (PullRequestMediaItem, _ wasRefusedByRevyl: Bool) -> Void
     let onTapWhileBehindVibeFeedbackComposer: () -> Void
     @State private var isReactionPickerPresented = false
     @State private var isViewerVibeRemovalConfirmationPresented = false
@@ -258,7 +258,7 @@ struct FeedCardView: View {
                 pauseToggleTrigger: heroPauseToggleTrigger,
                 isFastPlaybackHeld: isHeroFastPlaybackHeld,
                 videoScrubFraction: videoScrubFraction,
-                onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem) }
+                onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem, $0) }
             )
             .id(heroMediaItem.id)
         } else {

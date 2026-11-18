@@ -140,7 +140,6 @@ enum PullRequestMediaExtraction {
             guard let range = Range(match.range, in: markdown),
                   let videoURL = URL(string: String(markdown[range])),
                   PullRequestMediaItem.isHostedShipTokVideoURL(videoURL),
-                  hasVideoFileExtension(videoURL),
                   let reference = mediaReference(kind: .video, candidateURLTexts: [videoURL.absoluteString])
             else { continue }
             if let existingReferenceIndex = references.firstIndex(where: { $0.mediaItemID == reference.mediaItemID }) {

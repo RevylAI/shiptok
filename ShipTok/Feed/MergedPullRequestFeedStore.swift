@@ -283,14 +283,14 @@ final class MergedPullRequestFeedStore {
     }
 
     // A failed load renews the pull request's media URLs at once, and when that read fails, the next one that succeeds settles the failure.
-    func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String) async {
+    func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String, wasRefusedByRevyl: Bool) async {
         guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
         defer {
             if let feedPullRequest = pullRequests.first(where: { $0.id == pullRequestID }) {
                 removeIfNoMediaLoadsAheadOfViewer(feedPullRequest)
             }
         }
-        guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem),
+        guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedByRevyl: wasRefusedByRevyl),
               pullRequestIDsRenewingMediaURLsAfterLoadFailure.insert(pullRequestID).inserted
         else { return }
         defer { pullRequestIDsRenewingMediaURLsAfterLoadFailure.remove(pullRequestID) }

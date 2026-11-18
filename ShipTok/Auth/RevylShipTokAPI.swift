@@ -8,15 +8,15 @@ enum RevylBackendConfiguration {
     static let requestTimeoutSeconds: TimeInterval = 60
     private static let defaultPortByScheme = ["https": 443, "http": 80]
 
-    // Only a link to this build's own backend, on its hosted video route, may carry the person's GitHub token: never another host a pull request names, whatever its path (AGENTS.md, "Signed Media URLs").
+    // Only a hosted video's canonical link on this build's own backend may carry the person's GitHub token: never another host a pull request names, and never a link whose userinfo, escapes or dot segments could make it mean another place, so its path must read exactly as the backend's hosted video route and the upload (AGENTS.md, "Signed Media URLs").
     static func servesHostedShipTokVideo(at url: URL) -> Bool {
-        guard let backendURL, let scheme = url.scheme?.lowercased(), scheme == backendURL.scheme?.lowercased(),
+        guard PullRequestMediaItem.isHostedShipTokVideoURL(url), url.user() == nil, url.password() == nil,
+              let backendURL, let scheme = url.scheme?.lowercased(), scheme == backendURL.scheme?.lowercased(),
               let host = url.host()?.lowercased(), host == backendURL.host()?.lowercased(),
               (url.port ?? defaultPortByScheme[scheme]) == (backendURL.port ?? defaultPortByScheme[scheme])
         else { return false }
-        let hostedVideoRoutePathComponents = backendURL.appending(path: "api/v1/shiptok/videos").pathComponents
-        return url.pathComponents.count == hostedVideoRoutePathComponents.count + 1
-            && url.pathComponents.starts(with: hostedVideoRoutePathComponents)
+        let canonicalVideoURL = backendURL.appending(path: "api/v1/shiptok/videos").appending(path: url.lastPathComponent)
+        return url.path(percentEncoded: true) == canonicalVideoURL.path(percentEncoded: true)
     }
 }
 

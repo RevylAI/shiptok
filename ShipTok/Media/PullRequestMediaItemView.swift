@@ -21,11 +21,12 @@ struct PullRequestMediaItemView: View {
     var pauseToggleTrigger = 0
     var isFastPlaybackHeld = false
     var videoScrubFraction: CGFloat?
-    let onLoadFailure: () -> Void
+    let onLoadFailure: (_ wasRefusedByRevyl: Bool) -> Void
     @State private var loadedImage: LoadedPullRequestImage?
     @State private var videoPlayback: LoopingVideoPlayback?
     @State private var hasFailedToLoad = false
     @State private var renewalRequestCount = 0
+    @State private var isWaitingForGitHubAccessToken = false
     @State private var naturalSize: CGSize?
     @State private var hasReadVideoNaturalSize = false
     @State private var isPausedByViewer = false
@@ -45,6 +46,7 @@ struct PullRequestMediaItemView: View {
     private static let fastPlaybackRate: Float = 2
     private static let deckPageProgressLineHitSlop: CGFloat = 20
     private static let imageDownloadAttemptLimit = 3
+    private static let gitHubAccessTokenRetryDelay: Duration = .seconds(5)
     private static let heroFillMinimumVisibleFraction: CGFloat = 0.875
     private static let heroBackdropDimmingOpacity = 0.35
     private static let heroBackdropBlurRadius: CGFloat = 30
@@ -94,6 +96,7 @@ struct PullRequestMediaItemView: View {
         }
         .task(id: MediaLoadRequest(mediaURL: mediaItem.url, renewalRequestCount: renewalRequestCount)) { await loadUnlessAlreadyLoaded() }
         .task(id: videoPlayback?.isReadyToPlay == true) { await handleVideoReadyToPlay() }
+        .task(id: isWaitingForGitHubAccessToken) { await loadAgainAfterGitHubAccessTokenWait() }
         .onChange(of: isPlaybackActive) {
             isPausedByViewer = false
             updateVideoPlayback(restartingFromBeginning: true)
@@ -379,6 +382,7 @@ struct PullRequestMediaItemView: View {
         case .video:
             guard let videoResourceLoader = PullRequestMediaMemoryCache.reuseOrStartVideoLoad(for: mediaItem, signedInGitHubAccessTokenVault: signedInGitHubAccessTokenVault) else { return }
             hasFailedToLoad = false
+            isWaitingForGitHubAccessToken = false
             hasTerminalPlaybackFailure = false
             videoPlayback = LoopingVideoPlayback(videoResourceLoader: videoResourceLoader, isMuted: isMuted)
             if let analytics, let analyticsMedia {
@@ -450,20 +454,36 @@ struct PullRequestMediaItemView: View {
         naturalSize = resolvedNaturalSize
     }
 
-    // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported (AGENTS.md, "Signed Media URLs").
+    // A signed-in person's token that couldn't be had says nothing about the video, so it keeps the loading look and loads again a few seconds later, for as long as it shows (AGENTS.md, "Signed Media URLs").
+    private func loadAgainAfterGitHubAccessTokenWait() async {
+        guard isWaitingForGitHubAccessToken else { return }
+        do {
+            try await Task.sleep(for: Self.gitHubAccessTokenRetryDelay)
+        } catch {
+            return
+        }
+        await loadUnlessAlreadyLoaded()
+    }
+
+    // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported. A video Revyl refused is reported at once, since no renewal changes Revyl's answer, and one that waited on the person's GitHub token isn't a failure of the media at all (AGENTS.md, "Signed Media URLs").
     private func handleLoadFailure() {
         guard !hasFailedToLoad else { return }
-        hasTerminalPlaybackFailure = PullRequestMediaMemoryCache.loadFailureLogLevel(for: mediaItem) == .error
-            && !PullRequestMediaMemoryCache.hasExpiringSignedURLFailed(for: mediaItem)
         hasFailedToLoad = true
+        if videoPlayback?.videoResourceLoader.lackedGitHubAccessToken == true {
+            isWaitingForGitHubAccessToken = true
+            return
+        }
+        let wasRefusedByRevyl = videoPlayback?.videoResourceLoader.wasRefusedByRevyl == true
+        hasTerminalPlaybackFailure = wasRefusedByRevyl
+            || (PullRequestMediaMemoryCache.loadFailureLogLevel(for: mediaItem) == .error && !PullRequestMediaMemoryCache.hasExpiringSignedURLFailed(for: mediaItem))
         PullRequestMediaMemoryCache.recordLoadFailure(of: mediaItem)
-        if !mediaItem.hasExpiringSignedURL, renewalRequestCount == 0 {
+        if !wasRefusedByRevyl, !mediaItem.hasExpiringSignedURL, renewalRequestCount == 0 {
             hasTerminalPlaybackFailure = false
             renewalRequestCount += 1
             return
         }
         reportVisiblePlaybackFailure()
-        onLoadFailure()
+        onLoadFailure(wasRefusedByRevyl)
     }
 
     private static func decodeImage(_ imageData: Data) async -> LoadedPullRequestImage? {

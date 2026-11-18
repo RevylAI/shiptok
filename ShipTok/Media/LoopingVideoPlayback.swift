@@ -11,7 +11,7 @@ final class LoopingVideoPlayback {
     private(set) var hasStartedPlaying = false
     private(set) var hasFailed = false
     // AVAssetResourceLoader holds its delegate weakly, so the playback keeps the loader alive.
-    private let videoResourceLoader: SingleRequestVideoResourceLoader
+    let videoResourceLoader: SingleRequestVideoResourceLoader
     private let videoAsset: AVURLAsset
     private let playerLooper: AVPlayerLooper
     @ObservationIgnored private var currentItemStatusObservation: NSKeyValueObservation?

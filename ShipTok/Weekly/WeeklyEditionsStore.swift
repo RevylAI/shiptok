@@ -60,8 +60,8 @@ final class WeeklyEditionsStore {
         await refresh(reportsFailure: false)
     }
 
-    func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem) async {
-        guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem) else { return }
+    func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, wasRefusedByRevyl: Bool) async {
+        guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedByRevyl: wasRefusedByRevyl) else { return }
         await refresh(reportsFailure: false)
     }
 

@@ -10,7 +10,7 @@ struct PullRequestHeroMediaView: View {
     let pauseToggleTrigger: Int
     let isFastPlaybackHeld: Bool
     let videoScrubFraction: CGFloat?
-    let onLoadFailure: () -> Void
+    let onLoadFailure: (_ wasRefusedByRevyl: Bool) -> Void
 
     var body: some View {
         PullRequestMediaItemView(
