@@ -457,7 +457,7 @@ struct FeedCardView: View {
             railItem(
                 systemImageName: viewerHasLiked ? "heart.fill" : "heart",
                 tint: viewerHasLiked ? RevylBrandColor.danger : RevylBrandColor.textPrimary,
-                countText: Self.compactCount(reactions.count(of: .heart))
+                count: reactions.count(of: .heart)
             )
             .symbolEffect(.bounce, value: viewerHasLiked)
             .contentShape(Rectangle())
@@ -476,7 +476,7 @@ struct FeedCardView: View {
                 railItem(
                     systemImageName: "bubble.right",
                     tint: RevylBrandColor.textPrimary,
-                    countText: Self.compactCount(post.discussionCommentCount)
+                    count: post.discussionCommentCount
                 )
             }
             .buttonStyle(.swipeYielding)
@@ -489,7 +489,7 @@ struct FeedCardView: View {
                         .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
                         .actionRailGlyphStyle()
                 } else {
-                    railItem(systemImageName: isReactionPickerPresented ? "xmark" : "face.smiling", tint: RevylBrandColor.textPrimary, countText: nil)
+                    railItem(systemImageName: isReactionPickerPresented ? "xmark" : "face.smiling", tint: RevylBrandColor.textPrimary, count: nil)
                 }
             }
             .buttonStyle(.swipeYielding)
@@ -506,7 +506,7 @@ struct FeedCardView: View {
                     railItem(
                         systemImageName: isHeroVideoMuted ? "speaker.slash" : "speaker.wave.2",
                         tint: RevylBrandColor.textPrimary,
-                        countText: nil
+                        count: nil
                     )
                     .contentTransition(.symbolEffect(.replace))
                 }
@@ -544,7 +544,7 @@ struct FeedCardView: View {
                     railItem(
                         systemImageName: "rectangle.stack",
                         tint: RevylBrandColor.textPrimary,
-                        countText: Self.compactCount(weeklyEdition.pullRequestNumbers.count)
+                        count: weeklyEdition.pullRequestNumbers.count
                     )
                 }
                 .buttonStyle(.swipeYielding)
@@ -560,7 +560,7 @@ struct FeedCardView: View {
 
     private var moderationMenu: some View {
         GitHubPostedContentModerationMenu(moderation: moderation) {
-            railItem(systemImageName: "ellipsis", tint: RevylBrandColor.textPrimary, countText: nil)
+            railItem(systemImageName: "ellipsis", tint: RevylBrandColor.textPrimary, count: nil)
         }
         .accessibilityLabel("More")
         .accessibilityHint("Report on GitHub or hide a person")
@@ -583,7 +583,7 @@ struct FeedCardView: View {
             railItem(
                 systemImageName: viewerVibe.map { "\($0.systemImageName).fill" } ?? "sparkles",
                 tint: viewerVibe?.tintColor ?? RevylBrandColor.textPrimary,
-                countText: nil
+                count: nil
             )
         }
         .menuOrder(.fixed)
@@ -611,18 +611,18 @@ struct FeedCardView: View {
         )
     }
 
-    private func railItem(systemImageName: String, tint: Color, countText: String?) -> some View {
+    private func railItem(systemImageName: String, tint: Color, count: Int?) -> some View {
         VStack(spacing: 2) {
             Image(systemName: systemImageName)
                 .font(.system(size: 26, weight: .regular))
                 .foregroundStyle(tint)
                 .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
                 .actionRailGlyphStyle()
-            if let countText {
-                Text(countText)
+            if let count {
+                Text(Self.compactCount(count))
                     .actionRailCountStyle()
-                    .contentTransition(.numericText())
-                    .animation(.snappy, value: countText)
+                    .contentTransition(.numericText(value: Double(count)))
+                    .animation(.snappy, value: count)
             }
         }
     }
