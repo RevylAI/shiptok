@@ -23,24 +23,21 @@ struct DeveloperInboxView: View {
         NavigationStack {
             Group {
                 if !store.hasLoaded, let errorMessage = store.errorMessage {
-                    ContentUnavailableView {
-                        Label("Couldn't load your inbox", systemImage: "wifi.exclamationmark")
-                    } description: {
-                        Text(errorMessage)
-                    } actions: {
-                        Button("Try again") { Task { await store.refresh() } }
-                            .buttonStyle(.revylPrimary)
-                    }
-                    .centeredInReadableContentColumn()
+                    RevylContentUnavailableView(
+                        systemImageName: "exclamationmark.triangle",
+                        title: "Couldn't load your inbox",
+                        message: errorMessage,
+                        actionTitle: "Try again",
+                        action: { Task { await store.refresh() } }
+                    )
                 } else if !store.hasLoaded {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if store.inboxItems.isEmpty {
-                    ContentUnavailableView(
-                        "Nothing yet",
-                        systemImage: "tray",
-                        description: Text("When teammates vibe, react to or comment on pull requests you merged, it lands here.")
+                    RevylContentUnavailableView(
+                        systemImageName: "tray",
+                        title: "Nothing yet",
+                        message: "When teammates vibe, react to or comment on pull requests you merged, it lands here."
                     )
-                    .centeredInReadableContentColumn()
                 } else {
                     List {
                         if let errorMessage = store.errorMessage {

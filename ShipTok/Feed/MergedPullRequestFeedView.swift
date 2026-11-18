@@ -513,7 +513,7 @@ struct MergedPullRequestFeedView: View {
         if !weeklyEditionsStore.weeklyEditions.isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
         } else if let loadFailureMessage = weeklyEditionsStore.loadFailureMessage {
-            FeedMessageView(
+            RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
                 title: "Couldn't load the weekly videos",
                 message: loadFailureMessage,
@@ -523,7 +523,7 @@ struct MergedPullRequestFeedView: View {
         } else if !weeklyEditionsStore.isLoaded {
             FeedLoadingView(message: "Finding the weekly videos…")
         } else {
-            FeedMessageView(
+            RevylContentUnavailableView(
                 systemImageName: "calendar",
                 title: "No weekly videos yet",
                 message: "Each week's video is a closed issue labeled \(WeeklyEditionFormat.labelName) in \(githubAPIClient.repositoryFullName). None is posted yet."
@@ -536,7 +536,7 @@ struct MergedPullRequestFeedView: View {
         if !feedStore.openWeekPullRequests.isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
         } else if let openWeekLoadFailureMessage = feedStore.openWeekLoadFailureMessage, let openWeeklyEdition {
-            FeedMessageView(
+            RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
                 title: "Couldn't load this week's pull requests",
                 message: openWeekLoadFailureMessage,
@@ -546,7 +546,7 @@ struct MergedPullRequestFeedView: View {
         } else if !feedStore.isOpenWeekLoaded {
             FeedLoadingView(message: "Loading the week's pull requests…")
         } else {
-            FeedMessageView(
+            RevylContentUnavailableView(
                 systemImageName: "rectangle.stack",
                 title: "None of this week's pull requests could be read",
                 message: "They may be private to you or no longer merged.",
@@ -561,7 +561,7 @@ struct MergedPullRequestFeedView: View {
         if !feedStore.pullRequests.isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
         } else if let failureMessage = feedStore.feedLoadFailureMessage {
-            FeedMessageView(
+            RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
                 title: "Couldn't load merged PRs",
                 message: failureMessage,
@@ -571,7 +571,7 @@ struct MergedPullRequestFeedView: View {
         } else if !feedStore.isFeedWindowLoaded {
             FeedLoadingView(message: "Finding merged PRs with videos and screenshots…")
         } else {
-            FeedMessageView(
+            RevylContentUnavailableView(
                 systemImageName: "film.stack",
                 title: "No PRs with media yet",
                 message: "ShipTok shows pull requests merged into \(githubAPIClient.repositoryFullName) in the last two weeks that carry a video, screenshot or GIF. None do yet."
@@ -780,7 +780,7 @@ struct MergedPullRequestFeedView: View {
                 onRetry: { Task { await feedStore.loadFeed() } }
             )
         case .weeklyEditions:
-            FeedMessageView(
+            RevylContentUnavailableView(
                 systemImageName: "checkmark.seal.fill",
                 title: "That's every weekly video",
                 message: "A new one lands after each week ends, Monday to Sunday."
@@ -788,7 +788,7 @@ struct MergedPullRequestFeedView: View {
             .background(RevylBrandColor.canvas)
         case .openWeek:
             if feedStore.isOpenWeekLoaded {
-                FeedMessageView(
+                RevylContentUnavailableView(
                     systemImageName: "checkmark.seal.fill",
                     title: "That's the week of \(openWeeklyEdition?.weekDatesText ?? "")",
                     message: "You've seen every pull request in this week's video.",
