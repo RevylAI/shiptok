@@ -11,6 +11,7 @@ struct FeedModeSwitch: View {
     let openWeekDatesText: String?
     let onCloseWeek: () -> Void
     @Environment(\.shipTokAnalytics) private var analytics
+    @Namespace private var selectedSegmentHighlightNamespace
 
     var body: some View {
         Group {
@@ -45,7 +46,7 @@ struct FeedModeSwitch: View {
         let isSelected = feedMode == mode
         return Button {
             let previousMode = feedMode
-            withAnimation(.spring(duration: 0.3)) { feedMode = mode }
+            withAnimation(.snappy) { feedMode = mode }
             if previousMode != mode {
                 analytics?.capture(.feedModeChanged(previousMode: previousMode, mode: mode))
             }
@@ -57,7 +58,9 @@ struct FeedModeSwitch: View {
                 .padding(.vertical, 5)
                 .background {
                     if isSelected {
-                        Capsule().fill(Color.white)
+                        Capsule()
+                            .fill(Color.white)
+                            .matchedGeometryEffect(id: "selectedSegmentHighlight", in: selectedSegmentHighlightNamespace)
                     }
                 }
                 .expandingTapTargetVertically()

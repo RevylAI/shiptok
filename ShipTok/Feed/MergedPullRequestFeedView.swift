@@ -275,7 +275,7 @@ struct MergedPullRequestFeedView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .overlay(alignment: .top) {
                 newerPullRequestsButton
-                    .animation(.spring(duration: 0.3), value: feedStore.unseenNewerPullRequestIDs.isEmpty)
+                    .animation(.snappy, value: feedStore.unseenNewerPullRequestIDs.isEmpty)
             }
             // Scroll content margins rather than safe-area padding, which a List inside the tabs' NavigationStack ignores, leaving its last rows under the pill.
             selectedTabPage
@@ -842,8 +842,10 @@ struct MergedPullRequestFeedView: View {
         .padding(.leading, 16)
         .padding(.trailing, Self.cardRailClearanceWidth)
         .padding(.bottom, 10)
-        .animation(.spring(duration: 0.3), value: vibeOutbox.undoableVibe?.id)
-        .animation(.spring(duration: 0.3), value: vibeOutbox.failedVibe?.id)
+        .animation(.snappy, value: vibeOutbox.undoableVibe?.id)
+        .animation(.snappy, value: vibeOutbox.failedVibe?.id)
+        .animation(.snappy, value: feedStore.transientErrorMessage)
+        .animation(.snappy, value: weeklyEditionsStore.transientErrorMessage)
     }
 
     private var vibeFeedbackComposer: some View {
@@ -867,7 +869,7 @@ struct MergedPullRequestFeedView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.spring(duration: 0.3), value: vibeAwaitingFeedback?.id)
+        .animation(.snappy, value: vibeAwaitingFeedback?.id)
     }
 
     // A composer that is leaving can still write late typing or dictation; only the current vibe's composer may change its text.

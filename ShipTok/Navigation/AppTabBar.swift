@@ -13,6 +13,7 @@ struct AppTabBar: View {
     @Binding var selectedTab: AppTab
     let unseenInboxItemCount: Int
     let viewerAvatarURL: URL?
+    @Namespace private var selectedTabHighlightNamespace
 
     private static let itemWidth: CGFloat = 92
     private static let edgePadding: CGFloat = 5
@@ -27,7 +28,9 @@ struct AppTabBar: View {
                         .frame(width: Self.itemWidth, height: Self.height - Self.edgePadding * 2)
                         .background {
                             if selectedTab == tab {
-                                Capsule().fill(Self.selectedItemFill)
+                                Capsule()
+                                    .fill(Self.selectedItemFill)
+                                    .matchedGeometryEffect(id: "selectedTabHighlight", in: selectedTabHighlightNamespace)
                             }
                         }
                         .contentShape(Capsule())
@@ -42,7 +45,8 @@ struct AppTabBar: View {
         .background(Capsule().fill(Self.pillFill))
         .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
-        .animation(.spring(duration: 0.25), value: selectedTab)
+        .animation(.snappy, value: selectedTab)
+        .animation(.snappy, value: unseenInboxItemCount)
     }
 
     @ViewBuilder
@@ -62,10 +66,12 @@ struct AppTabBar: View {
                         Text(unseenInboxItemCount > 99 ? "99+" : "\(unseenInboxItemCount)")
                             .font(.caption2.bold())
                             .foregroundStyle(.white)
+                            .contentTransition(.numericText(value: Double(unseenInboxItemCount)))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(Capsule().fill(RevylBrandColor.danger))
                             .offset(x: 10, y: -8)
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
         case .settings:

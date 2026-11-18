@@ -149,7 +149,8 @@ struct FeedCardView: View {
             }
             .overlay { VibeStampView(horizontalDragProgress: horizontalDragProgress) }
             .overlay { HeartBurstView(trigger: likeBurstTrigger) }
-            .animation(.spring(duration: 0.25), value: isReactionPickerPresented)
+            .animation(.snappy, value: isReactionPickerPresented)
+            .animation(.snappy, value: vibes.tally.viewerVibe)
             .animation(.easeOut(duration: 0.15), value: isHeroPlaybackGestureActive)
             .animation(.spring(duration: 0.35), value: arrangedFrames)
             .contentShape(Rectangle())
@@ -433,6 +434,7 @@ struct FeedCardView: View {
             }
             .buttonStyle(.swipeYielding)
             .fixedSize()
+            .transition(.scale(scale: 0.8, anchor: .leading).combined(with: .opacity))
             .accessibilityHint("Offers removing your vibe")
             .confirmationDialog(
                 "Remove your \(viewerVibe.displayName.lowercased())?",
@@ -617,6 +619,8 @@ struct FeedCardView: View {
             if let countText {
                 Text(countText)
                     .actionRailCountStyle()
+                    .contentTransition(.numericText())
+                    .animation(.snappy, value: countText)
             }
         }
     }
