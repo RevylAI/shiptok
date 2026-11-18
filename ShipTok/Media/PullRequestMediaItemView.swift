@@ -39,6 +39,7 @@ struct PullRequestMediaItemView: View {
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
     @Environment(\.scenePhase) private var scenePhase
     static let heroProgressLineHorizontalInset: CGFloat = 16
+    static let heroProgressLineBottomInset: CGFloat = 15
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
     private static let fastPlaybackRate: Float = 2
     private static let deckPageProgressLineHitSlop: CGFloat = 20
@@ -172,7 +173,7 @@ struct PullRequestMediaItemView: View {
                         VideoPlaybackProgressBar(player: videoPlayback.player, thicknessPoints: 2, scrubFraction: activeVideoScrubFraction)
                     }
                     .padding(.horizontal, Self.heroProgressLineHorizontalInset)
-                    .padding(.bottom, 15)
+                    .padding(.bottom, Self.heroProgressLineBottomInset)
                 }
             }
             .opacity(isVideoShowing ? 1 : 0)

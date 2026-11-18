@@ -88,7 +88,8 @@ struct FeedCardView: View {
     private static let videoScrubZoneDepthBelowCard: CGFloat = 12
     private static let railTrailingInsetOverCard: CGFloat = 4
     private static let captionBackdropFadeHeight: CGFloat = 80
-    private static let captionBackdropBottomTintOpacity = 0.25
+    private static let captionBackdropTintOpacity = 0.65
+    private static let captionBackdropBlurClearanceAboveProgressLine: CGFloat = 6
     private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
@@ -274,37 +275,37 @@ struct FeedCardView: View {
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
-    // Blurs the media behind every line of the caption and fades out above it, so the media's own text never competes with the caption. The dark material alone takes pure white down to about the level of a 0.6 black scrim, keeping white text at about 5.4:1, and the tint toward the bottom keeps the smaller grey line under the title at 4.5:1 or better.
+    // The tint, not the blur, keeps the caption legible. Drawn over the blur, it holds at least 0.65 black from the caption's top line down, whatever the material does, so on pure white media textPrimary keeps 6.7:1 and the textBody metadata 4.7:1. The blur only keeps the media's own detail from competing with the caption, and over a video it clears above the progress line so the line stays sharp.
     private func captionBackdrop(frames: CardFrames) -> some View {
         let captionTopInCard = frames.caption.maxY - captionHeight - frames.card.minY
         let backdropHeight = min(frames.card.height - captionTopInCard + Self.captionBackdropFadeHeight, frames.card.height)
-        let fadeEndLocation = Self.captionBackdropFadeHeight / max(backdropHeight, Self.captionBackdropFadeHeight)
-        return Rectangle()
-            .fill(.ultraThinMaterial)
-            .environment(\.colorScheme, .dark)
-            .overlay(
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: fadeEndLocation),
-                        .init(color: .black.opacity(Self.captionBackdropBottomTintOpacity), location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+        let gradientHeight = max(backdropHeight, Self.captionBackdropFadeHeight)
+        let fadeEndLocation = Self.captionBackdropFadeHeight / gradientHeight
+        var blurMaskStops: [Gradient.Stop] = [.init(color: .clear, location: 0), .init(color: .black, location: fadeEndLocation)]
+        if isHeroLoadableVideo {
+            let blurClearHeight = PullRequestMediaItemView.heroProgressLineBottomInset + Self.captionBackdropBlurClearanceAboveProgressLine
+            blurMaskStops += [
+                .init(color: .black, location: 1 - Self.captionBottomInset / gradientHeight),
+                .init(color: .clear, location: 1 - blurClearHeight / gradientHeight),
+            ]
+        }
+        return ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .mask(LinearGradient(stops: blurMaskStops, startPoint: .top, endPoint: .bottom))
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black.opacity(Self.captionBackdropTintOpacity), location: fadeEndLocation),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: fadeEndLocation),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .frame(height: max(backdropHeight, 0))
-            .opacity(isHeroPlaybackGestureActive ? 0 : 1)
-            .allowsHitTesting(false)
+        }
+        .frame(height: max(backdropHeight, 0))
+        .opacity(isHeroPlaybackGestureActive ? 0 : 1)
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
