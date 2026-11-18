@@ -3,23 +3,23 @@ import SwiftUI
 // Every empty, finished or failed screen, in the feed, weekly mode and the inbox alike, uses the system's layout with at most one quiet action.
 struct RevylContentUnavailableView: View {
     let systemImageName: String
-    let title: String
-    let message: String
-    var actionTitle: String?
+    let title: Text
+    let message: Text
+    var actionTitle: Text?
     var action: (() -> Void)?
 
     var body: some View {
         ContentUnavailableView {
             Label {
-                Text(verbatim: title)
+                title
             } icon: {
                 Image(systemName: systemImageName)
             }
         } description: {
-            Text(verbatim: message)
+            message
         } actions: {
             if let actionTitle, let action {
-                Button(actionTitle, action: action)
+                Button(action: action) { actionTitle }
                     .buttonStyle(.revylSecondary)
             }
         }

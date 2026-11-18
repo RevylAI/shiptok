@@ -25,9 +25,9 @@ struct DeveloperInboxView: View {
                 if !store.hasLoaded, let errorMessage = store.errorMessage {
                     RevylContentUnavailableView(
                         systemImageName: "exclamationmark.triangle",
-                        title: "Couldn't load your inbox",
-                        message: errorMessage,
-                        actionTitle: "Try again",
+                        title: Text("Couldn't load your inbox"),
+                        message: Text(verbatim: errorMessage),
+                        actionTitle: Text("Try again"),
                         action: { Task { await store.refresh() } }
                     )
                 } else if !store.hasLoaded {
@@ -35,8 +35,8 @@ struct DeveloperInboxView: View {
                 } else if store.inboxItems.isEmpty {
                     RevylContentUnavailableView(
                         systemImageName: "tray",
-                        title: "Nothing yet",
-                        message: "When teammates vibe, react to or comment on pull requests you merged, it lands here."
+                        title: Text("Nothing yet"),
+                        message: Text("When teammates vibe, react to or comment on pull requests you merged, it lands here.")
                     )
                 } else {
                     List {

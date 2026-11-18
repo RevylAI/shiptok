@@ -11,9 +11,9 @@ struct FeedEndPageView: View {
             if let feedLoadFailureMessage {
                 RevylContentUnavailableView(
                     systemImageName: "exclamationmark.triangle",
-                    title: "Couldn't load the rest of the last two weeks",
-                    message: feedLoadFailureMessage,
-                    actionTitle: "Try again",
+                    title: Text("Couldn't load the rest of the last two weeks"),
+                    message: Text(verbatim: feedLoadFailureMessage),
+                    actionTitle: Text("Try again"),
                     action: onRetry
                 )
             } else if !isFeedWindowLoaded {
@@ -21,8 +21,8 @@ struct FeedEndPageView: View {
             } else {
                 RevylContentUnavailableView(
                     systemImageName: "checkmark.seal.fill",
-                    title: "That's the last two weeks",
-                    message: "You've seen every pull request merged into \(repositoryFullName) in the last two weeks with a video, screenshot or GIF, plus every ShipTok video."
+                    title: Text("That's the last two weeks"),
+                    message: Text("You've seen every pull request merged into \(repositoryFullName) in the last two weeks with a video, screenshot or GIF, plus every ShipTok video.")
                 )
             }
         }
