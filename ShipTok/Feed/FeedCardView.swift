@@ -87,7 +87,8 @@ struct FeedCardView: View {
     private static let railBottomInsetOverCard: CGFloat = 28
     private static let videoScrubZoneDepthBelowCard: CGFloat = 12
     private static let railTrailingInsetOverCard: CGFloat = 4
-    private static let captionScrimFadeHeight: CGFloat = 80
+    private static let captionBackdropFadeHeight: CGFloat = 80
+    private static let captionBackdropBottomTintOpacity = 0.25
     private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
@@ -113,7 +114,7 @@ struct FeedCardView: View {
             ZStack(alignment: .topLeading) {
                 ZStack(alignment: .bottom) {
                     heroMedia
-                    captionScrim(frames: arrangedFrames)
+                    captionBackdrop(frames: arrangedFrames)
                 }
                 .frame(width: arrangedFrames.card.width, height: arrangedFrames.card.height)
                 .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
@@ -272,22 +273,37 @@ struct FeedCardView: View {
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
-    // Solid behind every line of the caption and fading out above it, so the caption reads on any frame: from 0.6 black at its top line, its white text keeps at least 4.5:1 contrast even over pure white media.
-    private func captionScrim(frames: CardFrames) -> some View {
+    // Blurs the media behind every line of the caption and fades out above it, so the media's own text never competes with the caption. The dark material alone takes pure white down to about the level of a 0.6 black scrim, keeping white text at about 5.4:1, and the tint toward the bottom keeps the smaller grey line under the title at 4.5:1 or better.
+    private func captionBackdrop(frames: CardFrames) -> some View {
         let captionTopInCard = frames.caption.maxY - captionHeight - frames.card.minY
-        let scrimHeight = min(frames.card.height - captionTopInCard + Self.captionScrimFadeHeight, frames.card.height)
-        return LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0),
-                .init(color: .black.opacity(0.6), location: Self.captionScrimFadeHeight / max(scrimHeight, Self.captionScrimFadeHeight)),
-                .init(color: .black.opacity(0.7), location: 1),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: max(scrimHeight, 0))
-        .opacity(isHeroPlaybackGestureActive ? 0 : 1)
-        .allowsHitTesting(false)
+        let backdropHeight = min(frames.card.height - captionTopInCard + Self.captionBackdropFadeHeight, frames.card.height)
+        let fadeEndLocation = Self.captionBackdropFadeHeight / max(backdropHeight, Self.captionBackdropFadeHeight)
+        return Rectangle()
+            .fill(.ultraThinMaterial)
+            .environment(\.colorScheme, .dark)
+            .overlay(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: fadeEndLocation),
+                        .init(color: .black.opacity(Self.captionBackdropBottomTintOpacity), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: fadeEndLocation),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(height: max(backdropHeight, 0))
+            .opacity(isHeroPlaybackGestureActive ? 0 : 1)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
