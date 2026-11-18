@@ -18,7 +18,7 @@ A video in the description or a top-level conversation comment tagged with case-
 <the video>
 ```
 
-The video is a GitHub attachment or a Revyl-hosted upload link, either bare or behind a linked poster. For hosted uploads, `/api/v1/shiptok/videos/{token}.mp4` or `/api/v1/shiptok/videos/{token}.mov` is the immutable canonical link for that upload; playback follows its redirect without forwarding GitHub authorization. Re-uploading produces another canonical link and cache identity, rather than changing bytes behind an existing link. Comments carrying a ShipTok tag stay out of the discussion list, with or without a video.
+The video is a GitHub attachment or a Revyl-hosted upload link, either bare or behind a linked poster. For hosted uploads, `/api/v1/shiptok/videos/{token}.mp4` or `/api/v1/shiptok/videos/{token}.mov` is the immutable canonical link for that upload. On a private repository it plays only for a viewer GitHub lets read the repository, so a signed-in app presents the person's GitHub token when the link is on the Revyl backend its build names, and playback follows its redirect without forwarding GitHub authorization. Re-uploading produces another canonical link and cache identity, rather than changing bytes behind an existing link. Comments carrying a ShipTok tag stay out of the discussion list, with or without a video.
 
 Every video is at most 100 MB (104,857,600 bytes), the limit of a Revyl-hosted upload. The app plays a video from memory, so it stops downloading a larger one, tagged or not, and treats it as media that failed to load.
 

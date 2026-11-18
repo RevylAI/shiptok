@@ -6,6 +6,18 @@ enum RevylBackendConfiguration {
     static let backendURL: URL? = (Bundle.main.object(forInfoDictionaryKey: "RevylBackendURL") as? String)
         .flatMap { $0.isEmpty ? nil : URL(string: $0) }
     static let requestTimeoutSeconds: TimeInterval = 60
+    private static let defaultPortByScheme = ["https": 443, "http": 80]
+
+    // Only a link to this build's own backend, on its hosted video route, may carry the person's GitHub token: never another host a pull request names, whatever its path (AGENTS.md, "Signed Media URLs").
+    static func servesHostedShipTokVideo(at url: URL) -> Bool {
+        guard let backendURL, let scheme = url.scheme?.lowercased(), scheme == backendURL.scheme?.lowercased(),
+              let host = url.host()?.lowercased(), host == backendURL.host()?.lowercased(),
+              (url.port ?? defaultPortByScheme[scheme]) == (backendURL.port ?? defaultPortByScheme[scheme])
+        else { return false }
+        let hostedVideoRoutePathComponents = backendURL.appending(path: "api/v1/shiptok/videos").pathComponents
+        return url.pathComponents.count == hostedVideoRoutePathComponents.count + 1
+            && url.pathComponents.starts(with: hostedVideoRoutePathComponents)
+    }
 }
 
 struct GitHubUserAccessTokens: Codable, Sendable, Equatable {

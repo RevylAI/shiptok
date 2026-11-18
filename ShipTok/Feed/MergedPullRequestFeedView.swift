@@ -406,6 +406,7 @@ struct MergedPullRequestFeedView: View {
         }
         .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
         .environment(\.shipTokAnalytics, viewer.analytics)
+        .environment(\.signedInGitHubAccessTokenVault, viewer.teammate?.accessTokenVault)
         .environment(playbackRateChoice)
     }
 

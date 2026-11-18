@@ -36,6 +36,7 @@ struct PullRequestMediaItemView: View {
     @State private var hasReportedPlaybackFailure = false
     @State private var hasTerminalPlaybackFailure = false
     @Environment(\.shipTokAnalytics) private var analytics
+    @Environment(\.signedInGitHubAccessTokenVault) private var signedInGitHubAccessTokenVault
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
     @Environment(\.scenePhase) private var scenePhase
     static let heroProgressLineHorizontalInset: CGFloat = 16
@@ -376,7 +377,7 @@ struct PullRequestMediaItemView: View {
         }
         switch mediaItem.kind {
         case .video:
-            guard let videoResourceLoader = PullRequestMediaMemoryCache.reuseOrStartVideoLoad(for: mediaItem) else { return }
+            guard let videoResourceLoader = PullRequestMediaMemoryCache.reuseOrStartVideoLoad(for: mediaItem, signedInGitHubAccessTokenVault: signedInGitHubAccessTokenVault) else { return }
             hasFailedToLoad = false
             hasTerminalPlaybackFailure = false
             videoPlayback = LoopingVideoPlayback(videoResourceLoader: videoResourceLoader, isMuted: isMuted)

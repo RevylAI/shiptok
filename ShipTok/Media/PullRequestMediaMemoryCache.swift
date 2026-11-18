@@ -83,7 +83,7 @@ enum PullRequestMediaMemoryCache {
     }
 
     // Nil while a saved card waits for its refetch to bring a URL for a video that isn't saved on the device (AGENTS.md, "Feed Caching").
-    static func reuseOrStartVideoLoad(for mediaItem: PullRequestMediaItem) -> SingleRequestVideoResourceLoader? {
+    static func reuseOrStartVideoLoad(for mediaItem: PullRequestMediaItem, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) -> SingleRequestVideoResourceLoader? {
         let cacheKey = mediaItem.id as NSString
         if let videoResourceLoader = videoResourceLoadersByMediaItemID.object(forKey: cacheKey), !videoResourceLoader.hasFailed {
             return videoResourceLoader
@@ -105,7 +105,8 @@ enum PullRequestMediaMemoryCache {
             videoResourceLoader = SingleRequestVideoResourceLoader(
                 videoURL: videoURL,
                 savingAsMediaItemID: mediaItem.id,
-                failureLogLevel: loadFailureLogLevel(for: mediaItem)
+                failureLogLevel: loadFailureLogLevel(for: mediaItem),
+                signedInGitHubAccessTokenVault: signedInGitHubAccessTokenVault
             )
             downloadingVideoResourceLoaders.add(videoResourceLoader)
         } else {
