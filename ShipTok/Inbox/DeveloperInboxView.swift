@@ -40,31 +40,32 @@ struct DeveloperInboxView: View {
                     )
                 } else {
                     List {
-                        if let errorMessage = store.errorMessage {
-                            Label("Couldn't refresh from GitHub: \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(RevylBrandColor.warning)
-                                .listRowBackground(RevylBrandColor.surface)
-                                .listSectionSeparator(.hidden)
-                        }
-                        ForEach(store.inboxItems) { inboxItem in
-                            Button { onOpenPullRequest(inboxItem.pullRequestNumber) } label: {
-                                DeveloperInboxRow(inboxItem: inboxItem, isUnseen: inboxItem.occurredAt > store.lastSeenOccurredAt)
+                        Section {
+                            if let errorMessage = store.errorMessage {
+                                Label("Couldn't refresh from GitHub: \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(RevylBrandColor.warning)
+                                    .listRowBackground(RevylBrandColor.surface)
                             }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                if let postedContent = inboxItem.postedContent {
-                                    GitHubPostedContentModerationButtons(
-                                        postedContent: postedContent,
-                                        onReport: onReport,
-                                        onHide: { postedContentAwaitingHideConfirmation = $0 }
-                                    )
+                            ForEach(store.inboxItems) { inboxItem in
+                                Button { onOpenPullRequest(inboxItem.pullRequestNumber) } label: {
+                                    DeveloperInboxRow(inboxItem: inboxItem, isUnseen: inboxItem.occurredAt > store.lastSeenOccurredAt)
                                 }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    if let postedContent = inboxItem.postedContent {
+                                        GitHubPostedContentModerationButtons(
+                                            postedContent: postedContent,
+                                            onReport: onReport,
+                                            onHide: { postedContentAwaitingHideConfirmation = $0 }
+                                        )
+                                    }
+                                }
+                                .listRowBackground(RevylBrandColor.surface)
+                                .listRowSeparatorTint(RevylBrandColor.border)
                             }
-                            .listRowBackground(RevylBrandColor.surface)
-                            .listRowSeparatorTint(RevylBrandColor.border)
-                            .listSectionSeparator(.hidden)
                         }
+                        .listSectionSeparator(.hidden)
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
