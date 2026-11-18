@@ -25,7 +25,7 @@ test:
         - type: validation
           step_description: The media deck opens full screen on a black background with a close button at its top left and a position label such as '1 of 3' at its top
         - type: instructions
-          step_description: Swipe left on the media in the deck
+          step_description: Swipe left across the full width of the media in one fast, long swipe, starting near the right edge of the screen at the middle of the media and ending near the left edge
         - type: validation
           step_description: The deck shows the next photo or video and its position label reads '2 of' the same total
         - type: instructions
