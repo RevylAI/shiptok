@@ -151,7 +151,6 @@ struct FeedCardView: View {
             .overlay { VibeStampView(horizontalDragProgress: horizontalDragProgress) }
             .overlay { HeartBurstView(trigger: likeBurstTrigger) }
             .animation(.snappy, value: isReactionPickerPresented)
-            .animation(.snappy, value: vibes.tally.viewerVibe)
             .animation(.easeOut(duration: 0.15), value: isHeroPlaybackGestureActive)
             .animation(.spring(duration: 0.35), value: arrangedFrames)
             .contentShape(Rectangle())
@@ -340,6 +339,7 @@ struct FeedCardView: View {
                 .accessibilityHint("Opens this week's pull requests")
                 viewerVibeBadge
             }
+            .animation(.snappy, value: vibes.tally.viewerVibe)
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(weeklyEdition.title)
@@ -387,6 +387,7 @@ struct FeedCardView: View {
                 .accessibilityHint("Opens the pull request's details")
                 viewerVibeBadge
             }
+            .animation(.snappy, value: vibes.tally.viewerVibe)
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(pullRequest.title)
