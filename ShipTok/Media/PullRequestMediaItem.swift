@@ -24,16 +24,22 @@ struct PullRequestMediaItem: Identifiable, Hashable, Sendable, Codable {
         url?.query != nil
     }
 
-    // A Revyl-hosted upload's link on any Revyl backend, under whatever path that backend is served from: its hosted video route, then the upload's token and its MP4 or MOV container, read as a backend decodes the path, so an escaped spelling of a working link counts too. Extraction, media ids, saved feeds and redaction all recognize hosted links here (docs/shiptok-format.md, "ShipTok video").
+    // A Revyl-hosted upload's link on any Revyl backend, under whatever path that backend is served from: its hosted video route, then the upload's token and its MP4 or MOV container, read as a backend decodes the path, so an escaped spelling of a working link counts too. Extraction recognizes hosted videos here and playback's bearer check builds on it (docs/shiptok-format.md, "ShipTok video").
     static func isHostedShipTokVideoURL(_ url: URL) -> Bool {
         let pathSegments = url.path(percentEncoded: false).split(separator: "/")
         return pathSegments.dropLast().suffix(4).elementsEqual(["api", "v1", "shiptok", "videos"])
             && pathSegments.last?.wholeMatch(of: #/[A-Za-z0-9_-]{43}\.(?:mp4|mov)/#) != nil
     }
 
+    // Any link whose path holds the hosted video route, however it's escaped or cased, is taken for a hosted video's tokened link, so media ids, saved feeds and redaction never keep one a backend might still open. Only playback's bearer check needs the exact link (AGENTS.md, "Signed Media URLs").
+    static func pathContainsHostedShipTokVideoRoute(_ url: URL) -> Bool {
+        let lowercasedPathSegments = url.path(percentEncoded: false).lowercased().split(separator: "/")
+        return ("/" + lowercasedPathSegments.joined(separator: "/") + "/").contains("/api/v1/shiptok/videos/")
+    }
+
     // A hosted video's tokened link and a media URL signed in its query string each open the file for whoever holds them, whatever the host.
     static func isCredentialMediaURL(_ url: URL) -> Bool {
-        isHostedShipTokVideoURL(url) || url.query != nil
+        pathContainsHostedShipTokVideoRoute(url) || url.query != nil
     }
 
     private enum CodingKeys: String, CodingKey {

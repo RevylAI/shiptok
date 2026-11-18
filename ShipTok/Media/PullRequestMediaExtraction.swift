@@ -74,7 +74,7 @@ enum PullRequestMediaExtraction {
         return [heroMediaItem] + deckOrderedMediaItems.filter { $0.id != heroMediaItem.id }
     }
 
-    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes. Only media targets count, so an ordinary link with a query string stays, while an image's reference definition counts whatever its URL looks like, since an upload's signed URL often has no file extension.
+    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes, keeping the prose punctuation after it. Only media targets count, so an ordinary link with a query string stays, while an image's reference definition counts whatever its URL looks like, since an upload's signed URL often has no file extension.
     static func markdownWithoutCredentialMediaLinks(_ markdown: String) -> String {
         let imageReferencePattern = #/!\[([^\]]*)\](?:\[([^\]]*)\]|(?!\())/#
         func normalizedReferenceLabel(_ label: Substring) -> String {
@@ -86,7 +86,7 @@ enum PullRequestMediaExtraction {
         let imageReferenceLabels = Set(markdown.matches(of: imageReferencePattern).map { referenceLabel(of: $0) })
         var credentialImageReferenceLabels: Set<String> = []
         let markdownWithoutCredentialImageReferences = markdown
-            .replacing(#/^\h{0,3}\[([^\]]+)\]:\h*<?(https?:\/\/[^\s<>]+)>?(?:\h+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\h*(?:\R|$)/#.anchorsMatchLineEndings()) { definition in
+            .replacing(#/^\h{0,3}\[([^\]]+)\]:\h*<?(https?:\/\/[^\s<>]+)>?(?:\h+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\h*(?:\R|$)/#.anchorsMatchLineEndings().ignoresCase()) { definition in
                 let label = normalizedReferenceLabel(definition.1)
                 guard imageReferenceLabels.contains(label), let definitionURL = URL(string: String(definition.2)),
                       PullRequestMediaItem.isCredentialMediaURL(definitionURL)
@@ -98,18 +98,18 @@ enum PullRequestMediaExtraction {
                 credentialImageReferenceLabels.contains(referenceLabel(of: imageReference)) ? "" : String(imageReference.0)
             }
         return markdownWithoutCredentialImageReferences
-            .replacing(#/(!?)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])*)\]\(\s*<?(https?:\/\/[^\s<>()]+)>?(?:\s+"[^"]*")?\s*\)/#) { linkMatch in
+            .replacing(#/(!?)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])*)\]\(\s*<?(https?:\/\/[^\s<>()]+)>?(?:\s+"[^"]*")?\s*\)/#.ignoresCase()) { linkMatch in
                 let isImageEmbed = !linkMatch.1.isEmpty
                 guard let linkURL = URL(string: String(linkMatch.3)), isImageEmbed || isMediaLinkTarget(linkURL),
                       PullRequestMediaItem.isCredentialMediaURL(linkURL)
                 else { return String(linkMatch.0) }
                 return isImageEmbed ? "" : String(linkMatch.2)
             }
-            .replacing(#/<?(https?:\/\/[^\s<>()"'`]+)>?/#) { urlMatch in
+            .replacing(#/<?(https?:\/\/[^\s<>()"'`]*[^\s<>()"'`.,;:!?])([.,;:!?]*)>?/#.ignoresCase()) { urlMatch in
                 guard let url = URL(string: String(urlMatch.1)), isMediaLinkTarget(url), PullRequestMediaItem.isCredentialMediaURL(url) else {
                     return String(urlMatch.0)
                 }
-                return ""
+                return String(urlMatch.2)
             }
     }
 
@@ -134,7 +134,7 @@ enum PullRequestMediaExtraction {
 
     private static func mediaReferences(inMarkdown markdown: String, inHTML bodyHTML: String) -> [MediaReference] {
         var references = mediaReferences(inHTML: bodyHTML)
-        let urlPattern = #"https://[^\s<>()\"'`]+"#
+        let urlPattern = #"https://[^\s<>()\"'`]*[^\s<>()\"'`.,;:!?]"#
         guard let expression = try? NSRegularExpression(pattern: urlPattern) else { return references }
         for match in expression.matches(in: markdown, range: NSRange(markdown.startIndex..., in: markdown)) {
             guard let range = Range(match.range, in: markdown),
@@ -224,7 +224,7 @@ enum PullRequestMediaExtraction {
         identityURLComponents.query = nil
         identityURLComponents.fragment = nil
         guard let canonicalIdentity = identityURLComponents.string else { return nil }
-        let mediaItemID = PullRequestMediaItem.isHostedShipTokVideoURL(identityURL)
+        let mediaItemID = PullRequestMediaItem.pathContainsHostedShipTokVideoRoute(identityURL)
             ? "shiptok-video:" + SHA256.hash(data: Data(canonicalIdentity.utf8)).map { String(format: "%02x", $0) }.joined()
             : canonicalIdentity
         return MediaReference(mediaItemID: mediaItemID, kind: kind, displayURL: displayURL)
@@ -232,7 +232,7 @@ enum PullRequestMediaExtraction {
 
     // GitHub serves uploads from these endpoints, often without a file extension; any other link, the rest of GitHub's hosts included, is media only as a video or image file.
     private static func isMediaLinkTarget(_ url: URL) -> Bool {
-        if PullRequestMediaItem.isHostedShipTokVideoURL(url) { return true }
+        if PullRequestMediaItem.pathContainsHostedShipTokVideoRoute(url) { return true }
         let host = url.host()?.lowercased()
         if host == "user-images.githubusercontent.com" || host == "private-user-images.githubusercontent.com"
             || (host == "github.com" && url.path.hasPrefix("/user-attachments/")) {
