@@ -74,7 +74,7 @@ enum PullRequestMediaExtraction {
         return [heroMediaItem] + deckOrderedMediaItems.filter { $0.id != heroMediaItem.id }
     }
 
-    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes, keeping the prose punctuation after it. Only media targets count, so an ordinary link with a query string stays, while an image's reference definition counts whatever its URL looks like, since an upload's signed URL often has no file extension.
+    // Text shown or copied never carries a credential media link (AGENTS.md, "iOS App"): a linked label stays, and an image or bare link goes, keeping the prose punctuation after it. Only media targets count, so an ordinary link with a query string stays, while an image's reference definition counts whatever its URL looks like, since an upload's signed URL often has no file extension. A hosted video's token then goes from whatever text is left, however the links around it read (AGENTS.md, "Signed Media URLs").
     static func markdownWithoutCredentialMediaLinks(_ markdown: String) -> String {
         let imageReferencePattern = #/!\[([^\]]*)\](?:\[([^\]]*)\]|(?!\())/#
         func normalizedReferenceLabel(_ label: Substring) -> String {
@@ -86,7 +86,7 @@ enum PullRequestMediaExtraction {
         let imageReferenceLabels = Set(markdown.matches(of: imageReferencePattern).map { referenceLabel(of: $0) })
         var credentialImageReferenceLabels: Set<String> = []
         let markdownWithoutCredentialImageReferences = markdown
-            .replacing(#/^\h{0,3}\[([^\]]+)\]:\h*<?(https?:\/\/[^\s<>]+)>?(?:\h+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\h*(?:\R|$)/#.anchorsMatchLineEndings().ignoresCase()) { definition in
+            .replacing(#/^\h{0,3}\[([^\]]+)\]:\h*<?([^\s<>]+)>?(?:\h+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\h*(?:\R|$)/#.anchorsMatchLineEndings()) { definition in
                 let label = normalizedReferenceLabel(definition.1)
                 guard imageReferenceLabels.contains(label), let definitionURL = URL(string: String(definition.2)),
                       PullRequestMediaItem.isCredentialMediaURL(definitionURL)
@@ -98,7 +98,7 @@ enum PullRequestMediaExtraction {
                 credentialImageReferenceLabels.contains(referenceLabel(of: imageReference)) ? "" : String(imageReference.0)
             }
         return markdownWithoutCredentialImageReferences
-            .replacing(#/(!?)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])*)\]\(\s*<?(https?:\/\/[^\s<>()]+)>?(?:\s+"[^"]*")?\s*\)/#.ignoresCase()) { linkMatch in
+            .replacing(#/(!?)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])*)\]\(\s*<?([^\s<>()]+)>?(?:\s+"[^"]*")?\s*\)/#) { linkMatch in
                 let isImageEmbed = !linkMatch.1.isEmpty
                 guard let linkURL = URL(string: String(linkMatch.3)), isImageEmbed || isMediaLinkTarget(linkURL),
                       PullRequestMediaItem.isCredentialMediaURL(linkURL)
@@ -111,6 +111,24 @@ enum PullRequestMediaExtraction {
                 }
                 return String(urlMatch.2)
             }
+            .replacing(#/([^\s<>()\[\]"'`]*[^\s<>()\[\]"'`.,;:!?])([.,;:!?]*)/#) { textRun in
+                holdsHostedShipTokVideoToken(textRun.1) ? String(textRun.2) : String(textRun.0)
+            }
+    }
+
+    // Wherever the hosted video route reads, relative or absolute, escaped or cased, and a token-shaped segment follows, a backend could take it for a hosted video's token. Escapes decode as the backend's would, leaving a malformed one as it is.
+    private static func holdsHostedShipTokVideoToken(_ textRun: Substring) -> Bool {
+        let decodedTextRun = textRun.replacing(#/%([0-9A-Fa-f]{2})/#) { escape in
+            UInt8(escape.1, radix: 16).map { String(UnicodeScalar($0)) } ?? String(escape.0)
+        }
+        let pathSegments = decodedTextRun.lowercased().split(separator: "/")
+        let hostedVideoRoute: [Substring] = ["api", "v1", "shiptok", "videos"]
+        return pathSegments.indices.contains { routeStartIndex in
+            let tokenIndex = routeStartIndex + hostedVideoRoute.count
+            return tokenIndex < pathSegments.endIndex
+                && pathSegments[routeStartIndex..<tokenIndex].elementsEqual(hostedVideoRoute)
+                && pathSegments[tokenIndex].first.map { "abcdefghijklmnopqrstuvwxyz0123456789_-".contains($0) } == true
+        }
     }
 
     static func containsShipTokVideoTag(_ markdown: String) -> Bool {

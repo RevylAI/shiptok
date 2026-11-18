@@ -112,7 +112,7 @@ final class GitHubSignInSession {
     func signIn(using webAuthenticationSession: WebAuthenticationSession) async {
         isSigningIn = true
         defer { isSigningIn = false }
-        let demoVisitor = self.demoVisitor
+        var demoVisitor = self.demoVisitor
         if let demoVisitor {
             phase = .exploringDemo(demoVisitor, signInFailureMessage: nil)
         }
@@ -124,6 +124,20 @@ final class GitHubSignInSession {
         do {
             // An unfinished deletion would take a new sign-in with it on the next launch, and each sign-in spends one of the person's GitHub tokens from Revyl's App, so it finishes before GitHub opens.
             if Self.unfinishedDataDeletionGitHubUserID != nil {
+                // The demo's own downloads would save into the folder the deletion removes, so they stop first and the visit goes on with media of its own from here.
+                if let visitBeforeDeletion = demoVisitor {
+                    visitBeforeDeletion.mediaCache.stopDownloadsAndRemoveAllMedia()
+                    let continuingVisit = DemoVisitor(
+                        visitID: visitBeforeDeletion.visitID,
+                        repositoryFullName: visitBeforeDeletion.repositoryFullName,
+                        demoFeed: visitBeforeDeletion.demoFeed,
+                        analytics: visitBeforeDeletion.analytics,
+                        hiddenPeopleStore: visitBeforeDeletion.hiddenPeopleStore,
+                        mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil)
+                    )
+                    demoVisitor = continuingVisit
+                    phase = .exploringDemo(continuingVisit, signInFailureMessage: nil)
+                }
                 try await finishDeletingShipTokDataOnThisIPhone()
                 if demoVisitor == nil {
                     phase = .signedOut(message: Self.dataDeletedMessage)
@@ -167,15 +181,18 @@ final class GitHubSignInSession {
         guard case .signedIn(let teammate) = phase, !isDeletingShipTokData else { return }
         isDeletingShipTokData = true
         defer { isDeletingShipTokData = false }
-        if Self.unfinishedDataDeletionGitHubUserID != teammate.user.githubUserID {
-            try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
-                try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
-            }
-            UserDefaults.standard.set(teammate.user.githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
+        try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
+            try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
         }
+        UserDefaults.standard.set(teammate.user.githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
         teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
-        try await finishDeletingShipTokDataOnThisIPhone()
-        phase = .signedOut(message: Self.dataDeletedMessage)
+        // Revyl has revoked the sign-in's token, so its feed can't work any more: if this iPhone's part fails, the app leaves the sign-in for the sign-in screen saying the deletion is unfinished, as the next launch would.
+        do {
+            try await finishDeletingShipTokDataOnThisIPhone()
+            phase = .signedOut(message: Self.dataDeletedMessage)
+        } catch {
+            phase = .signedOut(message: error.localizedDescription)
+        }
     }
 
     // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile. A sign-in the Keychain still holds would come back on the next launch, so it stays until the Keychain lets it go.
@@ -185,11 +202,9 @@ final class GitHubSignInSession {
         end(teammate, reason: .signedOut, message: nil)
     }
 
-    // A rejection ends only the sign-in its request ran for. Deleting the data revokes the sign-in's GitHub token, so rejections while it runs, or after only this iPhone's part is left, are its own doing.
+    // A rejection ends only the sign-in its request ran for. Deleting the data revokes the sign-in's GitHub token, so rejections while it runs are its own doing.
     func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError, endingSignInID signInID: UUID) {
-        guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData,
-              Self.unfinishedDataDeletionGitHubUserID != teammate.user.githubUserID
-        else { return }
+        guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData else { return }
         // GitHub no longer takes this sign-in, so one the Keychain fails to forget is only refused again on the next launch; the store logs the failure.
         try? GitHubSignInKeychainStore.deleteStoredSignIn()
         end(teammate, reason: .githubRejected, message: githubAPIError.localizedDescription)

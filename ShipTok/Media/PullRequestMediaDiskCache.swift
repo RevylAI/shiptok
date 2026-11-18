@@ -96,7 +96,7 @@ struct PullRequestMediaDiskCache: Sendable {
         fileWriteQueue.async {
             let rootEntryURLs: [URL]
             do {
-                rootEntryURLs = try FileManager.default.contentsOfDirectory(at: rootDirectoryURL, includingPropertiesForKeys: [.isDirectoryKey])
+                rootEntryURLs = try FileManager.default.contentsOfDirectory(at: rootDirectoryURL, includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey])
             } catch CocoaError.fileReadNoSuchFile {
                 return
             } catch {
@@ -113,11 +113,20 @@ struct PullRequestMediaDiskCache: Sendable {
                     logger.error("Removing a saved media file failed: \(failureDescription(error), privacy: .public)")
                 }
             }
+            // Only an entry known to be a file goes from the root, so one whose type can't be read never takes a viewer's folder with it.
             for rootEntryURL in rootEntryURLs {
-                guard (try? rootEntryURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                let rootEntryValues: URLResourceValues
+                do {
+                    rootEntryValues = try rootEntryURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+                } catch {
+                    logger.error("Reading a saved media entry's type failed, so it stays: \(failureDescription(error), privacy: .public)")
+                    continue
+                }
+                if rootEntryValues.isRegularFile == true {
                     removeSavedFile(at: rootEntryURL)
                     continue
                 }
+                guard rootEntryValues.isDirectory == true else { continue }
                 let viewerFileURLs: [URL]
                 do {
                     viewerFileURLs = try FileManager.default.contentsOfDirectory(at: rootEntryURL, includingPropertiesForKeys: [.contentModificationDateKey])
