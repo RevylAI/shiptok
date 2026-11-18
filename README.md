@@ -27,7 +27,7 @@ The rail's **More** button reports a pull request, weekly video or comment the c
 
 ## Your data
 
-ShipTok keeps your feedback-prompt settings on Revyl under your GitHub user ID, and your sign-in, the people you hid, saved feeds and media on your phone. **Settings → Delete my ShipTok data** deletes the settings, ends ShipTok's access to your GitHub account and clears the phone; your comments, reactions and vibes stay on GitHub. Settings also links Revyl's privacy policy and support. What the app collects is declared in `ShipTok/PrivacyInfo.xcprivacy`.
+ShipTok keeps your feedback-prompt settings on Revyl under your GitHub user ID, and your sign-in, the people you hid, saved feeds and media on your phone. Signing out removes the saved media, so whoever uses ShipTok next on that phone downloads their own. **Settings → Delete my ShipTok data** deletes the settings, ends ShipTok's access to your GitHub account and clears the phone; your comments, reactions and vibes stay on GitHub. Settings also links Revyl's privacy policy and support. What the app collects is declared in `ShipTok/PrivacyInfo.xcprivacy`.
 
 ## Analytics
 

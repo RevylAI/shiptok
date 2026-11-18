@@ -16,6 +16,8 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     let delegateQueue = DispatchQueue(label: "ai.revyl.shiptok.single-request-video-resource-loader")
     private let videoURLPathExtension: String
     private let videoURL: URL?
+    // The sign-in the loader was made for, nil for a demo visit, so a cached loader serves only that sign-in (AGENTS.md, "Feed Caching").
+    let signedInGitHubAccessTokenVault: GitHubAccessTokenVault?
     // Set only for a link on this build's own Revyl backend's hosted video route, so the person's GitHub token never reaches another host (AGENTS.md, "Signed Media URLs").
     private let revylBackendAccessTokenVault: GitHubAccessTokenVault?
     private var savedMediaItemID: String?
@@ -47,6 +49,7 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     init(videoURL: URL, savingAsMediaItemID mediaItemID: String, failureLogLevel: OSLogType, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) {
         self.videoURL = videoURL
         videoURLPathExtension = videoURL.pathExtension
+        self.signedInGitHubAccessTokenVault = signedInGitHubAccessTokenVault
         revylBackendAccessTokenVault = RevylBackendConfiguration.servesHostedShipTokVideo(at: videoURL) ? signedInGitHubAccessTokenVault : nil
         savedMediaItemID = mediaItemID
         self.failureLogLevel = failureLogLevel
@@ -76,9 +79,10 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
         }
     }
 
-    init(savedVideoFileURL: URL) throws {
+    init(savedVideoFileURL: URL, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) throws {
         videoURL = nil
         videoURLPathExtension = savedVideoFileURL.pathExtension
+        self.signedInGitHubAccessTokenVault = signedInGitHubAccessTokenVault
         revylBackendAccessTokenVault = nil
         savedMediaItemID = nil
         failureLogLevel = .error

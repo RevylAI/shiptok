@@ -223,7 +223,7 @@ final class GitHubSignInSession {
                 try GitHubSignInKeychainStore.deleteStoredSignIn()
                 ShipTokAnalytics(githubUserID: storedSignIn.user.githubUserID).capture(.signInEnded(reason: .dataDeleted))
             }
-            PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
+            Self.forgetMediaOfEndingSignIn()
             URLCache.shared.removeAllCachedResponses()
             await PullRequestMediaDiskCache.finishPendingSaves()
             try Self.deleteCachedFiles()
@@ -287,6 +287,13 @@ final class GitHubSignInSession {
     private func end(_ teammate: SignedInTeammate, reason: ShipTokAnalyticsEvent.SignInEndReason, message: String?) {
         teammate.analytics.capture(.signInEnded(reason: reason))
         UserDefaults.standard.set(message, forKey: Self.signedOutReasonDefaultsKey)
+        Self.forgetMediaOfEndingSignIn()
         phase = .signedOut(message: message)
+    }
+
+    // Media a sign-in loaded may come from a private repository only that person can read, so when the sign-in ends every download stops unsaved and everything loaded goes, from memory and the device, and the next person or a demo visit loads media for themselves (AGENTS.md, "Feed Caching").
+    private static func forgetMediaOfEndingSignIn() {
+        PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
+        PullRequestMediaDiskCache.removeAllFilesInBackground()
     }
 }

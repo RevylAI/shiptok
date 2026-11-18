@@ -93,6 +93,19 @@ enum PullRequestMediaDiskCache {
         }
     }
 
+    // Queued behind every save, so a download that finished before a sign-in ended goes with the rest (AGENTS.md, "Feed Caching").
+    static func removeAllFilesInBackground() {
+        fileWriteQueue.async {
+            do {
+                try FileManager.default.removeItem(at: directoryURL)
+            } catch CocoaError.fileNoSuchFile {
+                return
+            } catch {
+                logger.error("Removing every saved media file failed: \(Self.failureDescription(error), privacy: .public)")
+            }
+        }
+    }
+
     // Saves run in order on one queue, so files deleted once this returns stay deleted by every save queued before it.
     static func finishPendingSaves() async {
         await withCheckedContinuation { continuation in

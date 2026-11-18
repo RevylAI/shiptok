@@ -29,7 +29,7 @@ enum PullRequestMediaMemoryCache {
     // An image load compares it before keeping what it downloaded, so a load that began before a removal keeps nothing.
     private(set) static var allMediaRemovalCount = 0
 
-    // Deleting a person's ShipTok data leaves no media behind: every download stops without saving, and every loaded image and video is forgotten (AGENTS.md, "Ownership And Boundaries").
+    // An ended sign-in leaves no media behind in memory: every download stops without saving, and every loaded image and video is forgotten (AGENTS.md, "Feed Caching").
     static func removeAllLoadedMediaAndStopDownloads() {
         allMediaRemovalCount += 1
         for videoResourceLoader in downloadingVideoResourceLoaders.allObjects {
@@ -82,16 +82,17 @@ enum PullRequestMediaMemoryCache {
         }
     }
 
-    // Nil while a saved card waits for its refetch to bring a URL for a video that isn't saved on the device (AGENTS.md, "Feed Caching").
+    // Nil while a saved card waits for its refetch to bring a URL for a video that isn't saved on the device. A loader serves only the sign-in it was made for, and a demo's only demo visits, so one made without the person's token never stands in for theirs (AGENTS.md, "Feed Caching").
     static func reuseOrStartVideoLoad(for mediaItem: PullRequestMediaItem, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) -> SingleRequestVideoResourceLoader? {
         let cacheKey = mediaItem.id as NSString
-        if let videoResourceLoader = videoResourceLoadersByMediaItemID.object(forKey: cacheKey), !videoResourceLoader.hasFailed {
+        if let videoResourceLoader = videoResourceLoadersByMediaItemID.object(forKey: cacheKey), !videoResourceLoader.hasFailed,
+           videoResourceLoader.signedInGitHubAccessTokenVault === signedInGitHubAccessTokenVault {
             return videoResourceLoader
         }
         var savedVideoResourceLoader: SingleRequestVideoResourceLoader?
         if let savedVideoFileURL = PullRequestMediaDiskCache.cachedVideoFileURL(forMediaItemID: mediaItem.id) {
             do {
-                savedVideoResourceLoader = try SingleRequestVideoResourceLoader(savedVideoFileURL: savedVideoFileURL)
+                savedVideoResourceLoader = try SingleRequestVideoResourceLoader(savedVideoFileURL: savedVideoFileURL, signedInGitHubAccessTokenVault: signedInGitHubAccessTokenVault)
                 PullRequestMediaDiskCache.markFilesUsedInBackground(forMediaItemID: mediaItem.id)
             } catch {
                 let readError = error as NSError
