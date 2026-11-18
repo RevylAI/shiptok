@@ -1,6 +1,6 @@
 import Foundation
 
-// A media item that failed to load is given up only once a URL renewed after the failure fails too, or a read that started after the failure brings back the URL that failed, so an expired signed URL never hides it. A video Revyl refused is given up at once, since no renewal changes Revyl's answer (AGENTS.md, "Signed Media URLs").
+// A media item that failed to load is given up only once a URL renewed after the failure fails too, or a read that started after the failure brings back the URL that failed, so an expired signed URL never hides it. A video refused to the viewer is given up at once, since no renewal changes that answer (AGENTS.md, "Signed Media URLs").
 struct MediaLoadFailureRecovery {
     private struct PendingLoadFailure {
         let url: URL
@@ -14,8 +14,8 @@ struct MediaLoadFailureRecovery {
     private var urlRenewalDateByMediaItemID: [String: Date] = [:]
 
     // False when the item is given up at once; otherwise the failure waits for a read to settle it.
-    mutating func recordLoadFailure(of mediaItem: PullRequestMediaItem, wasRefusedByRevyl: Bool) -> Bool {
-        if wasRefusedByRevyl {
+    mutating func recordLoadFailure(of mediaItem: PullRequestMediaItem, wasRefusedToViewer: Bool) -> Bool {
+        if wasRefusedToViewer {
             unloadableMediaItemIDs.insert(mediaItem.id)
             return false
         }

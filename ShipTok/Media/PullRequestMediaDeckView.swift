@@ -7,7 +7,7 @@ struct PullRequestMediaDeckView: View {
     let reportableContent: (PullRequestMediaItem) -> GitHubPostedContent?
     let onReport: (GitHubPostedContent) -> Void
     let onHide: (GitHubPostedContent) -> Void
-    let onLoadFailure: (PullRequestMediaItem, _ wasRefusedByRevyl: Bool) -> Void
+    let onLoadFailure: (PullRequestMediaItem, _ wasRefusedToViewer: Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.shipTokAnalytics) private var analytics
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice

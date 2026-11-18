@@ -61,7 +61,7 @@ struct FeedCardView: View {
     let onOpenComments: () -> Void
     let onOpenDeck: () -> Void
     let onTapCaption: () -> Void
-    let onHeroMediaLoadFailure: (PullRequestMediaItem, _ wasRefusedByRevyl: Bool) -> Void
+    let onHeroMediaLoadFailure: (PullRequestMediaItem, _ wasRefusedToViewer: Bool) -> Void
     let onTapWhileBehindVibeFeedbackComposer: () -> Void
     @State private var isReactionPickerPresented = false
     @State private var isViewerVibeRemovalConfirmationPresented = false

@@ -10,7 +10,7 @@ struct VideoDownloadTooLargeError: Error {
     let byteCount: Int
 }
 
-// Revyl's hosted video route refused this viewer the video, which no renewed URL or second request changes (AGENTS.md, "Signed Media URLs").
+// This viewer can't have the hosted video: Revyl's hosted video route refused them, or GitHub refused the sign-in whose token would ask. No renewed URL or second request changes that (AGENTS.md, "Signed Media URLs").
 struct HostedShipTokVideoRefusedError: Error {}
 
 // A signed-in person's GitHub token couldn't be had, so their hosted video was never requested without it.
@@ -23,13 +23,15 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     private let videoURLPathExtension: String
     private let videoURL: URL?
     private let savedMedia: PullRequestMediaDiskCache?
-    // Set only for a link on this build's own Revyl backend's hosted video route, so the person's GitHub token never reaches another host (AGENTS.md, "Signed Media URLs").
+    // Only this build's own Revyl backend's hosted video route gets the person's GitHub token, so it never reaches another host, and only that route's own answer, never one after a redirect, refuses the viewer (AGENTS.md, "Signed Media URLs").
+    private let isOnRevylHostedVideoRoute: Bool
     private let revylBackendAccessTokenVault: GitHubAccessTokenVault?
     private var savedMediaItemID: String?
     private var downloadSession: URLSession?
     // A request Revyl refused the token on is replaced once, and whatever its cancelled task still reports is ignored.
     private var downloadTask: URLSessionTask?
     private var presentedGitHubAccessToken: String?
+    private var hasFollowedRedirect = false
     private var hasRenewedRejectedGitHubAccessToken = false
     private var isDownloadStopped = false
     private lazy var sessionDelegateQueue: OperationQueue = {
@@ -55,7 +57,8 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
         self.videoURL = videoURL
         self.savedMedia = savedMedia
         videoURLPathExtension = videoURL.pathExtension
-        revylBackendAccessTokenVault = RevylBackendConfiguration.servesHostedShipTokVideo(at: videoURL) ? signedInGitHubAccessTokenVault : nil
+        isOnRevylHostedVideoRoute = RevylBackendConfiguration.servesHostedShipTokVideo(at: videoURL)
+        revylBackendAccessTokenVault = isOnRevylHostedVideoRoute ? signedInGitHubAccessTokenVault : nil
         savedMediaItemID = mediaItemID
         self.failureLogLevel = failureLogLevel
         super.init()
@@ -68,17 +71,22 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
                 let accessToken = try await revylBackendAccessTokenVault.validAccessToken()
                 delegateQueue.async { self.startDownload(presentingGitHubAccessToken: accessToken) }
             } catch {
-                delegateQueue.async { self.failWithoutGitHubAccessToken() }
+                let isSignInRefusal = Self.isSignInRefusal(error)
+                delegateQueue.async { self.failWithoutGitHubAccessToken(isSignInRefusal: isSignInRefusal) }
             }
         }
     }
 
-    // Runs on the delegate queue, so a download that already finished has queued its save before this returns, and one that hasn't never saves.
+    // Runs on the delegate queue, so a download that already finished has queued its save before this returns, and one that hasn't never saves. An unfinished load fails as cancelled at once, so AVFoundation's waiting requests are answered even while the token is still on its way, and whatever the vault or the session reports later is ignored.
     func stopDownloadWithoutSaving() {
         delegateQueue.sync {
             savedMediaItemID = nil
             isDownloadStopped = true
             downloadSession?.invalidateAndCancel()
+            if !isDownloadComplete, downloadFailure == nil {
+                downloadFailure = URLError(.cancelled)
+            }
+            respondToPendingLoadingRequests()
         }
     }
 
@@ -86,6 +94,7 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
         videoURL = nil
         savedMedia = nil
         videoURLPathExtension = savedVideoFileURL.pathExtension
+        isOnRevylHostedVideoRoute = false
         revylBackendAccessTokenVault = nil
         savedMediaItemID = nil
         failureLogLevel = .error
@@ -112,7 +121,7 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
         delegateQueue.sync { downloadFailure != nil }
     }
 
-    var wasRefusedByRevyl: Bool {
+    var wasRefusedToViewer: Bool {
         delegateQueue.sync { downloadFailure is HostedShipTokVideoRefusedError }
     }
 
@@ -131,18 +140,13 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     }
 
     private func startDownload(presentingGitHubAccessToken accessToken: String?) {
-        guard let videoURL else { return }
-        // A stop while the token was on its way found no download to cancel, so AVFoundation's waiting requests are answered here.
-        guard !isDownloadStopped else {
-            downloadFailure = URLError(.cancelled)
-            respondToPendingLoadingRequests()
-            return
-        }
+        guard let videoURL, !isDownloadStopped else { return }
         var request = URLRequest(url: videoURL)
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
         presentedGitHubAccessToken = accessToken
+        hasFollowedRedirect = false
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.urlCache = nil
         sessionConfiguration.httpCookieStorage = nil
@@ -168,16 +172,30 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
                 let replacementAccessToken = try await accessTokenVault.accessTokenReplacing(rejectedAccessToken: rejectedAccessToken)
                 delegateQueue.async { self.startDownload(presentingGitHubAccessToken: replacementAccessToken) }
             } catch {
-                delegateQueue.async { self.failWithoutGitHubAccessToken() }
+                let isSignInRefusal = Self.isSignInRefusal(error)
+                delegateQueue.async { self.failWithoutGitHubAccessToken(isSignInRefusal: isSignInRefusal) }
             }
         }
     }
 
-    // A token that can't be had, offline while it renews for example, says nothing about the video, so the load fails as one to try again rather than as broken media (AGENTS.md, "Signed Media URLs").
-    private func failWithoutGitHubAccessToken() {
-        Self.logger.notice("No GitHub token was at hand for a hosted video, so it waits to be tried again")
-        downloadFailure = GitHubAccessTokenUnavailableError()
+    // GitHub refusing the sign-in, with no refresh token left or a refresh it turned down, and the sign-in ending are final for this viewer, so the video is refused to them without ending the sign-in. Anything else, offline or the Keychain busy for example, says nothing about the video, so the load fails as one to try again (AGENTS.md, "Signed Media URLs").
+    private func failWithoutGitHubAccessToken(isSignInRefusal: Bool) {
+        guard !isDownloadStopped else { return }
+        if isSignInRefusal {
+            Self.logger.notice("The sign-in has no GitHub token Revyl can take for a hosted video, so the video is unavailable")
+            downloadFailure = HostedShipTokVideoRefusedError()
+        } else {
+            Self.logger.notice("No GitHub token was at hand for a hosted video, so it waits to be tried again")
+            downloadFailure = GitHubAccessTokenUnavailableError()
+        }
         respondToPendingLoadingRequests()
+    }
+
+    private static func isSignInRefusal(_ accessTokenVaultError: any Error) -> Bool {
+        switch accessTokenVaultError {
+        case GitHubAPIError.accessTokenRejected, is CancellationError: true
+        default: false
+        }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
@@ -194,6 +212,7 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         if task === downloadTask {
             presentedGitHubAccessToken = nil
+            hasFollowedRedirect = true
         }
         guard request.url?.scheme?.lowercased() == "https" else {
             completionHandler(nil)
@@ -233,8 +252,7 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
             return false
         }
         guard httpStatusCode == 200, let response = task.response else {
-            // The file's storage, where the hosted route redirects, is never on that route, so these come only from Revyl answering for this viewer.
-            if [401, 403, 404].contains(httpStatusCode), httpResponse?.url.map(PullRequestMediaItem.isHostedShipTokVideoURL) == true {
+            if isOnRevylHostedVideoRoute, !hasFollowedRedirect, [401, 403, 404].contains(httpStatusCode) {
                 downloadFailure = HostedShipTokVideoRefusedError()
                 Self.logger.notice("Revyl refused a hosted video with HTTP status \(httpStatusCode)")
             } else {

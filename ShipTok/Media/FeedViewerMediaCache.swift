@@ -62,12 +62,12 @@ final class FeedViewerMediaCache {
         mediaItemIDsWithFailedLastLoad.contains(mediaItem.id) ? .error : .debug
     }
 
-    // Whatever failed to play, a saved file included, is dropped, so the next attempt downloads it again.
-    func recordLoadFailure(of mediaItem: PullRequestMediaItem) {
+    // Whatever failed to play, a saved file included, is dropped, so the next attempt downloads it again. A refusal is this viewer's answer, not an expired signature, so it never marks a URL as one to renew.
+    func recordLoadFailure(of mediaItem: PullRequestMediaItem, wasRefusedToViewer: Bool) {
         mediaItemIDsWithFailedLastLoad.insert(mediaItem.id)
         videoResourceLoadersByMediaItemID.removeObject(forKey: mediaItem.id as NSString)
         savedMedia.removeFiles(forMediaItemID: mediaItem.id)
-        guard mediaItem.hasExpiringSignedURL, let failedURL = mediaItem.url else { return }
+        guard !wasRefusedToViewer, mediaItem.hasExpiringSignedURL, let failedURL = mediaItem.url else { return }
         failedExpiringSignedURLs.insert(failedURL)
     }
 

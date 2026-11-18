@@ -650,8 +650,8 @@ struct MergedPullRequestFeedView: View {
                 openComments: { commentsSheetPullRequest = feedStore.pullRequest(withID: pullRequest.id) ?? pullRequest },
                 openDeck: { mediaDeckPullRequestID = PresentedPullRequestID(id: pullRequest.id) },
                 tapCaption: { detailSheetPullRequest = pullRequest },
-                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedByRevyl in
-                    Task { await feedStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, onPullRequestID: pullRequest.id, wasRefusedByRevyl: wasRefusedByRevyl) }
+                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
+                    Task { await feedStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, onPullRequestID: pullRequest.id, wasRefusedToViewer: wasRefusedToViewer) }
                 }
             )
         case .weeklyEdition(let weeklyEdition):
@@ -667,8 +667,8 @@ struct MergedPullRequestFeedView: View {
                 openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.weeklyEditions.first { $0.id == weeklyEdition.id } ?? weeklyEdition },
                 openDeck: { openWeek(weeklyEdition) },
                 tapCaption: { openWeek(weeklyEdition) },
-                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedByRevyl in
-                    Task { await weeklyEditionsStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, wasRefusedByRevyl: wasRefusedByRevyl) }
+                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
+                    Task { await weeklyEditionsStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, wasRefusedToViewer: wasRefusedToViewer) }
                 }
             )
         case .feedEnd:
@@ -688,7 +688,7 @@ struct MergedPullRequestFeedView: View {
         openComments: @escaping () -> Void,
         openDeck: @escaping () -> Void,
         tapCaption: @escaping () -> Void,
-        recoverFromHeroMediaLoadFailure: @escaping (PullRequestMediaItem, _ wasRefusedByRevyl: Bool) -> Void
+        recoverFromHeroMediaLoadFailure: @escaping (PullRequestMediaItem, _ wasRefusedToViewer: Bool) -> Void
     ) -> FeedCardView {
         let thread = post.thread
         let vibeTarget = post.vibeTarget
@@ -1201,8 +1201,8 @@ private struct MediaDeckCoverContent: View {
                 openURL(postedContent.githubReportURL)
             },
             onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent },
-            onLoadFailure: { failedMediaItem, wasRefusedByRevyl in
-                Task { await feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPullRequestID: pullRequestID, wasRefusedByRevyl: wasRefusedByRevyl) }
+            onLoadFailure: { failedMediaItem, wasRefusedToViewer in
+                Task { await feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPullRequestID: pullRequestID, wasRefusedToViewer: wasRefusedToViewer) }
             }
         )
         .confirmingHide(of: $postedContentAwaitingHideConfirmation) { postedContent in
