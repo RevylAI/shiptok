@@ -12,6 +12,13 @@ enum FeedViewer {
         }
     }
 
+    var mediaCache: FeedViewerMediaCache {
+        switch self {
+        case .teammate(let teammate): teammate.mediaCache
+        case .demoVisitor(let demoVisitor): demoVisitor.mediaCache
+        }
+    }
+
     var hiddenPeopleStore: HiddenPeopleStore {
         switch self {
         case .teammate(let teammate): teammate.hiddenPeopleStore

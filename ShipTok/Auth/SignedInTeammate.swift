@@ -8,4 +8,5 @@ struct SignedInTeammate {
     let accessTokenVault: GitHubAccessTokenVault
     let analytics: ShipTokAnalytics
     let hiddenPeopleStore: HiddenPeopleStore
+    let mediaCache: FeedViewerMediaCache
 }

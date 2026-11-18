@@ -22,8 +22,7 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     let delegateQueue = DispatchQueue(label: "ai.revyl.shiptok.single-request-video-resource-loader")
     private let videoURLPathExtension: String
     private let videoURL: URL?
-    // The sign-in the loader was made for, nil for a demo visit, so a cached loader serves only that sign-in (AGENTS.md, "Feed Caching").
-    let signedInGitHubAccessTokenVault: GitHubAccessTokenVault?
+    private let savedMedia: PullRequestMediaDiskCache?
     // Set only for a link on this build's own Revyl backend's hosted video route, so the person's GitHub token never reaches another host (AGENTS.md, "Signed Media URLs").
     private let revylBackendAccessTokenVault: GitHubAccessTokenVault?
     private var savedMediaItemID: String?
@@ -52,10 +51,10 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
     // A hosted video on a private repository plays only for someone Revyl's backend sees GitHub lets read it, so a signed-in person's request for one carries their GitHub token and never goes without it. A demo visit has no token to send.
-    init(videoURL: URL, savingAsMediaItemID mediaItemID: String, failureLogLevel: OSLogType, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) {
+    init(videoURL: URL, savingInto savedMedia: PullRequestMediaDiskCache, asMediaItemID mediaItemID: String, failureLogLevel: OSLogType, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) {
         self.videoURL = videoURL
+        self.savedMedia = savedMedia
         videoURLPathExtension = videoURL.pathExtension
-        self.signedInGitHubAccessTokenVault = signedInGitHubAccessTokenVault
         revylBackendAccessTokenVault = RevylBackendConfiguration.servesHostedShipTokVideo(at: videoURL) ? signedInGitHubAccessTokenVault : nil
         savedMediaItemID = mediaItemID
         self.failureLogLevel = failureLogLevel
@@ -83,10 +82,10 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
         }
     }
 
-    init(savedVideoFileURL: URL, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) throws {
+    init(savedVideoFileURL: URL) throws {
         videoURL = nil
+        savedMedia = nil
         videoURLPathExtension = savedVideoFileURL.pathExtension
-        self.signedInGitHubAccessTokenVault = signedInGitHubAccessTokenVault
         revylBackendAccessTokenVault = nil
         savedMediaItemID = nil
         failureLogLevel = .error
@@ -217,8 +216,8 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
         } else if acceptResponseOnFirstSight(of: task) {
             isDownloadComplete = true
             expectedByteCount = receivedBytes.count
-            if let savedMediaItemID {
-                PullRequestMediaDiskCache.saveVideoInBackground(receivedBytes, contentTypeIdentifier: contentTypeIdentifier, forMediaItemID: savedMediaItemID)
+            if let savedMediaItemID, let savedMedia {
+                savedMedia.saveVideoInBackground(receivedBytes, contentTypeIdentifier: contentTypeIdentifier, forMediaItemID: savedMediaItemID)
             }
         }
         respondToPendingLoadingRequests()

@@ -37,7 +37,7 @@ struct PullRequestMediaItemView: View {
     @State private var hasReportedPlaybackFailure = false
     @State private var hasTerminalPlaybackFailure = false
     @Environment(\.shipTokAnalytics) private var analytics
-    @Environment(\.signedInGitHubAccessTokenVault) private var signedInGitHubAccessTokenVault
+    @Environment(\.feedViewerMediaCache) private var feedViewerMediaCache
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
     @Environment(\.scenePhase) private var scenePhase
     static let heroProgressLineHorizontalInset: CGFloat = 16
@@ -371,16 +371,16 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    // Media under one id never changes, so it loads from memory, then the device, and only then the network, and a fresh signed URL matters only after a failed load. A saved card with nothing on the device waits for its refetch to bring a URL (AGENTS.md, "Signed Media URLs" and "Feed Caching").
+    // Media under one id never changes, so it loads from memory, then the device, and only then the network, and a fresh signed URL matters only after a failed load. A saved card with nothing on the device waits for its refetch to bring a URL. The viewer's media cache is taken before anything is awaited, so what loads is kept only for that viewer (AGENTS.md, "Signed Media URLs" and "Feed Caching").
     private func loadUnlessAlreadyLoaded() async {
-        guard !isUnloadable, hasFailedToLoad || (loadedImage == nil && videoPlayback == nil) else { return }
-        guard !PullRequestMediaMemoryCache.hasExpiringSignedURLFailed(for: mediaItem) else {
+        guard let mediaCache = feedViewerMediaCache, !isUnloadable, hasFailedToLoad || (loadedImage == nil && videoPlayback == nil) else { return }
+        guard !mediaCache.hasExpiringSignedURLFailed(for: mediaItem) else {
             handleLoadFailure()
             return
         }
         switch mediaItem.kind {
         case .video:
-            guard let videoResourceLoader = PullRequestMediaMemoryCache.reuseOrStartVideoLoad(for: mediaItem, signedInGitHubAccessTokenVault: signedInGitHubAccessTokenVault) else { return }
+            guard let videoResourceLoader = mediaCache.reuseOrStartVideoLoad(for: mediaItem) else { return }
             hasFailedToLoad = false
             isWaitingForGitHubAccessToken = false
             hasTerminalPlaybackFailure = false
@@ -391,36 +391,33 @@ struct PullRequestMediaItemView: View {
             applyPlaybackRate()
             updateVideoPlayback(restartingFromBeginning: true)
         case .image, .animatedImage:
-            if let cachedImage = PullRequestMediaMemoryCache.loadedImage(forMediaItemID: mediaItem.id) {
+            if let cachedImage = mediaCache.loadedImage(forMediaItemID: mediaItem.id) {
                 hasFailedToLoad = false
-                showLoadedImage(cachedImage)
+                showLoadedImage(cachedImage, from: mediaCache)
                 return
             }
-            if let savedImageData = await PullRequestMediaDiskCache.cachedImageData(forMediaItemID: mediaItem.id) {
+            if let savedImageData = await mediaCache.savedMedia.cachedImageData(forMediaItemID: mediaItem.id) {
                 if let savedImage = await Self.decodeImage(savedImageData) {
                     hasFailedToLoad = false
-                    PullRequestMediaDiskCache.markFilesUsedInBackground(forMediaItemID: mediaItem.id)
-                    PullRequestMediaMemoryCache.storeLoadedImage(savedImage, forMediaItemID: mediaItem.id)
-                    showLoadedImage(savedImage)
+                    mediaCache.savedMedia.markFilesUsedInBackground(forMediaItemID: mediaItem.id)
+                    mediaCache.storeLoadedImage(savedImage, forMediaItemID: mediaItem.id)
+                    showLoadedImage(savedImage, from: mediaCache)
                     return
                 }
                 Self.logger.error("A saved image couldn't be decoded, so it downloads again")
-                PullRequestMediaDiskCache.removeFiles(forMediaItemID: mediaItem.id)
+                mediaCache.savedMedia.removeFiles(forMediaItemID: mediaItem.id)
             }
             guard let imageURL = mediaItem.url else { return }
             hasFailedToLoad = false
-            let allMediaRemovalCountAtDownloadStart = PullRequestMediaMemoryCache.allMediaRemovalCount
             do {
-                let failureLogLevel = PullRequestMediaMemoryCache.loadFailureLogLevel(for: mediaItem)
+                let failureLogLevel = mediaCache.loadFailureLogLevel(for: mediaItem)
                 let imageData = try await Self.downloadImageData(from: imageURL, failureLogLevel: failureLogLevel)
                 guard let downloadedImage = await Self.decodeImage(imageData) else {
                     Self.logger.log(level: failureLogLevel, "Pull request media response is not an image")
                     throw CocoaError(.fileReadCorruptFile)
                 }
-                guard PullRequestMediaMemoryCache.allMediaRemovalCount == allMediaRemovalCountAtDownloadStart else { return }
-                PullRequestMediaDiskCache.saveImageInBackground(imageData, forMediaItemID: mediaItem.id)
-                PullRequestMediaMemoryCache.storeLoadedImage(downloadedImage, forMediaItemID: mediaItem.id)
-                showLoadedImage(downloadedImage)
+                mediaCache.storeDownloadedImage(downloadedImage, imageData: imageData, forMediaItemID: mediaItem.id)
+                showLoadedImage(downloadedImage, from: mediaCache)
             } catch {
                 guard !Task.isCancelled else { return }
                 handleLoadFailure()
@@ -428,8 +425,8 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    private func showLoadedImage(_ image: LoadedPullRequestImage) {
-        PullRequestMediaMemoryCache.recordLoadSuccess(of: mediaItem)
+    private func showLoadedImage(_ image: LoadedPullRequestImage, from mediaCache: FeedViewerMediaCache) {
+        mediaCache.recordLoadSuccess(of: mediaItem)
         loadedImage = image
         recordNaturalSize(image.pixelSize)
     }
@@ -437,7 +434,7 @@ struct PullRequestMediaItemView: View {
     // A video that failed to load has no size to read, so the size is read only once it is ready to play.
     private func handleVideoReadyToPlay() async {
         guard let videoPlayback, videoPlayback.isReadyToPlay else { return }
-        PullRequestMediaMemoryCache.recordLoadSuccess(of: mediaItem)
+        feedViewerMediaCache?.recordLoadSuccess(of: mediaItem)
         defer { hasReadVideoNaturalSize = true }
         do {
             guard let naturalDisplaySize = try await videoPlayback.loadNaturalDisplaySize() else { return }
@@ -467,7 +464,7 @@ struct PullRequestMediaItemView: View {
 
     // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported. A video Revyl refused is reported at once, since no renewal changes Revyl's answer, and one that waited on the person's GitHub token isn't a failure of the media at all (AGENTS.md, "Signed Media URLs").
     private func handleLoadFailure() {
-        guard !hasFailedToLoad else { return }
+        guard let mediaCache = feedViewerMediaCache, !hasFailedToLoad else { return }
         hasFailedToLoad = true
         if videoPlayback?.videoResourceLoader.lackedGitHubAccessToken == true {
             isWaitingForGitHubAccessToken = true
@@ -475,8 +472,8 @@ struct PullRequestMediaItemView: View {
         }
         let wasRefusedByRevyl = videoPlayback?.videoResourceLoader.wasRefusedByRevyl == true
         hasTerminalPlaybackFailure = wasRefusedByRevyl
-            || (PullRequestMediaMemoryCache.loadFailureLogLevel(for: mediaItem) == .error && !PullRequestMediaMemoryCache.hasExpiringSignedURLFailed(for: mediaItem))
-        PullRequestMediaMemoryCache.recordLoadFailure(of: mediaItem)
+            || (mediaCache.loadFailureLogLevel(for: mediaItem) == .error && !mediaCache.hasExpiringSignedURLFailed(for: mediaItem))
+        mediaCache.recordLoadFailure(of: mediaItem)
         if !wasRefusedByRevyl, !mediaItem.hasExpiringSignedURL, renewalRequestCount == 0 {
             hasTerminalPlaybackFailure = false
             renewalRequestCount += 1

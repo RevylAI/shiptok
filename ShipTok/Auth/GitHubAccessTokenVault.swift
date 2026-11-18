@@ -1,6 +1,5 @@
 import Foundation
 import OSLog
-import SwiftUI
 
 // GitHub App user access tokens expire after 8 hours and each refresh token works once, so one refresh at a time renews the pair and saves it before anyone uses it; two at once would retire each other's tokens and sign the person out. A sign-in ends only when GitHub refuses the refresh (AGENTS.md, "iOS App").
 actor GitHubAccessTokenVault {
@@ -93,17 +92,5 @@ actor GitHubAccessTokenVault {
         case .signInEnded:
             throw CancellationError()
         }
-    }
-}
-
-private struct SignedInGitHubAccessTokenVaultEnvironmentKey: EnvironmentKey {
-    static let defaultValue: GitHubAccessTokenVault? = nil
-}
-
-extension EnvironmentValues {
-    // Nil for a demo visit, so a demo never presents a GitHub token anywhere.
-    var signedInGitHubAccessTokenVault: GitHubAccessTokenVault? {
-        get { self[SignedInGitHubAccessTokenVaultEnvironmentKey.self] }
-        set { self[SignedInGitHubAccessTokenVaultEnvironmentKey.self] = newValue }
     }
 }

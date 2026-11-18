@@ -96,7 +96,8 @@ final class GitHubSignInSession {
                 repositoryFullName: repositoryFullName,
                 demoFeed: demoFeed,
                 analytics: ShipTokAnalytics(demoVisitID: visitID),
-                hiddenPeopleStore: .forDemoVisit()
+                hiddenPeopleStore: .forDemoVisit(),
+                mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil)
             )
             demoVisitor.analytics.capture(.demoEntered)
             Self.logger.info("Opened the demo feed")
@@ -172,6 +173,7 @@ final class GitHubSignInSession {
             }
             UserDefaults.standard.set(teammate.user.githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
         }
+        teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
         try await finishDeletingShipTokDataOnThisIPhone()
         phase = .signedOut(message: Self.dataDeletedMessage)
     }
@@ -223,7 +225,6 @@ final class GitHubSignInSession {
                 try GitHubSignInKeychainStore.deleteStoredSignIn()
                 ShipTokAnalytics(githubUserID: storedSignIn.user.githubUserID).capture(.signInEnded(reason: .dataDeleted))
             }
-            Self.forgetMediaOfEndingSignIn()
             URLCache.shared.removeAllCachedResponses()
             await PullRequestMediaDiskCache.finishPendingSaves()
             try Self.deleteCachedFiles()
@@ -238,7 +239,7 @@ final class GitHubSignInSession {
 
     // The deletion finishes only once the app's own caches are gone. Anything else under Caches is iOS's, which may refuse its removal, so it goes best effort.
     private static func deleteCachedFiles() throws {
-        var appCacheDirectoryURLs = [MergedPullRequestFeedCache.savedFeedsDirectoryURL, PullRequestMediaDiskCache.directoryURL]
+        var appCacheDirectoryURLs = [MergedPullRequestFeedCache.savedFeedsDirectoryURL, PullRequestMediaDiskCache.rootDirectoryURL]
         // URLCache.shared, which avatars load through, keeps its disk store here.
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             appCacheDirectoryURLs.append(.cachesDirectory.appending(path: bundleIdentifier, directoryHint: .isDirectory))
@@ -277,7 +278,11 @@ final class GitHubSignInSession {
             accountAPI: GitHubAccountAPI(accessTokenVault: accessTokenVault),
             accessTokenVault: accessTokenVault,
             analytics: ShipTokAnalytics(githubUserID: storedSignIn.user.githubUserID),
-            hiddenPeopleStore: HiddenPeopleStore(githubUserID: storedSignIn.user.githubUserID)
+            hiddenPeopleStore: HiddenPeopleStore(githubUserID: storedSignIn.user.githubUserID),
+            mediaCache: FeedViewerMediaCache(
+                savedMedia: .forSignedInGitHubUser(id: storedSignIn.user.githubUserID),
+                signedInGitHubAccessTokenVault: accessTokenVault
+            )
         )
         phase = .signedIn(teammate)
         return teammate
@@ -287,13 +292,7 @@ final class GitHubSignInSession {
     private func end(_ teammate: SignedInTeammate, reason: ShipTokAnalyticsEvent.SignInEndReason, message: String?) {
         teammate.analytics.capture(.signInEnded(reason: reason))
         UserDefaults.standard.set(message, forKey: Self.signedOutReasonDefaultsKey)
-        Self.forgetMediaOfEndingSignIn()
+        teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
         phase = .signedOut(message: message)
-    }
-
-    // Media a sign-in loaded may come from a private repository only that person can read, so when the sign-in ends every download stops unsaved and everything loaded goes, from memory and the device, and the next person or a demo visit loads media for themselves (AGENTS.md, "Feed Caching").
-    private static func forgetMediaOfEndingSignIn() {
-        PullRequestMediaMemoryCache.removeAllLoadedMediaAndStopDownloads()
-        PullRequestMediaDiskCache.removeAllFilesInBackground()
     }
 }

@@ -7,4 +7,5 @@ struct DemoVisitor {
     let demoFeed: ShipTokDemoFeed
     let analytics: ShipTokAnalytics
     let hiddenPeopleStore: HiddenPeopleStore
+    let mediaCache: FeedViewerMediaCache
 }
