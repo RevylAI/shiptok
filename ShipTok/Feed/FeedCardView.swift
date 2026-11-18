@@ -429,7 +429,7 @@ struct FeedCardView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(viewerVibe.tintColor.opacity(0.85)))
+                    .background(Capsule().fill(viewerVibe.tintColor.opacity(0.85)))
                     .expandingTapTargetVertically()
             }
             .buttonStyle(.swipeYielding)

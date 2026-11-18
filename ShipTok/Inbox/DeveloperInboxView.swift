@@ -45,6 +45,7 @@ struct DeveloperInboxView: View {
                                 .font(.caption)
                                 .foregroundStyle(RevylBrandColor.warning)
                                 .listRowBackground(RevylBrandColor.surface)
+                                .listSectionSeparator(.hidden)
                         }
                         ForEach(store.inboxItems) { inboxItem in
                             Button { onOpenPullRequest(inboxItem.pullRequestNumber) } label: {
@@ -62,6 +63,7 @@ struct DeveloperInboxView: View {
                             }
                             .listRowBackground(RevylBrandColor.surface)
                             .listRowSeparatorTint(RevylBrandColor.border)
+                            .listSectionSeparator(.hidden)
                         }
                     }
                     .listStyle(.plain)

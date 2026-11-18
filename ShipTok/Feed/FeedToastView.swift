@@ -42,8 +42,8 @@ struct FeedToastView: View {
         .padding(.leading, 14)
         .padding(.trailing, 4)
         .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(RevylBrandColor.surfaceFloating))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(RevylBrandColor.border, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(RevylBrandColor.surfaceFloating))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(RevylBrandColor.border, lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 14, y: 6)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
