@@ -14,6 +14,8 @@ struct LoadedPullRequestFeed: Sendable {
     fileprivate(set) var isPullToRefreshRunning = false
     fileprivate(set) var focusedPullRequestID: String?
     fileprivate(set) var isFeedEndFocused = false
+    // A card that left its feed while under the viewer's finger, which goes once the viewer moves on.
+    fileprivate var pullRequestIDsLeavingOnceUnfocused: Set<String> = []
 
     var isNewestPageLoaded: Bool {
         everyUpdateAppliedBefore != nil
@@ -53,6 +55,13 @@ struct LoadedPullRequestFeed: Sendable {
         } else if let newFocusedPullRequestID {
             unseenNewerPullRequestIDs.remove(newFocusedPullRequestID)
         }
+        if let newFocusedPullRequestID {
+            pullRequestIDsLeavingOnceUnfocused.remove(newFocusedPullRequestID)
+        }
+        guard !pullRequestIDsLeavingOnceUnfocused.isEmpty else { return }
+        pullRequests.removeAll { pullRequestIDsLeavingOnceUnfocused.contains($0.id) }
+        unseenNewerPullRequestIDs.subtract(pullRequestIDsLeavingOnceUnfocused)
+        pullRequestIDsLeavingOnceUnfocused.removeAll()
     }
 
     // A pull request found after the feed opened takes its sorted slot. At or above the viewer it's flagged for the "new" pill; below, it never goes above the two cards already rendered. One that sorts below every loaded card is left for its own page unless it may go last (AGENTS.md, "Feed Order").
@@ -69,8 +78,11 @@ struct LoadedPullRequestFeed: Sendable {
         return true
     }
 
-    // The card under the viewer's finger never leaves.
+    // The card under the viewer's finger stays until the viewer moves on (AGENTS.md, "Feed Order").
     fileprivate mutating func removePullRequests(where shouldRemove: (PullRequest) -> Bool) {
+        if let focusedPullRequestID, let focusedIndex = index(ofPullRequestID: focusedPullRequestID), shouldRemove(pullRequests[focusedIndex]) {
+            pullRequestIDsLeavingOnceUnfocused.insert(focusedPullRequestID)
+        }
         guard pullRequests.contains(where: { $0.id != focusedPullRequestID && shouldRemove($0) }) else { return }
         pullRequests.removeAll { $0.id != focusedPullRequestID && shouldRemove($0) }
         unseenNewerPullRequestIDs.formIntersection(pullRequests.map(\.id))
@@ -686,6 +698,9 @@ final class PullRequestFeedStore {
         }
         if updatedPullRequest != existingPullRequest {
             updateLoadedFeed(feed) { $0.pullRequests[existingIndex] = updatedPullRequest }
+        }
+        if !fetchedPullRequest.belongs(in: feed) {
+            updateLoadedFeed(feed) { $0.removePullRequests { $0.id == fetchedPullRequest.id } }
         }
     }
 
