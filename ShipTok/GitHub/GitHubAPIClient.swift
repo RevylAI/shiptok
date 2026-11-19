@@ -57,9 +57,6 @@ final class GitHubAPIClient: Sendable {
             throw GitHubAPIError.responseUnreadable(operationName: operationName)
         }
         if let graphQLErrors = responseEnvelope.errors, !graphQLErrors.isEmpty {
-            if graphQLErrors.contains(where: { $0.type == "RATE_LIMITED" }) {
-                throw GitHubAPIError.rateLimited
-            }
             if graphQLErrors.contains(where: { $0.type == "NOT_FOUND" && $0.path == ["feedRepository"] }) {
                 throw GitHubAPIError.feedRepositoryNotVisible(repositoryFullName: repositoryFullName)
             }
@@ -271,17 +268,20 @@ final class GitHubAPIClient: Sendable {
         return pullRequestUpdates
     }
 
-    // Open and merged pull requests read by id, a few at a time; one closed without merging or gone is left out.
-    func fetchPullRequests(ids pullRequestIDs: [String]) async throws -> [PullRequest] {
-        var pullRequests: [PullRequest] = []
+    // Open and merged pull requests read by id, a few at a time, each batch handed over before the next is read, so a failed batch loses none read before it; one closed without merging or gone is left out. Returns how many were read.
+    func fetchPullRequests(ids pullRequestIDs: [String], eachBatchRead: @MainActor @Sendable ([PullRequest]) -> Void) async throws -> Int {
+        var readPullRequestCount = 0
         for batchStartIndex in stride(from: 0, to: pullRequestIDs.count, by: Self.pullRequestsByIDBatchCount) {
             let pullRequestIDBatch = Array(pullRequestIDs[batchStartIndex..<min(batchStartIndex + Self.pullRequestsByIDBatchCount, pullRequestIDs.count)])
             let response: PullRequestsByIDData = try await sendGraphQLQuery(GitHubGraphQLDocument.pullRequestsByIDQuery, variables: ["ids": pullRequestIDBatch])
+            var pullRequests: [PullRequest] = []
             for pullRequestNode in response.nodes.compactMap({ $0 }) where !Self.isClosedWithoutMerging(pullRequestNode) {
                 pullRequests.append(try await pullRequest(from: pullRequestNode))
             }
+            await eachBatchRead(pullRequests)
+            readPullRequestCount += pullRequests.count
         }
-        return pullRequests
+        return readPullRequestCount
     }
 
     func fetchPullRequest(number: Int) async throws -> PullRequest {

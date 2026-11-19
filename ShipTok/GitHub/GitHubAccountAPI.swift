@@ -46,9 +46,14 @@ final class GitHubAccountAPI: Sendable {
         }
         let isRateLimitUsedUp = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
         let retryAfterSeconds = httpResponse.value(forHTTPHeaderField: "Retry-After").map { TimeInterval($0) ?? Self.rateLimitCooldownWithoutResetSeconds }
-        let isRefusedForRateLimit = [403, 429].contains(httpResponse.statusCode) && (isRateLimitUsedUp || retryAfterSeconds != nil)
+        // A secondary limit can refuse while the hourly quota remains, and GraphQL reports a used-up limit inside a successful answer.
+        let isRefusedForRateLimit = httpResponse.statusCode == 429
+            || (httpResponse.statusCode == 403 && (isRateLimitUsedUp || retryAfterSeconds != nil || Self.isSecondaryRateLimitRefusal(responseData)))
+            || ((200..<300).contains(httpResponse.statusCode) && Self.carriesGraphQLRateLimitError(responseData))
         if isRefusedForRateLimit || isRateLimitUsedUp {
-            let rateLimitResetDate = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap { TimeInterval($0) }.map { Date(timeIntervalSince1970: $0) }
+            let rateLimitResetDate = isRateLimitUsedUp
+                ? httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap { TimeInterval($0) }.map { Date(timeIntervalSince1970: $0) }
+                : nil
             let cooldownEndDate = retryAfterSeconds.map { Date.now.addingTimeInterval($0) }
                 ?? rateLimitResetDate
                 ?? Date.now.addingTimeInterval(Self.rateLimitCooldownWithoutResetSeconds)
@@ -63,6 +68,17 @@ final class GitHubAccountAPI: Sendable {
             throw GitHubAPIError.requestFailed(operationName: operationName, statusCode: httpResponse.statusCode)
         }
         return responseData
+    }
+
+    private static func isSecondaryRateLimitRefusal(_ responseData: Data) -> Bool {
+        String(decoding: responseData, as: UTF8.self).localizedCaseInsensitiveContains("secondary rate limit")
+    }
+
+    private static func carriesGraphQLRateLimitError(_ responseData: Data) -> Bool {
+        guard responseData.range(of: Data("RATE_LIMITED".utf8)) != nil,
+              let graphQLErrors = (try? JSONDecoder().decode(GraphQLErrorTypes.self, from: responseData))?.errors
+        else { return false }
+        return graphQLErrors.contains { $0.type == "RATE_LIMITED" }
     }
 
     func fetchSignedInUserIdentity() async throws -> GitHubUserIdentity {
@@ -135,6 +151,14 @@ final class GitHubAccountAPI: Sendable {
         }
         return (responseData, httpResponse)
     }
+}
+
+private struct GraphQLErrorTypes: Decodable {
+    struct GraphQLError: Decodable {
+        let type: String?
+    }
+
+    let errors: [GraphQLError]?
 }
 
 private final class GitHubAPIRequestRedirectDelegate: NSObject, URLSessionTaskDelegate, Sendable {

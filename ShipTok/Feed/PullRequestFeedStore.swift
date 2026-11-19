@@ -765,14 +765,14 @@ final class PullRequestFeedStore {
     // Every merged pull request in the loaded merge-date range, or in any once the feed holds them all, updated since the last refresh is read in full, unless the store already read it at that update.
     private func applyMergedPullRequestUpdates(since earliestUpdateDate: Date, fetchedAt refreshStartedAt: Date) async throws -> Int {
         let mergedPullRequestUpdates = try await githubAPIClient.fetchPullRequestUpdates(since: earliestUpdateDate, inStates: [.merged])
-        let updatedPullRequests = try await githubAPIClient.fetchPullRequests(ids: mergedPullRequestUpdates.filter { mergedPullRequestUpdate in
+        return try await githubAPIClient.fetchPullRequests(ids: mergedPullRequestUpdates.filter { mergedPullRequestUpdate in
             isUnapplied(mergedPullRequestUpdate)
                 && everyMergedPullRequestLoadedSince.map { (mergedPullRequestUpdate.mergedAt ?? .distantPast) >= $0 } ?? true
-        }.map(\.id))
-        for updatedPullRequest in updatedPullRequests.sorted(by: { !$0.comesBefore($1, in: .merged) }) {
-            apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+        }.map(\.id)) { [self] updatedPullRequests in
+            for updatedPullRequest in updatedPullRequests.sorted(by: { !$0.comesBefore($1, in: .merged) }) {
+                apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+            }
         }
-        return updatedPullRequests.count
     }
 
     // A pull request that closed or merged leaves Open; every open one updated since the last refresh is read in full, unless the store already read it at that update, and moves its card to its new slot or takes its slot as a new one.
@@ -780,11 +780,12 @@ final class PullRequestFeedStore {
         let closedOrMergedPullRequestIDs = Set(try await githubAPIClient.fetchPullRequestUpdates(since: earliestUpdateDate, inStates: [.closed, .merged]).map(\.id))
         updateLoadedFeed(.open) { $0.removePullRequests { closedOrMergedPullRequestIDs.contains($0.id) } }
         let openPullRequestUpdates = try await githubAPIClient.fetchPullRequestUpdates(since: earliestUpdateDate, inStates: [.open])
-        let updatedOpenPullRequests = try await githubAPIClient.fetchPullRequests(ids: openPullRequestUpdates.filter(isUnapplied).map(\.id))
-        for updatedPullRequest in updatedOpenPullRequests.sorted(by: { !$0.comesBefore($1, in: .open) }) {
-            apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+        let updatedOpenPullRequestCount = try await githubAPIClient.fetchPullRequests(ids: openPullRequestUpdates.filter(isUnapplied).map(\.id)) { [self] updatedOpenPullRequests in
+            for updatedPullRequest in updatedOpenPullRequests.sorted(by: { !$0.comesBefore($1, in: .open) }) {
+                apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+            }
         }
-        return closedOrMergedPullRequestIDs.count + updatedOpenPullRequests.count
+        return closedOrMergedPullRequestIDs.count + updatedOpenPullRequestCount
     }
 
     // The demo is a snapshot of each mode's newest pull requests, so a refresh makes the mode's list match it: a card the snapshot no longer holds leaves, the one under the viewer's finger once they move on, and every card it holds is applied with its fresh media links (AGENTS.md, "Demo Mode").
