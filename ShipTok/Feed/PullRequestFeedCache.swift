@@ -29,12 +29,24 @@ struct SavedOpenPullRequestFeed: Codable, Sendable {
 actor PullRequestFeedCache {
     static let savedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "pull-request-feeds", directoryHint: .isDirectory)
     // Where saved feeds were kept before the Open feed existed; whatever is left there is of no use.
-    private static let replacedSavedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "merged-pull-request-feeds", directoryHint: .isDirectory)
+    static let replacedSavedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "merged-pull-request-feeds", directoryHint: .isDirectory)
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
     private var newestSavedFeedsGeneration = 0
 
+    // Launch clears them, so they go for every viewer, whether or not a feed ever opens again.
+    static func removeReplacedSavedFeedsInBackground() {
+        Task.detached(priority: .background) {
+            do {
+                try FileManager.default.removeItem(at: Self.replacedSavedFeedsDirectoryURL)
+            } catch CocoaError.fileNoSuchFile {
+                return
+            } catch {
+                logger.error("Deleting the saved feeds of an earlier format failed: \(String(describing: type(of: error)), privacy: .public)")
+            }
+        }
+    }
+
     func loadSavedFeeds(viewerGitHubLogin: String, repositoryFullName: String) -> SavedPullRequestFeeds? {
-        try? FileManager.default.removeItem(at: Self.replacedSavedFeedsDirectoryURL)
         // Feeds saved in another format can't be read for any login, so they go.
         let savedFeedsFileURLs = (try? FileManager.default.contentsOfDirectory(at: Self.savedFeedsDirectoryURL, includingPropertiesForKeys: nil)) ?? []
         for savedFeedsFileURL in savedFeedsFileURLs {

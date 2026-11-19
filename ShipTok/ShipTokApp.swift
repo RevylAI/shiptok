@@ -6,6 +6,7 @@ struct ShipTokApp: App {
 
     init() {
         PullRequestMediaDiskCache.removeLongUnusedFilesInBackground()
+        PullRequestFeedCache.removeReplacedSavedFeedsInBackground()
     }
 
     var body: some Scene {
