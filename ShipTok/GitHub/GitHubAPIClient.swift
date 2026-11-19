@@ -510,7 +510,7 @@ struct MergedPullRequestWindow: Sendable {
     let startDate: Date?
 }
 
-struct PullRequestUpdate: Sendable {
+struct PullRequestUpdate: Equatable, Sendable {
     let id: String
     let updatedAt: Date
     let mergedAt: Date?
