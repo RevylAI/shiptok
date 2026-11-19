@@ -400,6 +400,12 @@ struct FeedView: View {
         .onChange(of: feedStore.visiblePullRequests(in: .merged).map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
             keepPullRequestsPageInPlace(in: .merged, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
         }
+        .onChange(of: feedStore.visibleOpenWeekPullRequests.map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
+            guard previousPullRequestIDs.indices.contains(openWeekPageIndex),
+                  let movedPageIndex = currentPullRequestIDs.firstIndex(of: previousPullRequestIDs[openWeekPageIndex])
+            else { return }
+            openWeekPageIndex = movedPageIndex
+        }
         .onChange(of: visibleWeeklyEditions.map(\.id)) { previousWeeklyEditionIDs, currentWeeklyEditionIDs in
             guard previousWeeklyEditionIDs.indices.contains(weeklyEditionsPageIndex),
                   let movedPageIndex = currentWeeklyEditionIDs.firstIndex(of: previousWeeklyEditionIDs[weeklyEditionsPageIndex])

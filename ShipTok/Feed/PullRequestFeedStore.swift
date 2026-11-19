@@ -242,6 +242,8 @@ final class PullRequestFeedStore {
 
     @ObservationIgnored private var openWeekLoadTask: Task<Void, Never>?
     @ObservationIgnored private var focusedOpenWeekPullRequestID: String?
+    // A week card that closed or lost its last media while under the viewer's finger, which goes once they move on (AGENTS.md, "Weekly Mode").
+    @ObservationIgnored private var openWeekPullRequestIDsLeavingOnceUnfocused: Set<String> = []
     @ObservationIgnored private var savedFeedsOpening: Task<Void, Never>?
     @ObservationIgnored private var olderPullRequestLoadRunningFeeds: Set<PullRequestFeed> = []
     @ObservationIgnored private var refreshRunningFeeds: Set<PullRequestFeed> = []
@@ -317,6 +319,7 @@ final class PullRequestFeedStore {
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
         focusedOpenWeekPullRequestID = nil
+        openWeekPullRequestIDsLeavingOnceUnfocused = []
         openWeekLoadTask = feedWork.start { [self] in await loadOpenWeek(pullRequestNumbers: uniquePullRequestNumbers) }
     }
 
@@ -328,6 +331,7 @@ final class PullRequestFeedStore {
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
         focusedOpenWeekPullRequestID = nil
+        openWeekPullRequestIDsLeavingOnceUnfocused = []
     }
 
     // A week shows every card it names whatever Videos only says, less what people the viewer hid wrote or posted (AGENTS.md, "Weekly Mode").
@@ -336,6 +340,10 @@ final class PullRequestFeedStore {
     }
 
     func focusOpenWeekPage(showingPullRequestID focusedPullRequestID: String) {
+        if focusedPullRequestID != focusedOpenWeekPullRequestID, !openWeekPullRequestIDsLeavingOnceUnfocused.isEmpty {
+            openWeekPullRequests.removeAll { openWeekPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
+            openWeekPullRequestIDsLeavingOnceUnfocused.removeAll()
+        }
         let visibleOpenWeekPullRequests = visibleOpenWeekPullRequests
         guard let pageIndex = visibleOpenWeekPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else { return }
         focusedOpenWeekPullRequestID = focusedPullRequestID
@@ -399,10 +407,16 @@ final class PullRequestFeedStore {
                     resolvedNumberCount += 1
                     switch resolvedFetchResult {
                     case .success(let fetchedPullRequest):
+                        guard hasLoadableMedia(fetchedPullRequest) else {
+                            Self.logger.info("#\(resolvedNumber, privacy: .public) has no media, so its week leaves it out")
+                            continue
+                        }
                         if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
                             mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = loadStartedAt
                         }
                         openWeekPullRequests.append(fetchedPullRequest)
+                    case .failure(GitHubAPIError.pullRequestNeitherOpenNorMerged):
+                        Self.logger.info("#\(resolvedNumber, privacy: .public) is closed without merging or gone, so its week leaves it out")
                     case .failure(let error):
                         if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                             handleRejectedGitHubAccess(githubAPIError)
@@ -818,6 +832,9 @@ final class PullRequestFeedStore {
             for feed in PullRequestFeed.allCases where loadedFeed(feed).pullRequests.contains(where: { $0.number == number }) {
                 updateLoadedFeed(feed) { $0.removePullRequests { $0.number == number } }
             }
+            if let openWeekPullRequest = openWeekPullRequests.first(where: { $0.number == number }) {
+                removeFromOpenWeek(pullRequestID: openWeekPullRequest.id)
+            }
             Self.logger.info("#\(number, privacy: .public) is closed without merging or gone, so its card leaves the feed")
         } catch {
             if error.isTaskCancellation { return }
@@ -836,9 +853,18 @@ final class PullRequestFeedStore {
             : []
         removeIfNoMediaLoadsAheadOfViewer(fetchedPullRequest)
         if let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == fetchedPullRequest.id }) {
-            openWeekPullRequests[openWeekIndex] = keepingLocalWrites(of: openWeekPullRequests[openWeekIndex], in: fetchedPullRequest)
-            if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
-                mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
+            if hasLoadableMedia(fetchedPullRequest) {
+                let existingPullRequest = openWeekPullRequests[openWeekIndex]
+                var updatedPullRequest = keepingLocalWrites(of: existingPullRequest, in: fetchedPullRequest)
+                if fetchedPullRequest.id == focusedOpenWeekPullRequestID && !forcesMediaURLRenewal {
+                    updatedPullRequest = keepingMediaURLs(of: existingPullRequest, in: updatedPullRequest, except: renewedMediaItemIDs)
+                } else if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
+                    mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
+                }
+                openWeekPullRequests[openWeekIndex] = updatedPullRequest
+                openWeekPullRequestIDsLeavingOnceUnfocused.remove(fetchedPullRequest.id)
+            } else {
+                removeFromOpenWeek(pullRequestID: fetchedPullRequest.id)
             }
         }
         for feed in PullRequestFeed.allCases {
@@ -871,23 +897,7 @@ final class PullRequestFeedStore {
         }
         var updatedPullRequest = keepingLocalWrites(of: existingPullRequest, in: fetchedPullRequest)
         if !forcesMediaURLRenewal && isFocused {
-            let existingMediaItemsByID = Dictionary(
-                existingPullRequest.mediaItems.filter { $0.url != nil && !renewedMediaItemIDs.contains($0.id) }.map { ($0.id, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
-            updatedPullRequest.mediaItems = fetchedPullRequest.mediaItems.map { fetchedMediaItem in
-                guard let existingMediaItem = existingMediaItemsByID[fetchedMediaItem.id] else { return fetchedMediaItem }
-                return PullRequestMediaItem(
-                    id: fetchedMediaItem.id,
-                    kind: fetchedMediaItem.kind,
-                    url: existingMediaItem.url,
-                    isShipTokVideo: fetchedMediaItem.isShipTokVideo,
-                    sourceCommentID: fetchedMediaItem.sourceCommentID,
-                    sourceCommentDatabaseID: fetchedMediaItem.sourceCommentDatabaseID,
-                    postedBy: fetchedMediaItem.postedBy,
-                    sourceLastEditedAt: fetchedMediaItem.sourceLastEditedAt
-                )
-            }
+            updatedPullRequest = keepingMediaURLs(of: existingPullRequest, in: updatedPullRequest, except: renewedMediaItemIDs)
         }
         // A fresh copy the viewer wouldn't be shown, with no media left or no video left under Videos only, never empties or pulls away the card they're on; hiding a person and changing Videos only still apply to the kept copy at once (AGENTS.md, "Feed Order").
         if isFocused, loadedFeed.isOnScreen, visibleCopy(of: existingPullRequest) != nil, !fetchedPullRequestBelongs || visibleCopy(of: updatedPullRequest) == nil {
@@ -914,6 +924,38 @@ final class PullRequestFeedStore {
     }
 
     // GitHub can answer with a reaction still in flight or a comment the viewer just deleted, so the local copy wins for those.
+    // The focused card keeps its signed media URLs so a playing video isn't reloaded; an item whose load failed takes its fresh one.
+    private func keepingMediaURLs(of existingPullRequest: PullRequest, in updatedPullRequest: PullRequest, except renewedMediaItemIDs: Set<String>) -> PullRequest {
+        let existingMediaItemsByID = Dictionary(
+            existingPullRequest.mediaItems.filter { $0.url != nil && !renewedMediaItemIDs.contains($0.id) }.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var pullRequestKeepingMediaURLs = updatedPullRequest
+        pullRequestKeepingMediaURLs.mediaItems = updatedPullRequest.mediaItems.map { fetchedMediaItem in
+            guard let existingMediaItem = existingMediaItemsByID[fetchedMediaItem.id] else { return fetchedMediaItem }
+            return PullRequestMediaItem(
+                id: fetchedMediaItem.id,
+                kind: fetchedMediaItem.kind,
+                url: existingMediaItem.url,
+                isShipTokVideo: fetchedMediaItem.isShipTokVideo,
+                sourceCommentID: fetchedMediaItem.sourceCommentID,
+                sourceCommentDatabaseID: fetchedMediaItem.sourceCommentDatabaseID,
+                postedBy: fetchedMediaItem.postedBy,
+                sourceLastEditedAt: fetchedMediaItem.sourceLastEditedAt
+            )
+        }
+        return pullRequestKeepingMediaURLs
+    }
+
+    // A week card under the viewer's finger keeps the copy they see until they move on (AGENTS.md, "Weekly Mode").
+    private func removeFromOpenWeek(pullRequestID: String) {
+        if pullRequestID == focusedOpenWeekPullRequestID {
+            openWeekPullRequestIDsLeavingOnceUnfocused.insert(pullRequestID)
+        } else {
+            openWeekPullRequests.removeAll { $0.id == pullRequestID }
+        }
+    }
+
     private func keepingLocalWrites(of existingPullRequest: PullRequest, in fetchedPullRequest: PullRequest) -> PullRequest {
         var updatedPullRequest = fetchedPullRequest
         updatedPullRequest.comments.removeAll { viewerDeletedCommentIDs.contains($0.id) }
