@@ -125,8 +125,10 @@ final class GitHubAPIClient: Sendable {
     }
 
     // The newest merge-date window ending before a date that holds at most about 50 merged pull requests, the widest that does, read whole. Its start is where the next window ends, and nil once nothing older is left (AGENTS.md, "Feed Order").
+    // GitHub reads merge dates in whole seconds, so the window ends on a whole second and its start, the merged feed's cursor, is one too, the same value searched, compared and saved.
     func fetchMergedPullRequestWindow(mergedBefore windowEndDate: Date) async throws -> MergedPullRequestWindow {
-        let latestMergeDate = windowEndDate.addingTimeInterval(-1)
+        let windowEndSecond = Date(timeIntervalSince1970: windowEndDate.timeIntervalSince1970.rounded(.down))
+        let latestMergeDate = windowEndSecond.addingTimeInterval(-1)
         if case .demoFeed(let demoFeed) = source {
             var mergedPullRequests: [PullRequest] = []
             for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
@@ -135,7 +137,7 @@ final class GitHubAPIClient: Sendable {
             }
             return MergedPullRequestWindow(pullRequests: mergedPullRequests, startDate: nil)
         }
-        let candidateStartDates: [Date?] = Self.mergedPullRequestWindowCandidateSpansHours.map { windowEndDate.addingTimeInterval(-$0 * 60 * 60) } + [nil]
+        let candidateStartDates: [Date?] = Self.mergedPullRequestWindowCandidateSpansHours.map { windowEndSecond.addingTimeInterval(-$0 * 60 * 60) } + [nil]
         let candidateSearchQueries = candidateStartDates.map { candidateStartDate in
             mergedPullRequestSearchQuery(updatedSince: nil, mergedFrom: candidateStartDate, mergedThrough: latestMergeDate)
         }

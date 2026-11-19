@@ -180,7 +180,7 @@ final class PullRequestFeedStore {
     @ObservationIgnored private var savedFeedsOpening: Task<Void, Never>?
     @ObservationIgnored private var olderPullRequestLoadRunningFeeds: Set<PullRequestFeed> = []
     @ObservationIgnored private var refreshRunningFeeds: Set<PullRequestFeed> = []
-    // The merged feed holds every pull request merged since this date; nil before its newest page and once it holds every one.
+    // The merged feed holds every pull request merged since this whole second, the start of its oldest window; nil before its newest page and once it holds every one.
     @ObservationIgnored private var everyMergedPullRequestLoadedSince: Date?
     @ObservationIgnored private var nextOpenPullRequestsPageCursor: String?
     @ObservationIgnored private var savedFeedGeneration = 0
