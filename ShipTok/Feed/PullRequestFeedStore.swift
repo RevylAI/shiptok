@@ -450,7 +450,8 @@ final class PullRequestFeedStore {
                         }
                         Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its week failed: \(error.publicLogDescription, privacy: .public)")
                         lastFetchError = error
-                        if let loadedPullRequest = (mergedFeed.pullRequests + openFeed.pullRequests).first(where: { $0.number == resolvedNumber }) {
+                        if let loadedPullRequest = (mergedFeed.pullRequestsOnceViewerMovesOn + openFeed.pullRequestsOnceViewerMovesOn).first(where: { $0.number == resolvedNumber }),
+                           !isEveryVisibleMediaItemGivenUp(loadedPullRequest) {
                             openWeekPullRequests.append(loadedPullRequest)
                         }
                     }
