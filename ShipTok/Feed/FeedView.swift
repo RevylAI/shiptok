@@ -416,9 +416,9 @@ struct FeedView: View {
                 openWeekPageIndex = movedPageIndex
                 return
             }
-            // The page stayed but its card changed: the first card arrived, or the one under the viewer left, so the store's focus follows.
+            // The page stayed but its card changed: the first card arrived, or the one under the viewer left, so the store's focus follows while the deck is on screen, never landing on a mode's card at the same index.
             let shownPullRequestID = currentPullRequestIDs.indices.contains(openWeekPageIndex) ? currentPullRequestIDs[openWeekPageIndex] : nil
-            if shownPullRequestID != previouslyShownPullRequestID {
+            if shownPullRequestID != previouslyShownPullRequestID, onScreenFeedContext == .openWeek {
                 focusPage(at: openWeekPageIndex)
             }
         }
