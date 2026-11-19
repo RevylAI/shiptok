@@ -1,0 +1,32 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 5b3d069b-807b-4712-bada-44494ad25602
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-19T15:42:18Z"
+    checksum: 3426bb6fd9ea993be78469e941dbf635470df8306a867ece6aaa1bf736985fad
+test:
+    metadata:
+        name: shiptok-demo-feed-modes
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Open the demo feed with Look around first
+          module: shiptok-open-demo-feed
+        - type: validation
+          step_description: '''Merged'' is selected in the Open / Merged / Weekly switch at the card''s top left, and the line under the pull request''s title says when it was merged'
+        - type: instructions
+          step_description: Tap 'Open' in the switch at the card's top left
+        - type: validation
+          step_description: '''Open'' is selected in the switch, and the page shows either a pull request card whose line under its title says when it was updated, led by ''Draft'' for a draft, or a message that there are no open PRs with videos'
+        - type: instructions
+          step_description: Tap 'Merged' in the switch
+        - type: validation
+          step_description: '''Merged'' is selected in the switch and the card shows a pull request whose line under its title says when it was merged'

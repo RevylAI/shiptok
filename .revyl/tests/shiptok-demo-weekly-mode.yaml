@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 5f68bb0a-89f3-4312-90d8-b4e9ce338bd4
-    remote_version: 1
-    local_version: 1
-    last_synced_at: "2026-11-17T21:00:35Z"
-    checksum: 97485bb5cdde10444f79f88165e400ecb09d3152dc1e87579c978eb8d588e52d
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-11-19T15:42:12Z"
+    checksum: fd3b01393f7346fa5308038fad2e19cfdd108ff4bcc791607328d1114810b6b4
 test:
     metadata:
         name: shiptok-demo-weekly-mode
@@ -21,7 +21,7 @@ test:
           step_description: Open the demo feed with Look around first
           module: shiptok-open-demo-feed
         - type: instructions
-          step_description: Tap 'Weekly' in the PRs / Weekly switch at the card's top left
+          step_description: Tap 'Weekly' in the Open / Merged / Weekly switch at the card's top left
         - type: validation
           step_description: '''Weekly'' is selected in the switch and the card shows a week: a ''ShipTok weekly'' chip with the week''s dates, a title and a short hook at its lower left'
         - type: instructions
@@ -33,6 +33,6 @@ test:
         - type: validation
           step_description: The weekly card with its 'ShipTok weekly' chip shows again and 'Weekly' is selected in the switch
         - type: instructions
-          step_description: Tap 'PRs' in the switch
+          step_description: Tap 'Merged' in the switch
         - type: validation
-          step_description: '''PRs'' is selected in the switch and the card shows a pull request with its author and title'
+          step_description: '''Merged'' is selected in the switch and the card shows a pull request with its author and title'

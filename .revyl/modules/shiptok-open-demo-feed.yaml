@@ -4,4 +4,4 @@ blocks:
   - type: instructions
     step_description: "Tap 'Look around first'"
   - type: validation
-    step_description: "The demo feed shows a pull request card: its video or image fills the card, the author and the pull request's title sit at the card's lower left, the PRs / Weekly switch sits at its top left, and a rail of buttons runs down its right side"
+    step_description: "The demo feed shows a pull request card: its video or image fills the card, the author and the pull request's title sit at the card's lower left, the Open / Merged / Weekly switch sits at its top left with 'Merged' selected, and a rail of buttons runs down its right side"

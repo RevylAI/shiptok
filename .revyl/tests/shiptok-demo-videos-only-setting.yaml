@@ -1,0 +1,42 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: bb711d3b-b7f0-4e2f-becb-724d18bb6622
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-19T15:42:24Z"
+    checksum: 5d07c09a7341a3fd36ed0444d2344218aabf485d9b0b3532ff6ebe008af6e299
+test:
+    metadata:
+        name: shiptok-demo-videos-only-setting
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Open the demo feed with Look around first
+          module: shiptok-open-demo-feed
+        - type: instructions
+          step_description: Tap the Settings tab, the person icon at the right of the tab bar at the bottom
+        - type: validation
+          step_description: Settings shows a Feed section with the Repository RevylAI/shiptok-demo and a 'Videos only' toggle that is on, with a note that Open and Merged show only pull requests that lead with a video
+        - type: instructions
+          step_description: Tap the 'Videos only' toggle
+        - type: validation
+          step_description: The 'Videos only' toggle is off
+        - type: instructions
+          step_description: Tap the Feed tab, the house icon at the left of the tab bar
+        - type: validation
+          step_description: The demo feed shows a pull request card with 'Merged' selected in the switch at its top left
+        - type: instructions
+          step_description: Tap the Settings tab again
+        - type: validation
+          step_description: The 'Videos only' toggle is still off
+        - type: instructions
+          step_description: Tap the 'Videos only' toggle
+        - type: validation
+          step_description: The 'Videos only' toggle is on
