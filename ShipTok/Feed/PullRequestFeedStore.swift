@@ -258,6 +258,8 @@ final class PullRequestFeedStore {
 
     @ObservationIgnored private var openWeekLoadTask: Task<Void, Never>?
     @ObservationIgnored private var focusedOpenWeekPullRequestID: String?
+    // Whether the viewer has moved from one card of the open week to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Weekly Mode").
+    @ObservationIgnored private var hasViewerMovedInOpenWeek = false
     // A week card that closed or lost its last media while under the viewer's finger, which goes once they move on (AGENTS.md, "Weekly Mode").
     @ObservationIgnored private var openWeekPullRequestIDsLeavingOnceUnfocused: Set<String> = []
     @ObservationIgnored private var savedFeedsOpening: Task<Void, Never>?
@@ -335,6 +337,7 @@ final class PullRequestFeedStore {
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
         focusedOpenWeekPullRequestID = nil
+        hasViewerMovedInOpenWeek = false
         openWeekPullRequestIDsLeavingOnceUnfocused = []
         openWeekLoadTask = feedWork.start { [self] in await loadOpenWeek(pullRequestNumbers: uniquePullRequestNumbers) }
     }
@@ -347,6 +350,7 @@ final class PullRequestFeedStore {
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
         focusedOpenWeekPullRequestID = nil
+        hasViewerMovedInOpenWeek = false
         openWeekPullRequestIDsLeavingOnceUnfocused = []
     }
 
@@ -357,6 +361,7 @@ final class PullRequestFeedStore {
 
     // Nil focuses the deck's end, or a deck with no card yet.
     func focusOpenWeekPage(showingPullRequestID focusedPullRequestID: String?) {
+        hasViewerMovedInOpenWeek = hasViewerMovedInOpenWeek || (focusedOpenWeekPullRequestID != nil && focusedPullRequestID != focusedOpenWeekPullRequestID)
         if focusedPullRequestID != focusedOpenWeekPullRequestID, !openWeekPullRequestIDsLeavingOnceUnfocused.isEmpty {
             openWeekPullRequests.removeAll { openWeekPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
             openWeekPullRequestIDsLeavingOnceUnfocused.removeAll()
@@ -427,8 +432,8 @@ final class PullRequestFeedStore {
                     resolvedNumberCount += 1
                     switch resolvedFetchResult {
                     case .success(let fetchedPullRequest):
-                        guard hasLoadableMedia(fetchedPullRequest) else {
-                            Self.logger.info("#\(resolvedNumber, privacy: .public) has no media, so its week leaves it out")
+                        guard !fetchedPullRequest.mediaItems.isEmpty, !isEveryVisibleMediaItemGivenUp(fetchedPullRequest) else {
+                            Self.logger.info("#\(resolvedNumber, privacy: .public) has no media that loads, so its week leaves it out")
                             continue
                         }
                         if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
@@ -601,7 +606,7 @@ final class PullRequestFeedStore {
             guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
             defer {
                 if let loadedPullRequest = self.pullRequest(withID: pullRequestID) {
-                    removeIfNoMediaLoads(loadedPullRequest)
+                    removeIfEveryVisibleMediaItemGivenUp(loadedPullRequest)
                 }
             }
             guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedToViewer: wasRefusedToViewer),
@@ -685,8 +690,10 @@ final class PullRequestFeedStore {
         PullRequestFeed.allCases.contains { loadedFeed($0).index(ofPullRequestID: pullRequestID) != nil }
     }
 
-    private func hasLoadableMedia(_ pullRequest: PullRequest) -> Bool {
-        pullRequest.mediaItems.contains { !unloadableMediaItemIDs.contains($0.id) }
+    // A pull request is dead for this viewer once every media item they can see is given up, refused to them or failing again after its renewal. One with no media left isn't: it leaves the way a card that stops belonging does (AGENTS.md, "Feed Order").
+    private func isEveryVisibleMediaItemGivenUp(_ pullRequest: PullRequest) -> Bool {
+        let visibleMediaItems = pullRequest.withoutHiddenPeople(hiddenPeopleStore)?.mediaItems ?? []
+        return !visibleMediaItems.isEmpty && visibleMediaItems.allSatisfy { unloadableMediaItemIDs.contains($0.id) }
     }
 
     private func isMediaURLRenewalDue(forPullRequestID pullRequestID: String) -> Bool {
@@ -811,7 +818,7 @@ final class PullRequestFeedStore {
             recordAppliedUpdate(of: olderPullRequest, in: feed)
             if loadedFeed(feed).index(ofPullRequestID: olderPullRequest.id) != nil {
                 apply(olderPullRequest, fetchedAt: fetchedAt, forcesMediaURLRenewal: false)
-            } else if olderPullRequest.belongs(in: feed), hasLoadableMedia(olderPullRequest) {
+            } else if olderPullRequest.belongs(in: feed), !isEveryVisibleMediaItemGivenUp(olderPullRequest) {
                 mediaFetchedAtByPullRequestID[olderPullRequest.id] = fetchedAt
                 updateLoadedFeed(feed) { loadedFeed in loadedFeed.appendInFeedOrder(olderPullRequest, isShown: { visibleCopy(of: $0) != nil }) }
                 appendedPullRequestCount += 1
@@ -820,17 +827,31 @@ final class PullRequestFeedStore {
         return appendedPullRequestCount
     }
 
-    // A pull request none of whose media loads for this viewer, refused to them or failing again from a renewed URL, leaves each feed and an open week (AGENTS.md, "Feed Order").
-    private func removeIfNoMediaLoads(_ pullRequest: PullRequest) {
-        guard !hasLoadableMedia(pullRequest) else { return }
+    // A pull request dead for this viewer leaves each feed and an open week (AGENTS.md, "Feed Order").
+    private func removeIfEveryVisibleMediaItemGivenUp(_ pullRequest: PullRequest) {
+        guard isEveryVisibleMediaItemGivenUp(pullRequest) else { return }
         for feed in PullRequestFeed.allCases where loadedFeed(feed).index(ofPullRequestID: pullRequest.id) != nil {
             updateLoadedFeed(feed) { loadedFeed in
                 loadedFeed.removePullRequestWithoutLoadableMedia(withID: pullRequest.id, isShown: { visibleCopy(of: $0) != nil })
             }
         }
         if openWeekPullRequests.contains(where: { $0.id == pullRequest.id }) {
-            removeFromOpenWeek(pullRequestID: pullRequest.id)
+            removeFromOpenWeekWithMediaGivenUp(pullRequestID: pullRequest.id)
         }
+    }
+
+    // Like a mode, a deck that opened on a dead card skips it at once while the viewer hasn't moved off it, and the next card they're shown takes focus (AGENTS.md, "Weekly Mode").
+    private func removeFromOpenWeekWithMediaGivenUp(pullRequestID: String) {
+        let visibleOpenWeekPullRequests = visibleOpenWeekPullRequests
+        guard pullRequestID == focusedOpenWeekPullRequestID, !hasViewerMovedInOpenWeek,
+              let focusedPageIndex = visibleOpenWeekPullRequests.firstIndex(where: { $0.id == pullRequestID })
+        else {
+            removeFromOpenWeek(pullRequestID: pullRequestID)
+            return
+        }
+        focusedOpenWeekPullRequestID = visibleOpenWeekPullRequests.indices.contains(focusedPageIndex + 1) ? visibleOpenWeekPullRequests[focusedPageIndex + 1].id : nil
+        openWeekPullRequestIDsLeavingOnceUnfocused.remove(pullRequestID)
+        openWeekPullRequests.removeAll { $0.id == pullRequestID }
     }
 
     private func refetchPullRequestsAroundFocus(in feed: PullRequestFeed) async {
@@ -875,9 +896,9 @@ final class PullRequestFeedStore {
         let renewedMediaItemIDs = settlesMediaLoadFailures && mediaLoadFailureRecovery.hasPendingLoadFailure
             ? mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPullRequest.mediaItems, readStartedAt: fetchedAt)
             : []
-        removeIfNoMediaLoads(fetchedPullRequest)
+        removeIfEveryVisibleMediaItemGivenUp(fetchedPullRequest)
         if let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == fetchedPullRequest.id }) {
-            if hasLoadableMedia(fetchedPullRequest) {
+            if !fetchedPullRequest.mediaItems.isEmpty, !isEveryVisibleMediaItemGivenUp(fetchedPullRequest) {
                 let existingPullRequest = openWeekPullRequests[openWeekIndex]
                 var updatedPullRequest = keepingLocalWrites(of: existingPullRequest, in: fetchedPullRequest)
                 if fetchedPullRequest.id == focusedOpenWeekPullRequestID && !forcesMediaURLRenewal {
@@ -903,7 +924,7 @@ final class PullRequestFeedStore {
             recordAppliedUpdate(of: fetchedPullRequest, in: feed)
         }
         guard let existingIndex = loadedFeed.index(ofPullRequestID: fetchedPullRequest.id) else {
-            guard loadedFeed.isNewestPageLoaded, fetchedPullRequest.belongs(in: feed), hasLoadableMedia(fetchedPullRequest) else { return }
+            guard loadedFeed.isNewestPageLoaded, fetchedPullRequest.belongs(in: feed), !isEveryVisibleMediaItemGivenUp(fetchedPullRequest) else { return }
             let mayGoLast = switch feed {
             case .open: loadedFeed.hasLoadedEveryPullRequest || loadedFeed.pullRequests.isEmpty
             case .merged: everyMergedPullRequestLoadedSince.map { (fetchedPullRequest.mergedAt ?? .distantPast) >= $0 } ?? true
@@ -917,7 +938,7 @@ final class PullRequestFeedStore {
         }
         let existingPullRequest = loadedFeed.pullRequests[existingIndex]
         let isFocused = existingPullRequest.id == loadedFeed.focusedPullRequestID
-        let fetchedPullRequestBelongs = fetchedPullRequest.belongs(in: feed) && hasLoadableMedia(fetchedPullRequest)
+        let fetchedPullRequestBelongs = fetchedPullRequest.belongs(in: feed) && !isEveryVisibleMediaItemGivenUp(fetchedPullRequest)
         if !fetchedPullRequestBelongs, !isFocused {
             updateLoadedFeed(feed) { $0.removePullRequests { $0.id == fetchedPullRequest.id } }
             return
