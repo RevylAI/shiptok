@@ -52,6 +52,7 @@ final class ShipTokSignInSession {
     // Revyl's deletion revokes the sign-in's token, so it can't run twice: once it's done, only this iPhone's part is left, across launches too.
     private static let unfinishedDataDeletionGitHubUserIDDefaultsKey = "unfinished-data-deletion-github-user-id"
     private static let dataDeletedMessage = "Your ShipTok data is deleted. Your comments, reactions and vibes stay on GitHub."
+    private static let revylAccountDeletedMessage = "Your Revyl account is deleted. Your comments, reactions and vibes stay on GitHub."
     private static let signInCallbackURLScheme = "shiptok"
 
     private(set) var phase: Phase = .restoring
@@ -60,6 +61,7 @@ final class ShipTokSignInSession {
     private(set) var isOpeningDemo = false
     private(set) var isSigningOut = false
     private(set) var isDeletingShipTokData = false
+    private(set) var isDeletingRevylAccount = false
     // The Keychain's Revyl key, nil while the first screen shows. Work started for one Revyl sign-in checks its key is still the one held before it changes anything, so it never touches a later sign-in.
     private var revylAPIKey: String?
     private var isVerifyingRevylSignIn = false
@@ -156,7 +158,7 @@ final class ShipTokSignInSession {
 
     // Connects GitHub for a person signed in to Revyl: the GitHub sign-in this iPhone holds while GitHub still takes it, else GitHub's own sign-in, and once Revyl connects it the person lands in their own feed. A failed connection keeps them where they were, saying why.
     func connectGitHub(using webAuthenticationSession: WebAuthenticationSession) async {
-        guard let revylAPIKey, !isConnectingGitHub else { return }
+        guard let revylAPIKey, !isConnectingGitHub, !isDeletingRevylAccount else { return }
         switch phase {
         case .exploringDemo, .connectingGitHub: break
         case .restoring, .signedOut, .signedIn: return
@@ -206,13 +208,13 @@ final class ShipTokSignInSession {
     }
 
     func openDemoAgain() async {
-        guard case .connectingGitHub = phase else { return }
+        guard case .connectingGitHub = phase, !isDeletingRevylAccount else { return }
         await exploreDemo()
     }
 
     // Revyl may end the sign-in, the account may leave every organization, or its GitHub connection may move to another Revyl account while ShipTok sleeps, so each launch and return to the foreground asks Revyl which GitHub account is connected (AGENTS.md, "Revyl Sign-In").
     func verifyRevylSignIn() async {
-        guard let revylAPIKey, !isVerifyingRevylSignIn, !isSigningInToRevyl, !isConnectingGitHub, !isSigningOut, !isDeletingShipTokData else { return }
+        guard let revylAPIKey, !isVerifyingRevylSignIn, !isSigningInToRevyl, !isConnectingGitHub, !isSigningOut, !isDeletingShipTokData, !isDeletingRevylAccount else { return }
         isVerifyingRevylSignIn = true
         defer { isVerifyingRevylSignIn = false }
         let connectedGitHubUserID: Int64?
@@ -226,7 +228,7 @@ final class ShipTokSignInSession {
             }
             return
         }
-        guard self.revylAPIKey == revylAPIKey, !isConnectingGitHub, !isSigningOut, !isDeletingShipTokData else { return }
+        guard self.revylAPIKey == revylAPIKey, !isConnectingGitHub, !isSigningOut, !isDeletingShipTokData, !isDeletingRevylAccount else { return }
         switch phase {
         case .signedIn(let teammate) where connectedGitHubUserID != teammate.user.githubUserID:
             leaveFeedForDemo(teammate, reason: .githubAccountNotConnected, message: RevylShipTokAPIError.githubAccountNotConnected.localizedDescription)
@@ -249,7 +251,7 @@ final class ShipTokSignInSession {
 
     // GitHub keeps what the person wrote there, so this deletes what Revyl and this iPhone hold, revokes ShipTok's GitHub token and the Revyl key, and signs out (AGENTS.md, "Ownership And Boundaries").
     func deleteShipTokData() async throws {
-        guard case .signedIn(let teammate) = phase, let revylAPIKey, !isDeletingShipTokData, !isSigningOut, !teammate.feedWork.hasStopped else { return }
+        guard case .signedIn(let teammate) = phase, let revylAPIKey, !isDeletingShipTokData, !isDeletingRevylAccount, !isSigningOut, !teammate.feedWork.hasStopped else { return }
         isDeletingShipTokData = true
         defer { isDeletingShipTokData = false }
         try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
@@ -263,8 +265,71 @@ final class ShipTokSignInSession {
         await teammate.feedWork.stopAndWaitForRunningWork()
         // Revyl has revoked the sign-in's tokens, so its feed can't work any more: if this iPhone's part fails, the app leaves for the first screen saying the deletion is unfinished, as the next launch would.
         do {
-            try await finishDeletingShipTokDataOnThisIPhone()
+            try await finishDeletingShipTokDataOnThisIPhone(signInEndReason: .dataDeleted)
             showFirstScreen(reason: .dataDeleted, message: Self.dataDeletedMessage)
+        } catch {
+            showFirstScreen(reason: .failure, message: error.localizedDescription)
+        }
+    }
+
+    // Revyl deletes the account with its keys, its GitHub connection and that GitHub account's ShipTok settings; then the GitHub token this iPhone holds is revoked as Delete my ShipTok data revokes it, and the iPhone forgets everything ShipTok kept. Revyl's part can't run twice, since it revokes the key, so a failed revocation tells the person where to revoke it on GitHub (AGENTS.md, "Revyl Sign-In").
+    func deleteRevylAccount() async throws {
+        guard let revylAPIKey, !isDeletingRevylAccount, !isDeletingShipTokData, !isSigningOut else { return }
+        let teammate: SignedInTeammate?
+        switch phase {
+        case .signedIn(let signedInTeammate):
+            guard !signedInTeammate.feedWork.hasStopped else { return }
+            teammate = signedInTeammate
+        case .exploringDemo, .connectingGitHub:
+            teammate = nil
+        case .restoring, .signedOut:
+            return
+        }
+        let demoVisitor = self.demoVisitor
+        let viewerAnalytics = teammate?.analytics ?? demoVisitor?.analytics
+        viewerAnalytics?.capture(.revylAccountDeletionRequested)
+        isDeletingRevylAccount = true
+        defer { isDeletingRevylAccount = false }
+        do {
+            try await shipTokAPI.deleteRevylAccount(revylAPIKey: revylAPIKey)
+        } catch {
+            let failureReason: ShipTokAnalyticsEvent.RevylAccountDeletionFailureReason = switch error {
+            case RevylShipTokAPIError.revylAccountOwnsOrganization: .ownsOrganization
+            default: .unavailable
+            }
+            viewerAnalytics?.capture(.revylAccountDeletionFailed(reason: failureReason))
+            isDeletingRevylAccount = false
+            guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey) else { return }
+            throw error
+        }
+        self.revylAPIKey = nil
+        Self.logger.info("Deleted the Revyl account")
+        var message = Self.revylAccountDeletedMessage
+        let storedGitHubSignIn = try? ShipTokSignInKeychainStore.loadStoredGitHubSignIn()
+        if let accessTokenVault = teammate?.accessTokenVault ?? storedGitHubSignIn.map({ GitHubAccessTokenVault(tokens: $0.tokens) }) {
+            do {
+                try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
+                    try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
+                }
+            } catch {
+                Self.logger.error("Ending ShipTok's GitHub access after deleting the Revyl account failed: \(error.publicLogDescription, privacy: .public)")
+                message = "Your Revyl account is deleted, but ShipTok couldn't end its access to your GitHub account. Revoke Revyl's GitHub App under Applications in your GitHub settings. Your comments, reactions and vibes stay on GitHub."
+            }
+        }
+        if let githubUserID = teammate?.user.githubUserID ?? storedGitHubSignIn?.user.githubUserID {
+            UserDefaults.standard.set(githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
+        }
+        if let teammate {
+            teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
+            await teammate.feedWork.stopAndWaitForRunningWork()
+        } else if let demoVisitor {
+            demoVisitor.analytics.capture(.signInEnded(reason: .revylAccountDeleted))
+            demoVisitor.mediaCache.stopDownloadsAndRemoveAllMedia()
+            demoVisitor.feedWork.stop()
+        }
+        do {
+            try await finishDeletingShipTokDataOnThisIPhone(signInEndReason: .revylAccountDeleted)
+            showFirstScreen(reason: .revylAccountDeleted, message: message)
         } catch {
             showFirstScreen(reason: .failure, message: error.localizedDescription)
         }
@@ -272,7 +337,7 @@ final class ShipTokSignInSession {
 
     // Signing out ends both parts of the sign-in. A sign-in the Keychain still holds would come back on the next launch, so nothing ends until the Keychain lets both go, and nobody can sign out while a deletion runs. The feed's reads and saves stop and drain before it ends, so nothing is saved for it afterwards.
     func signOut() async throws {
-        guard let revylAPIKey, !isDeletingShipTokData, !isSigningOut else { return }
+        guard let revylAPIKey, !isDeletingShipTokData, !isDeletingRevylAccount, !isSigningOut else { return }
         if case .signedIn(let teammate) = phase, teammate.feedWork.hasStopped { return }
         isSigningOut = true
         defer { isSigningOut = false }
@@ -290,7 +355,7 @@ final class ShipTokSignInSession {
 
     // GitHub refusing the sign-in ends only its GitHub part: the person stays signed in to Revyl and looks around the demo until they connect GitHub again. A rejection ends only the sign-in its request ran for, and deleting the data revokes the GitHub token, so rejections while it runs are its own doing.
     func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError, endingSignInID signInID: UUID) {
-        guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData, !isSigningOut else { return }
+        guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData, !isDeletingRevylAccount, !isSigningOut else { return }
         // GitHub no longer takes this sign-in, so one the Keychain fails to forget is only refused again on the next launch; the store logs the failure.
         try? ShipTokSignInKeychainStore.deleteStoredGitHubSignIn()
         leaveFeedForDemo(teammate, reason: .githubRejected, message: githubAPIError.localizedDescription)
@@ -406,7 +471,7 @@ final class ShipTokSignInSession {
         case RevylShipTokAPIError.revylOrganizationRequired: endReason = .revylOrganizationRequired
         default: return false
         }
-        guard revylAPIKey == refusedRevylAPIKey, !isDeletingShipTokData, !isSigningOut else { return true }
+        guard revylAPIKey == refusedRevylAPIKey, !isDeletingShipTokData, !isDeletingRevylAccount, !isSigningOut else { return true }
         if endReason == .revylOrganizationRequired {
             // The key of an account outside every organization may still be live, so Revyl is asked to revoke it as on sign-out; the iPhone forgets it either way.
             Task { await revokeRevylAPIKeyIfRevylCan(refusedRevylAPIKey) }
@@ -555,16 +620,16 @@ final class ShipTokSignInSession {
     // True when a deletion was left to finish and now is.
     private func finishUnfinishedDataDeletion() async throws -> Bool {
         guard Self.unfinishedDataDeletionGitHubUserID != nil else { return false }
-        try await finishDeletingShipTokDataOnThisIPhone()
+        try await finishDeletingShipTokDataOnThisIPhone(signInEndReason: .dataDeleted)
         return true
     }
 
     // The record of the unfinished deletion goes last, with the defaults, so a failure or a quit midway is finished on the next try or launch; callers report success only once this returns.
-    private func finishDeletingShipTokDataOnThisIPhone() async throws {
+    private func finishDeletingShipTokDataOnThisIPhone(signInEndReason: ShipTokAnalyticsEvent.SignInEndReason) async throws {
         do {
             if let storedGitHubSignIn = try ShipTokSignInKeychainStore.loadStoredGitHubSignIn() {
                 try ShipTokSignInKeychainStore.deleteStoredGitHubSignIn()
-                ShipTokAnalytics(githubUserID: storedGitHubSignIn.user.githubUserID).capture(.signInEnded(reason: .dataDeleted))
+                ShipTokAnalytics(githubUserID: storedGitHubSignIn.user.githubUserID).capture(.signInEnded(reason: signInEndReason))
             }
             try ShipTokSignInKeychainStore.deleteRevylAPIKey()
             URLCache.shared.removeAllCachedResponses()

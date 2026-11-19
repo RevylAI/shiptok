@@ -59,6 +59,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case revylSignInRequired = "revyl_sign_in_required"
         case revylOrganizationRequired = "revyl_organization_required"
         case dataDeleted = "data_deleted"
+        case revylAccountDeleted = "revyl_account_deleted"
     }
     enum GitHubSignInFailureReason: String, Sendable {
         case cancelled
@@ -84,6 +85,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case revylSignInRequired = "revyl_sign_in_required"
         case revylOrganizationRequired = "revyl_organization_required"
         case dataDeleted = "data_deleted"
+        case revylAccountDeleted = "revyl_account_deleted"
         case failure
     }
     enum JoinOrganizationShowReason: String, Sendable {
@@ -93,6 +95,10 @@ enum ShipTokAnalyticsEvent: Sendable {
     enum OrganizationJoinRequestFailureReason: String, Sendable {
         case emailInvalid = "email_invalid"
         case rateLimited = "rate_limited"
+        case unavailable
+    }
+    enum RevylAccountDeletionFailureReason: String, Sendable {
+        case ownsOrganization = "owns_organization"
         case unavailable
     }
 
@@ -125,6 +131,8 @@ enum ShipTokAnalyticsEvent: Sendable {
     case revylSignInFailed(attemptID: UUID, reason: RevylSignInFailureReason)
     case joinOrganizationShown(reason: JoinOrganizationShowReason)
     case organizationJoinRequestFailed(reason: OrganizationJoinRequestFailureReason)
+    case revylAccountDeletionRequested
+    case revylAccountDeletionFailed(reason: RevylAccountDeletionFailureReason)
     case githubSignInStarted(attemptID: UUID, demoVisitID: UUID?)
     case githubSignInFailed(attemptID: UUID, reason: GitHubSignInFailureReason, demoVisitID: UUID?)
     case githubSignInCompleted(attemptID: UUID, demoVisitID: UUID?)
@@ -155,6 +163,8 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .revylSignInFailed: "shiptok_revyl_sign_in_failed"
         case .joinOrganizationShown: "shiptok_join_organization_shown"
         case .organizationJoinRequestFailed: "shiptok_organization_join_request_failed"
+        case .revylAccountDeletionRequested: "shiptok_revyl_account_deletion_requested"
+        case .revylAccountDeletionFailed: "shiptok_revyl_account_deletion_failed"
         case .githubSignInStarted: "shiptok_github_sign_in_started"
         case .githubSignInFailed: "shiptok_github_sign_in_failed"
         case .githubSignInCompleted: "shiptok_github_sign_in_completed"
@@ -246,6 +256,8 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["failure_reason"] = .string(reason.rawValue)
         case .organizationJoinRequestFailed(let reason):
             properties["failure_reason"] = .string(reason.rawValue)
+        case .revylAccountDeletionFailed(let reason):
+            properties["failure_reason"] = .string(reason.rawValue)
         case .githubSignInStarted(let attemptID, let demoVisitID), .githubSignInCompleted(let attemptID, let demoVisitID):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
             properties["demo_visit_id"] = demoVisitID.map { .string($0.uuidString) }
@@ -261,7 +273,7 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["control"] = .string(control.rawValue)
         case .demoGitHubConnectionPrompted(let action):
             properties["demo_action"] = .string(action.rawValue)
-        case .personUnhidden, .demoEntered:
+        case .personUnhidden, .demoEntered, .revylAccountDeletionRequested:
             break
         }
         return properties

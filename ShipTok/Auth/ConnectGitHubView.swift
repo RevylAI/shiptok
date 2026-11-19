@@ -18,7 +18,7 @@ struct ConnectGitHubButton: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.revylPrimary)
-        .disabled(signInSession.isConnectingGitHub || signInSession.isSigningOut)
+        .disabled(signInSession.isConnectingGitHub || signInSession.isSigningOut || signInSession.isDeletingRevylAccount)
     }
 }
 
@@ -63,7 +63,7 @@ struct ConnectGitHubView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.revylSecondary)
-                .disabled(signInSession.isConnectingGitHub || signInSession.isOpeningDemo)
+                .disabled(signInSession.isConnectingGitHub || signInSession.isOpeningDemo || signInSession.isDeletingRevylAccount)
             }
             .frame(maxWidth: 440)
             .padding(28)

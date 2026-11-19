@@ -100,6 +100,11 @@ struct RevylShipTokAPI: Sendable {
         _ = try await sendRequest("DELETE", path: "revyl-sign-in/api-key", bearerToken: revylAPIKey, operationName: "signing out of Revyl")
     }
 
+    // Deletes the Revyl account with every membership and key, its GitHub connection and that GitHub account's ShipTok settings. Throws revylAccountOwnsOrganization, with Revyl's own explanation, for an Owner of any organization, since deleting from a phone would strand it (AGENTS.md, "Revyl Sign-In").
+    func deleteRevylAccount(revylAPIKey: String) async throws {
+        _ = try await sendRequest("DELETE", path: "revyl-account", bearerToken: revylAPIKey, operationName: "deleting your Revyl account")
+    }
+
     // Throws githubAccountNotConnected when the Revyl account has no GitHub account connected.
     func fetchConnectedGitHubUserID(revylAPIKey: String) async throws -> Int64 {
         let response: GitHubAccountResponse = try await send("GET", path: "github-account", bearerToken: revylAPIKey, operationName: "your GitHub connection")
