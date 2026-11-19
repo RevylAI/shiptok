@@ -30,6 +30,6 @@ struct VibeTarget: Hashable {
         threadID = weeklyEdition.id
         number = weeklyEdition.number
         title = weeklyEdition.title
-        reference = "the week of \(weeklyEdition.weekDatesText)"
+        reference = weeklyEdition.reference
     }
 }

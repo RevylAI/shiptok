@@ -28,7 +28,7 @@ final class VibeOutbox {
     // A demo visitor has none, and casts no vibe.
     private let viewerGitHubLogin: String?
     private let feedStore: PullRequestFeedStore
-    private let weeklyEditionsStore: WeeklyEditionsStore
+    private let weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
     init(
@@ -36,7 +36,7 @@ final class VibeOutbox {
         analytics: ShipTokAnalytics,
         viewerGitHubLogin: String?,
         feedStore: PullRequestFeedStore,
-        weeklyEditionsStore: WeeklyEditionsStore,
+        weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
     ) {
         self.githubAPIClient = githubAPIClient
@@ -216,7 +216,7 @@ final class VibeOutbox {
                 feedStore.applyFetchedPullRequest(try await removingViewerEarlierVibeComments(from: fetchedPullRequest, keeping: postedVibeComment))
             case .weeklyEdition:
                 let fetchedWeeklyEdition = try await githubAPIClient.fetchWeeklyEdition(number: target.number)
-                weeklyEditionsStore.applyFetchedWeeklyEdition(try await removingViewerEarlierVibeComments(from: fetchedWeeklyEdition, keeping: postedVibeComment))
+                weeklyEditionsStore.applyFetchedPublishedIssue(try await removingViewerEarlierVibeComments(from: fetchedWeeklyEdition, keeping: postedVibeComment))
             }
         } catch {
             Self.logger.error("Replacing earlier vibes on #\(target.number, privacy: .public) failed after the new vibe posted")
@@ -268,21 +268,21 @@ final class VibeOutbox {
     private func comments(of target: VibeTarget) -> [PullRequestComment] {
         switch target.kind {
         case .pullRequest: feedStore.pullRequest(withID: target.threadID)?.comments ?? []
-        case .weeklyEdition: weeklyEditionsStore.weeklyEdition(withID: target.threadID)?.comments ?? []
+        case .weeklyEdition: weeklyEditionsStore.publishedIssue(withID: target.threadID)?.comments ?? []
         }
     }
 
     private func appendComment(_ comment: PullRequestComment, to target: VibeTarget) {
         switch target.kind {
         case .pullRequest: feedStore.appendComment(comment, toPullRequestID: target.threadID)
-        case .weeklyEdition: weeklyEditionsStore.appendComment(comment, toWeeklyEditionID: target.threadID)
+        case .weeklyEdition: weeklyEditionsStore.appendComment(comment, toPublishedIssueID: target.threadID)
         }
     }
 
     private func removeViewerDeletedComments(withIDs commentIDs: Set<String>, from target: VibeTarget) {
         switch target.kind {
         case .pullRequest: feedStore.removeViewerDeletedComments(withIDs: commentIDs, fromPullRequestID: target.threadID)
-        case .weeklyEdition: weeklyEditionsStore.removeViewerDeletedComments(withIDs: commentIDs, fromWeeklyEditionID: target.threadID)
+        case .weeklyEdition: weeklyEditionsStore.removeViewerDeletedComments(withIDs: commentIDs, fromPublishedIssueID: target.threadID)
         }
     }
 

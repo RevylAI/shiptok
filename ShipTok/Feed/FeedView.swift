@@ -51,7 +51,7 @@ struct FeedView: View {
     let onChooseRepository: @MainActor (String) -> Void
     private let githubAPIClient: GitHubAPIClient
     @State private var feedStore: PullRequestFeedStore
-    @State private var weeklyEditionsStore: WeeklyEditionsStore
+    @State private var weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>
     @State private var vibeOutbox: VibeOutbox
     // A demo visitor has no inbox or saved settings.
     @State private var inboxStore: DeveloperInboxStore?
@@ -135,7 +135,7 @@ struct FeedView: View {
             feedWork: viewer.feedWork,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         )
-        let weeklyEditionsStore = WeeklyEditionsStore(
+        let weeklyEditionsStore = PublishedIssuesStore<WeeklyEdition>(
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
@@ -201,7 +201,7 @@ struct FeedView: View {
 
     // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
     private var visibleWeeklyEditions: [WeeklyEdition] {
-        weeklyEditionsStore.weeklyEditions.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
+        weeklyEditionsStore.publishedIssues.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
 
     private var feedPages: [FeedPage] {
@@ -361,7 +361,7 @@ struct FeedView: View {
                 fetchLatestThread: { [githubAPIClient = githubAPIClient] number in
                     try await githubAPIClient.fetchWeeklyEdition(number: number)
                 },
-                onThreadChanged: { changedWeeklyEdition in weeklyEditionsStore.applyFetchedWeeklyEdition(changedWeeklyEdition) }
+                onThreadChanged: { changedWeeklyEdition in weeklyEditionsStore.applyFetchedPublishedIssue(changedWeeklyEdition) }
             )
         }
         .sheet(item: $detailSheetPullRequest) { pullRequest in
@@ -574,7 +574,7 @@ struct FeedView: View {
 
     @ViewBuilder
     private func weeklyEditionsFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
-        if !weeklyEditionsStore.weeklyEditions.isEmpty {
+        if !weeklyEditionsStore.publishedIssues.isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
         } else if let loadFailureMessage = weeklyEditionsStore.loadFailureMessage {
             RevylContentUnavailableView(
@@ -738,9 +738,9 @@ struct FeedView: View {
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
                 pageChromeInsets: pageChromeInsets,
-                likeUnlessAlreadyLiked: { Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(weeklyEditionID: weeklyEdition.id) } },
-                toggleReaction: { reaction in Task { await weeklyEditionsStore.toggleReaction(reaction, weeklyEditionID: weeklyEdition.id) } },
-                openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.weeklyEditions.first { $0.id == weeklyEdition.id } ?? weeklyEdition },
+                likeUnlessAlreadyLiked: { Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(publishedIssueID: weeklyEdition.id) } },
+                toggleReaction: { reaction in Task { await weeklyEditionsStore.toggleReaction(reaction, publishedIssueID: weeklyEdition.id) } },
+                openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.publishedIssue(withID: weeklyEdition.id) ?? weeklyEdition },
                 openDeck: { openWeek(weeklyEdition) },
                 tapCaption: { openWeek(weeklyEdition) },
                 recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
