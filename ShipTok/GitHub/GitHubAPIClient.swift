@@ -451,12 +451,13 @@ final class GitHubAPIClient: Sendable {
             guard let rgbHex = UInt32(labelNode.color, radix: 16) else {
                 throw GitHubAPIError.responseUnreadable(operationName: "ShipTokPullRequestFields")
             }
-            return GitHubLabel(name: labelNode.name, rgbHex: rgbHex)
+            return GitHubLabel(name: PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(labelNode.name), rgbHex: rgbHex)
         }
+        // The title and label names are free text shown on every surface and saved with the feeds, so they're redacted here, once (AGENTS.md, "Signed Media URLs").
         return PullRequest(
             id: pullRequestNode.id,
             number: pullRequestNode.number,
-            title: pullRequestNode.title,
+            title: PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(pullRequestNode.title),
             url: pullRequestNode.url,
             author: author,
             isDraft: pullRequestNode.isDraft ?? false,

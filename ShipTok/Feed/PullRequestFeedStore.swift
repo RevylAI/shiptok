@@ -1064,15 +1064,15 @@ final class PullRequestFeedStore {
         }
     }
 
-    // A saved feed holds no description, comment or credential: the free text it keeps, the title and label names, goes through the same redaction as text shown (AGENTS.md, "Feed Caching").
+    // A saved feed holds no description, comment or credential; the title and label names it keeps were redacted when the pull request was read (AGENTS.md, "Feed Caching").
     private static func savedCopy(of pullRequest: PullRequest) -> PullRequest {
         PullRequest(
             id: pullRequest.id, number: pullRequest.number,
-            title: PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(pullRequest.title), url: pullRequest.url,
+            title: pullRequest.title, url: pullRequest.url,
             author: pullRequest.author, isDraft: pullRequest.isDraft, updatedAt: pullRequest.updatedAt,
             mergedAt: pullRequest.mergedAt, descriptionMarkdown: "",
             additions: pullRequest.additions, deletions: pullRequest.deletions, changedFiles: pullRequest.changedFiles,
-            labels: pullRequest.labels.map { GitHubLabel(name: PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks($0.name), rgbHex: $0.rgbHex) },
+            labels: pullRequest.labels,
             reactions: pullRequest.reactions, comments: [], mediaItems: pullRequest.mediaItems
         )
     }

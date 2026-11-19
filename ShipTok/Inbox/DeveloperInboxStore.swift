@@ -113,6 +113,7 @@ final class DeveloperInboxStore {
     }
 
     private func inboxItemsFromOtherPeople(on pullRequestNode: ViewerPullRequestActivityResponse.PullRequestNode) -> [DeveloperInboxItem] {
+        let pullRequestTitle = PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(pullRequestNode.title)
         let commentItems = pullRequestNode.comments.nodes.compactMap { $0 }.compactMap { commentNode -> DeveloperInboxItem? in
             let comment = PullRequestComment(
                 id: commentNode.id,
@@ -133,7 +134,7 @@ final class DeveloperInboxStore {
                 action: action,
                 occurredAt: comment.createdAt,
                 pullRequestNumber: pullRequestNode.number,
-                pullRequestTitle: pullRequestNode.title
+                pullRequestTitle: pullRequestTitle
             )
         }
         let reactionItems = pullRequestNode.reactions.nodes.compactMap { $0 }.compactMap { reactionNode -> DeveloperInboxItem? in
@@ -152,7 +153,7 @@ final class DeveloperInboxStore {
                 action: .reaction(reaction),
                 occurredAt: reactionNode.createdAt,
                 pullRequestNumber: pullRequestNode.number,
-                pullRequestTitle: pullRequestNode.title
+                pullRequestTitle: pullRequestTitle
             )
         }
         return commentItems + reactionItems
