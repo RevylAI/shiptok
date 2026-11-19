@@ -43,14 +43,23 @@ struct LoadedPullRequestFeed: Sendable {
         focusedPullRequestID != nil || isFeedEndFocused
     }
 
-    // The focused card and the one after it are already rendered under the viewer's finger, so a newly found card never lands above or between them unless it's flagged as unseen (AGENTS.md, "Feed Order").
-    private var firstUnrenderedPageIndex: Int {
-        isOnScreen && hasFocusedPage ? min(focusedPageIndex + 2, pullRequests.count) : 0
+    // The focused card and the next card the viewer is shown are already rendered under the viewer's finger, so a newly found card never lands above or between them unless it's flagged as unseen. Cards the viewer isn't shown, hidden or filtered out by Videos only, don't count (AGENTS.md, "Feed Order").
+    private func firstUnrenderedPageIndex(isShown: (PullRequest) -> Bool) -> Int {
+        guard isOnScreen, hasFocusedPage else { return 0 }
+        return nextShownPageIndex(after: focusedPageIndex, isShown: isShown).map { $0 + 1 } ?? pullRequests.count
     }
 
-    private var renderedPullRequestIDs: Set<String> {
+    private func renderedPullRequestIDs(isShown: (PullRequest) -> Bool) -> Set<String> {
         guard isOnScreen, let focusedPullRequestID, let focusedIndex = index(ofPullRequestID: focusedPullRequestID) else { return [] }
-        return Set(pullRequests[focusedIndex..<min(focusedIndex + 2, pullRequests.count)].map(\.id))
+        var renderedPullRequestIDs: Set<String> = [focusedPullRequestID]
+        if let nextShownPageIndex = nextShownPageIndex(after: focusedIndex, isShown: isShown) {
+            renderedPullRequestIDs.insert(pullRequests[nextShownPageIndex].id)
+        }
+        return renderedPullRequestIDs
+    }
+
+    private func nextShownPageIndex(after pageIndex: Int, isShown: (PullRequest) -> Bool) -> Int? {
+        pullRequests.indices.first { $0 > pageIndex && isShown(pullRequests[$0]) }
     }
 
     // A newly found card can take a slot anywhere above the viewer, so the first unseen one can be anywhere (AGENTS.md, "Feed Order").
@@ -59,7 +68,7 @@ struct LoadedPullRequestFeed: Sendable {
     }
 
     // Nil focuses the feed's end. Only a move to another page lets the cards waiting on the viewer go or move, so being told the same page again changes nothing (AGENTS.md, "Feed Order").
-    fileprivate mutating func focus(showingPullRequestID newFocusedPullRequestID: String?) {
+    fileprivate mutating func focus(showingPullRequestID newFocusedPullRequestID: String?, isShown: (PullRequest) -> Bool) {
         let previouslyFocusedPullRequestID = focusedPullRequestID
         let isPageChange = newFocusedPullRequestID != focusedPullRequestID || (newFocusedPullRequestID == nil) != isFeedEndFocused
         isOnScreen = true
@@ -71,14 +80,14 @@ struct LoadedPullRequestFeed: Sendable {
             unseenNewerPullRequestIDs.remove(newFocusedPullRequestID)
         }
         guard isPageChange else { return }
-        settleCardsWaitingOnViewer(justLeftPullRequestID: previouslyFocusedPullRequestID)
+        settleCardsWaitingOnViewer(justLeftPullRequestID: previouslyFocusedPullRequestID, isShown: isShown)
     }
 
     // Leaving the mode releases what the viewer's finger held, while the viewer's place stays (AGENTS.md, "Feed Order").
-    fileprivate mutating func leaveScreen() {
+    fileprivate mutating func leaveScreen(isShown: (PullRequest) -> Bool) {
         let justLeftPullRequestID = focusedPullRequestID
         isOnScreen = false
-        settleCardsWaitingOnViewer(justLeftPullRequestID: justLeftPullRequestID)
+        settleCardsWaitingOnViewer(justLeftPullRequestID: justLeftPullRequestID, isShown: isShown)
     }
 
     // The focused card keeps the copy the viewer sees until they move on (AGENTS.md, "Feed Order").
@@ -105,7 +114,7 @@ struct LoadedPullRequestFeed: Sendable {
     }
 
     // What waited on the viewer happens once they move on: a card waiting to leave goes, a fresh copy takes the shown one's place, and held cards take their slots.
-    private mutating func settleCardsWaitingOnViewer(justLeftPullRequestID: String?) {
+    private mutating func settleCardsWaitingOnViewer(justLeftPullRequestID: String?, isShown: (PullRequest) -> Bool) {
         let leavingPullRequestIDs = pullRequestIDsLeavingOnceUnfocused
         pullRequestIDsLeavingOnceUnfocused.removeAll()
         if !leavingPullRequestIDs.isEmpty {
@@ -120,12 +129,12 @@ struct LoadedPullRequestFeed: Sendable {
                 pullRequestIDsMovingOnceUnrendered.insert(replacingPullRequest.id)
             }
         }
-        moveCardsNoLongerRendered(justLeftPullRequestID: justLeftPullRequestID)
+        moveCardsNoLongerRendered(justLeftPullRequestID: justLeftPullRequestID, isShown: isShown)
     }
 
     // A pull request found after the feed opened, or one whose update moves it, takes its sorted slot. At or above the viewer it's flagged for the "new" pill; below, it never goes above the two cards already rendered, and waits there until the viewer moves on. One that sorts below every loaded card is left for its own page unless it may go last (AGENTS.md, "Feed Order").
     @discardableResult
-    fileprivate mutating func insertIntoFeedOrder(_ pullRequest: PullRequest, mayGoLast: Bool = true, flagsUnseenAboveViewer: Bool = true) -> Bool {
+    fileprivate mutating func insertIntoFeedOrder(_ pullRequest: PullRequest, mayGoLast: Bool = true, flagsUnseenAboveViewer: Bool = true, isShown: (PullRequest) -> Bool) -> Bool {
         guard let feedOrderIndex = pullRequests.firstIndex(where: { !pullRequestIDsMovingOnceUnrendered.contains($0.id) && pullRequest.comesBefore($0, in: feed) })
             ?? (mayGoLast ? pullRequests.count : nil)
         else {
@@ -137,7 +146,7 @@ struct LoadedPullRequestFeed: Sendable {
                 unseenNewerPullRequestIDs.insert(pullRequest.id)
             }
         } else {
-            let insertionIndex = max(feedOrderIndex, firstUnrenderedPageIndex)
+            let insertionIndex = max(feedOrderIndex, firstUnrenderedPageIndex(isShown: isShown))
             pullRequests.insert(pullRequest, at: insertionIndex)
             if insertionIndex != feedOrderIndex {
                 pullRequestIDsMovingOnceUnrendered.insert(pullRequest.id)
@@ -147,25 +156,25 @@ struct LoadedPullRequestFeed: Sendable {
     }
 
     // An older page's card goes below every loaded card, or takes its slot like a newly found one when it was updated after the cards below it were read (AGENTS.md, "Feed Order").
-    fileprivate mutating func appendInFeedOrder(_ olderPullRequest: PullRequest) {
+    fileprivate mutating func appendInFeedOrder(_ olderPullRequest: PullRequest, isShown: (PullRequest) -> Bool) {
         if let lastPlacedPullRequest = pullRequests.last(where: { !pullRequestIDsMovingOnceUnrendered.contains($0.id) }),
            olderPullRequest.comesBefore(lastPlacedPullRequest, in: feed) {
-            insertIntoFeedOrder(olderPullRequest)
+            insertIntoFeedOrder(olderPullRequest, isShown: isShown)
         } else {
             pullRequests.append(olderPullRequest)
         }
     }
 
     // An update that changes a card's slot moves it there; a card on screen, or next, keeps its slot until the viewer moves on (AGENTS.md, "Feed Order").
-    fileprivate mutating func replace(_ updatedPullRequest: PullRequest, at existingIndex: Int) {
+    fileprivate mutating func replace(_ updatedPullRequest: PullRequest, at existingIndex: Int, isShown: (PullRequest) -> Bool) {
         pullRequests[existingIndex] = updatedPullRequest
         guard !pullRequestIDsMovingOnceUnrendered.contains(updatedPullRequest.id), !isInFeedOrder(at: existingIndex) else { return }
-        if renderedPullRequestIDs.contains(updatedPullRequest.id) {
+        if renderedPullRequestIDs(isShown: isShown).contains(updatedPullRequest.id) {
             pullRequestIDsMovingOnceUnrendered.insert(updatedPullRequest.id)
             return
         }
         pullRequests.remove(at: existingIndex)
-        insertIntoFeedOrder(updatedPullRequest)
+        insertIntoFeedOrder(updatedPullRequest, isShown: isShown)
     }
 
     private func isInFeedOrder(at pullRequestIndex: Int) -> Bool {
@@ -177,14 +186,14 @@ struct LoadedPullRequestFeed: Sendable {
     }
 
     // The card the viewer just left was on screen when it changed, so it moves without the "new" pill (AGENTS.md, "Feed Order").
-    private mutating func moveCardsNoLongerRendered(justLeftPullRequestID: String?) {
-        let movingPullRequestIDs = pullRequestIDsMovingOnceUnrendered.subtracting(renderedPullRequestIDs)
+    private mutating func moveCardsNoLongerRendered(justLeftPullRequestID: String?, isShown: (PullRequest) -> Bool) {
+        let movingPullRequestIDs = pullRequestIDsMovingOnceUnrendered.subtracting(renderedPullRequestIDs(isShown: isShown))
         guard !movingPullRequestIDs.isEmpty else { return }
         pullRequestIDsMovingOnceUnrendered.subtract(movingPullRequestIDs)
         for movingPullRequestID in movingPullRequestIDs {
             guard let movingIndex = index(ofPullRequestID: movingPullRequestID) else { continue }
             let movingPullRequest = pullRequests.remove(at: movingIndex)
-            insertIntoFeedOrder(movingPullRequest, flagsUnseenAboveViewer: movingPullRequestID != justLeftPullRequestID)
+            insertIntoFeedOrder(movingPullRequest, flagsUnseenAboveViewer: movingPullRequestID != justLeftPullRequestID, isShown: isShown)
         }
     }
 
@@ -321,11 +330,17 @@ final class PullRequestFeedStore {
         focusedOpenWeekPullRequestID = nil
     }
 
+    // A week shows every card it names whatever Videos only says, less what people the viewer hid wrote or posted (AGENTS.md, "Weekly Mode").
+    var visibleOpenWeekPullRequests: [PullRequest] {
+        openWeekPullRequests.compactMap { $0.withoutHiddenPeople(hiddenPeopleStore) }
+    }
+
     func focusOpenWeekPage(showingPullRequestID focusedPullRequestID: String) {
-        guard let pageIndex = openWeekPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else { return }
+        let visibleOpenWeekPullRequests = visibleOpenWeekPullRequests
+        guard let pageIndex = visibleOpenWeekPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else { return }
         focusedOpenWeekPullRequestID = focusedPullRequestID
-        let focusedPullRequest = openWeekPullRequests[pageIndex]
-        let nextPullRequest = openWeekPullRequests.indices.contains(pageIndex + 1) ? openWeekPullRequests[pageIndex + 1] : nil
+        let focusedPullRequest = visibleOpenWeekPullRequests[pageIndex]
+        let nextPullRequest = visibleOpenWeekPullRequests.indices.contains(pageIndex + 1) ? visibleOpenWeekPullRequests[pageIndex + 1] : nil
         startShownModeWork { [self] in
             async let focusedPullRequestRefetch: Void = fetchAndApplyPullRequest(
                 number: focusedPullRequest.number,
@@ -498,7 +513,7 @@ final class PullRequestFeedStore {
     func changeShownFeed(to feed: PullRequestFeed?) {
         guard feed != shownFeed else { return }
         if let previouslyShownFeed = shownFeed {
-            updateLoadedFeed(previouslyShownFeed) { $0.leaveScreen() }
+            updateLoadedFeed(previouslyShownFeed) { loadedFeed in loadedFeed.leaveScreen(isShown: { visibleCopy(of: $0) != nil }) }
         }
         shownFeed = feed
         stopShownModeWork()
@@ -537,7 +552,7 @@ final class PullRequestFeedStore {
 
     // Nil focuses the feed's end. Pages are named by pull request rather than position, since a feed shows only what people the viewer hid didn't post.
     func focusFeedPage(in feed: PullRequestFeed, showingPullRequestID focusedPullRequestID: String?) {
-        updateLoadedFeed(feed) { $0.focus(showingPullRequestID: focusedPullRequestID) }
+        updateLoadedFeed(feed) { loadedFeed in loadedFeed.focus(showingPullRequestID: focusedPullRequestID, isShown: { visibleCopy(of: $0) != nil }) }
         loadOlderPullRequestsIfViewerNearsEnd(in: feed)
         guard feed == shownFeed else { return }
         startShownModeWork { [self] in await refetchPullRequestsAroundFocus(in: feed) }
@@ -746,7 +761,7 @@ final class PullRequestFeedStore {
             } else if olderPullRequest.belongs(in: feed), hasLoadableMedia(olderPullRequest) {
                 mediaFetchedAtByPullRequestID[olderPullRequest.id] = fetchedAt
                 appliedUpdateDateByPullRequestID[olderPullRequest.id] = olderPullRequest.updatedAt
-                updateLoadedFeed(feed) { $0.appendInFeedOrder(olderPullRequest) }
+                updateLoadedFeed(feed) { loadedFeed in loadedFeed.appendInFeedOrder(olderPullRequest, isShown: { visibleCopy(of: $0) != nil }) }
                 appendedPullRequestCount += 1
             } else {
                 appliedUpdateDateByPullRequestID[olderPullRequest.id] = olderPullRequest.updatedAt
@@ -773,11 +788,9 @@ final class PullRequestFeedStore {
             number: focusedPullRequest.number,
             forcesMediaURLRenewal: isMediaURLRenewalDue(forPullRequestID: focusedPullRequest.id)
         )
-        if loadedFeed.pullRequests.indices.contains(focusedIndex + 1) {
-            let nextPullRequest = loadedFeed.pullRequests[focusedIndex + 1]
-            if isMediaURLRenewalDue(forPullRequestID: nextPullRequest.id) {
-                await fetchAndApplyPullRequest(number: nextPullRequest.number, forcesMediaURLRenewal: true)
-            }
+        if let nextShownPullRequest = loadedFeed.pullRequests[(focusedIndex + 1)...].first(where: { visibleCopy(of: $0) != nil }),
+           isMediaURLRenewalDue(forPullRequestID: nextShownPullRequest.id) {
+            await fetchAndApplyPullRequest(number: nextShownPullRequest.number, forcesMediaURLRenewal: true)
         }
         await focusedPullRequestRefetch
     }
@@ -829,7 +842,7 @@ final class PullRequestFeedStore {
             case .merged: everyMergedPullRequestLoadedSince.map { (fetchedPullRequest.mergedAt ?? .distantPast) >= $0 } ?? true
             }
             var isInserted = false
-            updateLoadedFeed(feed) { isInserted = $0.insertIntoFeedOrder(fetchedPullRequest, mayGoLast: mayGoLast) }
+            updateLoadedFeed(feed) { loadedFeed in isInserted = loadedFeed.insertIntoFeedOrder(fetchedPullRequest, mayGoLast: mayGoLast, isShown: { visibleCopy(of: $0) != nil }) }
             if isInserted {
                 mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
             }
@@ -877,7 +890,7 @@ final class PullRequestFeedStore {
             mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
         }
         if updatedPullRequest != existingPullRequest {
-            updateLoadedFeed(feed) { $0.replace(updatedPullRequest, at: existingIndex) }
+            updateLoadedFeed(feed) { loadedFeed in loadedFeed.replace(updatedPullRequest, at: existingIndex, isShown: { visibleCopy(of: $0) != nil }) }
         }
         if !fetchedPullRequestBelongs {
             updateLoadedFeed(feed) { $0.removePullRequests { $0.id == fetchedPullRequest.id } }

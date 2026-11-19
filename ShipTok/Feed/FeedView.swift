@@ -195,15 +195,11 @@ struct FeedView: View {
         weeklyEditionsStore.weeklyEditions.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
 
-    private var visibleOpenWeekPullRequests: [PullRequest] {
-        feedStore.openWeekPullRequests.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
-    }
-
     private var feedPages: [FeedPage] {
         switch feedContext {
         case .pullRequests(let feed): feedStore.visiblePullRequests(in: feed).map(FeedPage.pullRequest) + [.feedEnd]
         case .weeklyEditions: visibleWeeklyEditions.map(FeedPage.weeklyEdition) + [.feedEnd]
-        case .openWeek: visibleOpenWeekPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
+        case .openWeek: feedStore.visibleOpenWeekPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
         }
     }
 
@@ -1073,7 +1069,7 @@ struct FeedView: View {
         case .weeklyEditions:
             Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
         case .openWeek:
-            let visibleOpenWeekPullRequests = self.visibleOpenWeekPullRequests
+            let visibleOpenWeekPullRequests = feedStore.visibleOpenWeekPullRequests
             guard visibleOpenWeekPullRequests.indices.contains(pageIndex) else { return }
             feedStore.focusOpenWeekPage(showingPullRequestID: visibleOpenWeekPullRequests[pageIndex].id)
         }
