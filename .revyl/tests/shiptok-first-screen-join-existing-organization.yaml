@@ -1,0 +1,29 @@
+# Revyl Test Definition
+
+test:
+    metadata:
+        name: shiptok-first-screen-join-existing-organization
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: validation
+          step_description: The first screen shows exactly two choices, a 'Sign in to Revyl' button and a 'Join existing organization' button
+        - type: instructions
+          step_description: Tap 'Join existing organization'
+        - type: validation
+          step_description: A screen titled 'Join existing organization' shows both ways to join, asking your organization's owner or an admin to invite you to Revyl, and an email field with a 'Submit' button
+        - type: instructions
+          step_description: Tap the email field and type shiptok-journeys@example.com
+        - type: instructions
+          step_description: Tap 'Submit'
+        - type: validation
+          step_description: In place of the email field, a confirmation says that if your organization uses Revyl, its owners and admins will get an email asking them to invite shiptok-journeys@example.com, and to accept the invite from your email, then sign in. It doesn't say whether an organization matched, and no error shows
+        - type: instructions
+          step_description: Tap the back button at the top left
+        - type: validation
+          step_description: The first screen shows again with 'Sign in to Revyl' and 'Join existing organization'

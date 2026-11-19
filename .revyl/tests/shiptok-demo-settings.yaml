@@ -18,12 +18,12 @@ test:
         orientation: portrait
     blocks:
         - type: module_import
-          step_description: Open the demo feed with Look around first
-          module: shiptok-open-demo-feed
+          step_description: Sign in to Revyl with the test account and open the demo feed
+          module: shiptok-sign-in-to-revyl-and-open-demo-feed
         - type: instructions
           step_description: Tap the Settings tab, the person icon at the right of the tab bar at the bottom
         - type: validation
-          step_description: Settings shows a Demo section saying 'You're looking around' with a 'Sign in with Revyl' button, and a Feed section whose Repository is RevylAI/shiptok-demo
+          step_description: Settings shows a Demo section saying 'You're looking around' with a 'Connect GitHub' button, and a Feed section whose Repository is RevylAI/shiptok-demo
         - type: instructions
           step_description: Scroll down through Settings
         - type: validation

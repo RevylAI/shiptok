@@ -29,14 +29,20 @@ pr_review:
       kind: revyl
     system_prompt: >-
       ShipTok is a native SwiftUI iOS app: a vertical, Reels-style feed of the
-      open and merged pull requests with media in one GitHub repository. Prove
-      changes signed out: on the signed-out screen, tap Look around first to open the
-      read-only demo of the public repository RevylAI/shiptok-demo. Swipe up
-      for the next pull request and down for the previous one; a sideways swipe
-      casts a vibe, a double-tap likes, and one tap pauses or resumes a video.
-      The right rail holds like, comments, react, vibes, mute, playback speed,
-      the media deck and More; the Open / Merged / Weekly / Features switch sits
-      at the card's top left and opens on Merged. Weekly shows a video per week
+      open and merged pull requests with media in one GitHub repository.
+      Nothing shows without a Revyl sign-in: the first screen offers only Sign
+      in to Revyl and Join existing organization. Prove changes signed in to
+      Revyl with the ShipTok test account, which has no GitHub account
+      connected: tap Sign in to Revyl, sign in on Revyl's page with the email
+      {{global.shiptok-revyl-sign-in-email}} and the password
+      {{global.shiptok-revyl-sign-in-password}}, and tap Continue to ShipTok,
+      which opens the read-only demo of the public repository
+      RevylAI/shiptok-demo. Swipe up for the next pull request and down for
+      the previous one; a sideways swipe casts a vibe, a double-tap likes, and
+      one tap pauses or resumes a video. The right rail holds like, comments,
+      react, vibes, mute, playback speed, the media deck and More; the Open /
+      Merged / Weekly / Features switch sits at the card's top left and opens
+      on Merged, with Connect GitHub under it. Weekly shows a video per week
       and Features a video per shipped feature; tapping one's title or deck
       button opens its pull requests, and a 'Week of' or 'Features' back button
       at the top left returns. A pull request with no media appears only in a
@@ -44,14 +50,16 @@ pr_review:
       description with a Details button. The tab bar holds the feed, the inbox
       and Settings, where Videos only (on by default) limits Open and Merged to
       pull requests that lead with a video. The demo repository may have no
-      open pull requests, so an empty Open mode is expected there. In the demo,
-      likes, reactions, comments, vibes, Report and the inbox ask the visitor
-      to sign in, which is the expected result there. Never complete a GitHub
-      sign-in. If the signed-out screen says the demo isn't available, report
-      that and prove what the signed-out screen allows.
+      open pull requests, so an empty Open mode is expected there. In the
+      demo, likes, reactions, comments, vibes, Report, the inbox and Connect
+      GitHub open a sheet that asks to connect GitHub, which is the expected
+      result there. Never connect GitHub or complete a GitHub sign-in, and
+      never sign out, delete data or delete the Revyl account. If the demo
+      isn't available, report that and prove what the Connect GitHub screen
+      allows.
     always_verify:
-      - The signed-out screen shows Sign in with Revyl and Look around first
-      - Look around first opens the demo feed on a pull request card
+      - The first screen shows exactly two choices, Sign in to Revyl and Join existing organization
+      - Signing in to Revyl with the test account opens the demo feed on a pull request card with Connect GitHub under the mode switch
   workflows:
     enabled: true
     workflow_ids:

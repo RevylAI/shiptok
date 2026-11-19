@@ -18,8 +18,8 @@ test:
         orientation: portrait
     blocks:
         - type: module_import
-          step_description: Open the demo feed with Look around first
-          module: shiptok-open-demo-feed
+          step_description: Sign in to Revyl with the test account and open the demo feed
+          module: shiptok-sign-in-to-revyl-and-open-demo-feed
         - type: validation
           step_description: The card plays a video, a thin progress line runs along the bottom of the card under the caption, and the right rail shows a playback speed button reading 1x
         - type: instructions
@@ -40,4 +40,4 @@ test:
         - type: instructions
           step_description: Press on the thin progress line at the bottom of the card near its left end and drag sideways to the right along the line to about its middle, then lift
         - type: validation
-          step_description: The card still shows '{{scrubbed-pull-request-title}}', no sign-in sheet opened, and the video's progress line is filled to roughly where the drag ended
+          step_description: The card still shows '{{scrubbed-pull-request-title}}', no Connect GitHub sheet opened, and the video's progress line is filled to roughly where the drag ended

@@ -8,7 +8,7 @@ _meta:
     checksum: d086d6b83dab4bae5f9fb594ab5166ac4d99c9395d10919851f95b02eca0ef7a
 test:
     metadata:
-        name: shiptok-sign-in-opens-github
+        name: shiptok-first-screen-sign-in-opens-revyl
         platform: ios
     build:
         name: ShipTok
@@ -18,12 +18,12 @@ test:
         orientation: portrait
     blocks:
         - type: validation
-          step_description: The signed-out screen shows the ShipTok title, a short description of the app, a 'Sign in with Revyl' button and a 'Look around first' button, and no error message
+          step_description: The first screen shows the ShipTok title, a short description of the app and exactly two choices, a 'Sign in to Revyl' button and a 'Join existing organization' button, with no other way in and no error message
         - type: instructions
-          step_description: Tap 'Sign in with Revyl'
+          step_description: Tap 'Sign in to Revyl'
         - type: validation
-          step_description: A browser sheet opens over ShipTok on GitHub's sign-in page, asking to sign in to GitHub to continue
+          step_description: A browser sheet opens over ShipTok on Revyl's sign-in page, with no way to create an account
         - type: instructions
           step_description: Close the browser sheet with its Cancel button, without signing in
         - type: validation
-          step_description: The signed-out screen shows again with 'Sign in with Revyl' and 'Look around first'
+          step_description: The first screen shows again with 'Sign in to Revyl' and 'Join existing organization'

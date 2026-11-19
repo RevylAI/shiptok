@@ -18,8 +18,8 @@ test:
         orientation: portrait
     blocks:
         - type: module_import
-          step_description: Open the demo feed with Look around first
-          module: shiptok-open-demo-feed
+          step_description: Sign in to Revyl with the test account and open the demo feed
+          module: shiptok-sign-in-to-revyl-and-open-demo-feed
         - type: extraction
           step_description: The title of the pull request on the card
           variable_name: detailed-pull-request-title
