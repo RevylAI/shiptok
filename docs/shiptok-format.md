@@ -1,6 +1,6 @@
 # The ShipTok format
 
-This is what ShipTok reads from GitHub and writes there, for anyone posting a ShipTok video, vibe, weekly edition or feature and for Revyl's pull request review config. GitHub is the record: the app reads pull requests, issues and comments, and writes reactions and comments as the signed-in person.
+This is what ShipTok reads from GitHub and writes there, for anyone posting a ShipTok video, vibe, weekly edition or feature and for Revyl's pull request review config. GitHub is the record: the app reads pull requests, issues and comments, and writes reactions and comments as the person, through the GitHub account they connected.
 
 ## Which pull requests are in the feed
 
@@ -17,12 +17,12 @@ The same media in several places is one item, and a copy tagged as a ShipTok vid
 
 ## ShipTok video
 
-A ShipTok video is any video in a description or top-level comment that carries a ShipTok tag:
+A ShipTok video is any video in a description or top-level comment that carries either ShipTok tag:
 
-- `#shiptok`, in any case, with no letter, digit, `_` or `#` right before or after it; or
-- the hidden marker `<!-- shiptok:video -->`, in any case, which may carry attributes after a space that the app ignores, so `<!-- shiptok:video source=revyl -->` matches too. It's read from the raw markdown, since GitHub's rendered HTML drops it.
+- `#shiptok`, in any case, with no letter, digit, `_` or `#` directly before or after it;
+- the hidden marker `<!-- shiptok:video -->`, in any case, which can carry attributes after a space that the app ignores, so `<!-- shiptok:video source=revyl -->` counts too. The app reads it from the raw markdown, since GitHub's rendered HTML drops it.
 
-People and bots can both post one, and neither the poster nor the host changes its priority. A comment carrying a tag stays out of the comment list, with or without a video.
+People and bots can both post one, and neither who posts it nor where it's hosted changes its priority. A comment carrying a tag stays out of the comment list, whether or not it holds a video.
 
 ```markdown
 <!-- shiptok:video -->
@@ -32,7 +32,7 @@ People and bots can both post one, and neither the poster nor the host changes i
 <the video>
 ```
 
-A Revyl-hosted upload's canonical link is `/api/v1/shiptok/videos/{token}.mp4` or `/api/v1/shiptok/videos/{token}.mov` on the backend, under whatever path the backend is served from, where `{token}` is the upload's 43-character token of letters, digits, `-` and `_`. The link can stand bare in the markdown or behind a linked poster. On a private repository the video plays only for a viewer GitHub lets read the repository: a signed-in app presents the person's GitHub token when the link is on the Revyl backend its build names, and playback follows the link's redirect without forwarding GitHub authorization. Uploading again makes a new link and a new cache identity, and the bytes behind a link never change.
+A Revyl-hosted upload's canonical link is `/api/v1/shiptok/videos/{token}.mp4` or `/api/v1/shiptok/videos/{token}.mov` on the backend, under whatever path the backend is served from, where `{token}` is the upload's 43-character token of letters, digits, `-` and `_`. The link can stand bare in the markdown or behind a linked poster. A public repository's hosted video plays for anyone, the demo included. On a private repository it plays only for a Revyl account in an organization whose connected GitHub account GitHub lets read the repository: the app presents the person's Revyl key when the link is on the Revyl backend its build names, and follows the link's redirect to the file without it. Uploading again makes a new link and a new cache identity, and the bytes behind a link never change.
 
 A video is at most 100 MB (104,857,600 bytes), the limit of a Revyl-hosted upload. The app plays videos from memory, so it stops downloading a larger one, tagged or not, and treats it as media that failed to load.
 
