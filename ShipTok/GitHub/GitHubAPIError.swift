@@ -9,13 +9,14 @@ enum GitHubAPIError: LocalizedError {
     case responseUnreadable(operationName: String)
     case pullRequestNeitherOpenNorMerged(number: Int)
     case weeklyEditionUnreadable(number: Int)
+    case featureUnreadable(number: Int)
     case signInRequired
 
     var rejectsFeedAccess: Bool {
         switch self {
         case .accessTokenRejected, .feedRepositoryNotVisible:
             true
-        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNeitherOpenNorMerged, .weeklyEditionUnreadable, .signInRequired:
+        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNeitherOpenNorMerged, .weeklyEditionUnreadable, .featureUnreadable, .signInRequired:
             false
         }
     }
@@ -38,6 +39,8 @@ enum GitHubAPIError: LocalizedError {
             "#\(number) is closed without being merged, or isn't in this repository."
         case .weeklyEditionUnreadable(let number):
             "#\(number) isn't a weekly video ShipTok can read."
+        case .featureUnreadable(let number):
+            "#\(number) isn't a feature video ShipTok can read."
         case .signInRequired:
             "Sign in with Revyl to do that."
         }

@@ -27,7 +27,13 @@ enum PublishedIssueFormat {
         else { return nil }
         let pullRequestNumbers = lines.compactMap(pullRequestNumber(inListItem:))
         guard pullRequestCountRange.contains(pullRequestNumbers.count) else { return nil }
-        return Description(markerLine: markerLine, title: title, hook: hook, pullRequestNumbers: pullRequestNumbers)
+        // The title and hook are free text shown on cards and in toasts, so they're redacted here, once (AGENTS.md, "Signed Media URLs").
+        return Description(
+            markerLine: markerLine,
+            title: PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(title),
+            hook: PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(hook),
+            pullRequestNumbers: pullRequestNumbers
+        )
     }
 
     private static func pullRequestNumber(inListItem line: String) -> Int? {

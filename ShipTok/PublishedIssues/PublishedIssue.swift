@@ -18,3 +18,13 @@ extension WeeklyEdition: PublishedIssue {
         try await githubAPIClient.fetchWeeklyEditions()
     }
 }
+
+extension Feature: PublishedIssue {
+    static var analyticsSubjectKind: ShipTokAnalyticsSubject.Kind { .feature }
+
+    var reference: String { "the feature “\(title)”" }
+
+    static func fetchEveryPublishedIssue(from githubAPIClient: GitHubAPIClient) async throws -> [Feature] {
+        try await githubAPIClient.fetchFeatures()
+    }
+}

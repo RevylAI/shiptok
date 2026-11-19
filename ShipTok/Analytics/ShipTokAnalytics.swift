@@ -6,6 +6,7 @@ struct ShipTokAnalyticsSubject: Sendable, Hashable {
     enum Kind: String, Sendable {
         case pullRequest = "pull_request"
         case weeklyEdition = "weekly_edition"
+        case feature
     }
 
     let kind: Kind

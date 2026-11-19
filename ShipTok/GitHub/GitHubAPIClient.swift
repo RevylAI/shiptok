@@ -327,6 +327,28 @@ final class GitHubAPIClient: Sendable {
         return weeklyEdition
     }
 
+    // Every published feature, newest close first and then the higher issue number; each issue is a card of its own (AGENTS.md, "Features Mode").
+    func fetchFeatures() async throws -> [Feature] {
+        var features: [Feature] = []
+        for issueNode in try await everyClosedIssueNode(labeled: FeatureFormat.labelName, inDemoFeed: \.featureIssues) {
+            guard let feature = try await feature(from: issueNode) else {
+                Self.logger.error("#\(issueNode.number, privacy: .public) carries the feature label but not the feature format or any media, so it's left out")
+                continue
+            }
+            features.append(feature)
+        }
+        return features.sorted { ($0.closedAt, $0.number) > ($1.closedAt, $1.number) }
+    }
+
+    func fetchFeature(number: Int) async throws -> Feature {
+        guard let issueNode = try await issueNode(number: number, inDemoFeed: \.featureIssues),
+              let feature = try await feature(from: issueNode)
+        else {
+            throw GitHubAPIError.featureUnreadable(number: number)
+        }
+        return feature
+    }
+
     func addComment(bodyMarkdown: String, toSubjectID subjectID: String) async throws -> PullRequestComment {
         let response: AddPullRequestCommentData = try await sendGraphQLQuery(GitHubGraphQLDocument.addPullRequestCommentMutation, variables: [
             "subjectID": subjectID,
@@ -419,6 +441,26 @@ final class GitHubAPIClient: Sendable {
             url: issueNode.url,
             author: publishedIssueThread.author,
             weekStartDate: description.weekStartDate,
+            title: description.title,
+            hook: description.hook,
+            pullRequestNumbers: description.pullRequestNumbers,
+            reactions: GitHubReactionSummary(reactionGroups: issueNode.reactionGroups ?? []),
+            comments: publishedIssueThread.comments,
+            mediaItems: publishedIssueThread.mediaItems
+        )
+    }
+
+    private func feature(from issueNode: IssueNode) async throws -> Feature? {
+        guard let closedAt = issueNode.closedAt,
+              let description = FeatureFormat.description(fromMarkdown: issueNode.body),
+              let publishedIssueThread = try await fetchPublishedIssueThread(of: issueNode, labeledWith: FeatureFormat.labelName)
+        else { return nil }
+        return Feature(
+            id: issueNode.id,
+            number: issueNode.number,
+            url: issueNode.url,
+            author: publishedIssueThread.author,
+            closedAt: closedAt,
             title: description.title,
             hook: description.hook,
             pullRequestNumbers: description.pullRequestNumbers,

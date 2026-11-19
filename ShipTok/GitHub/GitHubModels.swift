@@ -127,7 +127,23 @@ struct WeeklyEdition: Identifiable, Hashable, Sendable {
     var mediaItems: [PullRequestMediaItem]
 }
 
-// Any GitHub conversation the feed shows, a pull request or a weekly edition, takes comments, reactions and vibes the same way.
+// One shipped feature's video, published as a closed GitHub issue in the feature format (FeatureFormat).
+struct Feature: Identifiable, Hashable, Sendable {
+    let id: String
+    let number: Int
+    let url: URL
+    let author: GitHubActor?
+    // When its issue last closed, which is when it was published.
+    let closedAt: Date
+    let title: String
+    let hook: String
+    let pullRequestNumbers: [Int]
+    var reactions: GitHubReactionSummary
+    var comments: [PullRequestComment]
+    var mediaItems: [PullRequestMediaItem]
+}
+
+// Any GitHub conversation the feed shows, a pull request, a weekly edition or a feature, takes comments, reactions and vibes the same way.
 protocol GitHubCommentThread: Hashable, Sendable {
     var id: String { get }
     var number: Int { get }
@@ -147,3 +163,4 @@ extension GitHubCommentThread {
 
 extension PullRequest: GitHubCommentThread {}
 extension WeeklyEdition: GitHubCommentThread {}
+extension Feature: GitHubCommentThread {}
