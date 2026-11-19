@@ -112,7 +112,7 @@ final class ShipTokSignInSession {
             await exploreDemo(githubConnectionFailureMessage: signedOutReason)
             return
         }
-        activate(user: storedGitHubSignIn.user, accessTokenVault: GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens))
+        activate(user: storedGitHubSignIn.user, accessTokenVault: GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens), revylAPIKey: storedRevylAPIKey)
     }
 
     func signInToRevyl(using webAuthenticationSession: WebAuthenticationSession) async {
@@ -329,7 +329,7 @@ final class ShipTokSignInSession {
             demoFeed: demoFeed,
             analytics: ShipTokAnalytics(demoVisitID: visitID),
             hiddenPeopleStore: .forDemoVisit(),
-            mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil),
+            mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, hostedVideoRevylSignIn: nil),
             feedWork: FeedViewerWork()
         )
         demoVisitor.analytics.capture(.demoEntered)
@@ -359,7 +359,7 @@ final class ShipTokSignInSession {
             return
         }
         guard self.revylAPIKey == revylAPIKey else { return }
-        activate(user: storedGitHubSignIn.user, accessTokenVault: accessTokenVault)
+        activate(user: storedGitHubSignIn.user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey)
     }
 
     private func connectGitHubAccount(using accessTokenVault: GitHubAccessTokenVault, revylAPIKey: String) async throws {
@@ -374,7 +374,7 @@ final class ShipTokSignInSession {
         guard self.revylAPIKey == revylAPIKey else { return nil }
         UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
         demoVisitor?.feedWork.stop()
-        return activate(user: user, accessTokenVault: accessTokenVault)
+        return activate(user: user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey)
     }
 
     private func failConnectingGitHub(_ error: any Error, revylAPIKey: String, demoVisitor: DemoVisitor?) {
@@ -460,8 +460,12 @@ final class ShipTokSignInSession {
         teammate.feedWork.stop()
     }
 
+    // A hosted video refused for the Revyl sign-in itself says no more than that something changed, so Revyl's answer to GET /github-account decides what the app does (AGENTS.md, "Signed Media URLs").
     @discardableResult
-    private func activate(user: GitHubUserIdentity, accessTokenVault: GitHubAccessTokenVault) -> SignedInTeammate {
+    private func activate(user: GitHubUserIdentity, accessTokenVault: GitHubAccessTokenVault, revylAPIKey: String) -> SignedInTeammate {
+        let hostedVideoRevylSignIn = HostedVideoRevylSignIn(revylAPIKey: revylAPIKey) { [weak self] in
+            Task { await self?.verifyRevylSignIn() }
+        }
         let teammate = SignedInTeammate(
             user: user,
             accountAPI: GitHubAccountAPI(accessTokenVault: accessTokenVault),
@@ -470,7 +474,7 @@ final class ShipTokSignInSession {
             hiddenPeopleStore: HiddenPeopleStore(githubUserID: user.githubUserID),
             mediaCache: FeedViewerMediaCache(
                 savedMedia: .forSignedInGitHubUser(id: user.githubUserID),
-                signedInGitHubAccessTokenVault: accessTokenVault
+                hostedVideoRevylSignIn: hostedVideoRevylSignIn
             ),
             feedWork: FeedViewerWork()
         )

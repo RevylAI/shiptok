@@ -26,7 +26,6 @@ struct PullRequestMediaItemView: View {
     @State private var videoPlayback: LoopingVideoPlayback?
     @State private var hasFailedToLoad = false
     @State private var renewalRequestCount = 0
-    @State private var isWaitingForGitHubAccessToken = false
     @State private var naturalSize: CGSize?
     @State private var hasReadVideoNaturalSize = false
     @State private var isPausedByViewer = false
@@ -46,7 +45,6 @@ struct PullRequestMediaItemView: View {
     private static let fastPlaybackRate: Float = 2
     private static let deckPageProgressLineHitSlop: CGFloat = 20
     private static let imageDownloadAttemptLimit = 3
-    private static let gitHubAccessTokenRetryDelay: Duration = .seconds(5)
     private static let heroFillMinimumVisibleFraction: CGFloat = 0.875
     private static let heroBackdropDimmingOpacity = 0.35
     private static let heroBackdropBlurRadius: CGFloat = 30
@@ -96,7 +94,6 @@ struct PullRequestMediaItemView: View {
         }
         .task(id: MediaLoadRequest(mediaURL: mediaItem.url, renewalRequestCount: renewalRequestCount)) { await loadUnlessAlreadyLoaded() }
         .task(id: videoPlayback?.isReadyToPlay == true) { await handleVideoReadyToPlay() }
-        .task(id: isWaitingForGitHubAccessToken && isWatchedPresentation) { await loadAgainAfterGitHubAccessTokenWait() }
         .onChange(of: isPlaybackActive) {
             isPausedByViewer = false
             updateVideoPlayback(restartingFromBeginning: true)
@@ -382,7 +379,6 @@ struct PullRequestMediaItemView: View {
         case .video:
             guard let videoResourceLoader = mediaCache.reuseOrStartVideoLoad(for: mediaItem) else { return }
             hasFailedToLoad = false
-            isWaitingForGitHubAccessToken = false
             hasTerminalPlaybackFailure = false
             videoPlayback = LoopingVideoPlayback(videoResourceLoader: videoResourceLoader, isMuted: isMuted)
             if let analytics, let analyticsMedia {
@@ -451,31 +447,10 @@ struct PullRequestMediaItemView: View {
         naturalSize = resolvedNaturalSize
     }
 
-    // The card in focus or the deck's current page, in the foreground with nothing over it, so cards beside it, under Settings or outside the deck's page never count.
-    private var isWatchedPresentation: Bool {
-        isPlaybackActive && scenePhase == .active && !isOccludedForAnalytics
-    }
-
-    // A signed-in person's token that couldn't be had says nothing about the video, so it keeps the loading look and loads again a few seconds later, only while someone is watching it (AGENTS.md, "Signed Media URLs").
-    private func loadAgainAfterGitHubAccessTokenWait() async {
-        guard isWaitingForGitHubAccessToken, isWatchedPresentation else { return }
-        do {
-            try await Task.sleep(for: Self.gitHubAccessTokenRetryDelay)
-        } catch {
-            return
-        }
-        guard isWaitingForGitHubAccessToken, isWatchedPresentation else { return }
-        await loadUnlessAlreadyLoaded()
-    }
-
-    // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported. A video refused to this viewer is reported at once, since no renewal changes that answer, and one that waited on the person's GitHub token isn't a failure of the media at all (AGENTS.md, "Signed Media URLs").
+    // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported. A video refused to this viewer is reported at once, since no renewal changes that answer (AGENTS.md, "Signed Media URLs").
     private func handleLoadFailure() {
         guard let mediaCache = feedViewerMediaCache, !hasFailedToLoad else { return }
         hasFailedToLoad = true
-        if videoPlayback?.videoResourceLoader.lackedGitHubAccessToken == true {
-            isWaitingForGitHubAccessToken = true
-            return
-        }
         let wasRefusedToViewer = videoPlayback?.videoResourceLoader.wasRefusedToViewer == true
         hasTerminalPlaybackFailure = wasRefusedToViewer
             || (mediaCache.loadFailureLogLevel(for: mediaItem) == .error && !mediaCache.hasExpiringSignedURLFailed(for: mediaItem))

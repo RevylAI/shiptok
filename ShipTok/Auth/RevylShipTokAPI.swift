@@ -8,7 +8,7 @@ enum RevylBackendConfiguration {
     static let requestTimeoutSeconds: TimeInterval = 60
     private static let defaultPortByScheme = ["https": 443, "http": 80]
 
-    // Only a hosted video's canonical link on this build's own backend may carry the person's GitHub token: never another host a pull request names, and never a link whose userinfo, escapes or dot segments could make it mean another place, so its path must read exactly as the backend's hosted video route and the upload (AGENTS.md, "Signed Media URLs").
+    // Only a hosted video's canonical link on this build's own backend may carry the person's Revyl key: never another host a pull request names, and never a link whose userinfo, escapes or dot segments could make it mean another place, so its path must read exactly as the backend's hosted video route and the upload (AGENTS.md, "Signed Media URLs").
     static func servesHostedShipTokVideo(at url: URL) -> Bool {
         guard PullRequestMediaItem.isHostedShipTokVideoURL(url), url.user() == nil, url.password() == nil,
               let backendURL, let scheme = url.scheme?.lowercased(), scheme == backendURL.scheme?.lowercased(),

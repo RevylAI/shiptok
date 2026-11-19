@@ -20,8 +20,8 @@ enum LoadedPullRequestImage {
 @MainActor
 final class FeedViewerMediaCache {
     let savedMedia: PullRequestMediaDiskCache
-    // Nil for a demo visit, so a demo never presents a GitHub token anywhere.
-    let signedInGitHubAccessTokenVault: GitHubAccessTokenVault?
+    // Nil for a demo visit, so a demo's video requests carry no credential.
+    let hostedVideoRevylSignIn: HostedVideoRevylSignIn?
     private let stillImagesByMediaItemID = NSCache<NSString, UIImage>()
     private let animatedGIFDataByMediaItemID = NSCache<NSString, NSData>()
     private let videoResourceLoadersByMediaItemID = NSCache<NSString, SingleRequestVideoResourceLoader>()
@@ -32,9 +32,9 @@ final class FeedViewerMediaCache {
     private var hasRemovedAllMedia = false
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
-    init(savedMedia: PullRequestMediaDiskCache, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) {
+    init(savedMedia: PullRequestMediaDiskCache, hostedVideoRevylSignIn: HostedVideoRevylSignIn?) {
         self.savedMedia = savedMedia
-        self.signedInGitHubAccessTokenVault = signedInGitHubAccessTokenVault
+        self.hostedVideoRevylSignIn = hostedVideoRevylSignIn
     }
 
     // When a sign-in ends its media goes with it: every download stops without saving, everything loaded is forgotten, its folder is removed and nothing is kept again. Each viewer's media is already apart, so this is cleanup, and one that lands late or fails leaves nothing for anyone else (AGENTS.md, "Feed Caching").
@@ -125,7 +125,7 @@ final class FeedViewerMediaCache {
                 savingInto: savedMedia,
                 asMediaItemID: mediaItem.id,
                 failureLogLevel: loadFailureLogLevel(for: mediaItem),
-                signedInGitHubAccessTokenVault: signedInGitHubAccessTokenVault
+                hostedVideoRevylSignIn: hostedVideoRevylSignIn
             )
             downloadingVideoResourceLoaders.add(videoResourceLoader)
         } else {
