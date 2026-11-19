@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: bb711d3b-b7f0-4e2f-becb-724d18bb6622
-    remote_version: 1
-    local_version: 1
-    last_synced_at: "2026-11-19T15:42:24Z"
-    checksum: 5d07c09a7341a3fd36ed0444d2344218aabf485d9b0b3532ff6ebe008af6e299
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-11-19T17:03:11Z"
+    checksum: 85ba7012679fa5f0982bdbc5f9b8359cb0fbf2466cd9eedede238e5ca8d24e72
 test:
     metadata:
         name: shiptok-demo-videos-only-setting
@@ -33,6 +33,28 @@ test:
         - type: validation
           step_description: The demo feed shows a pull request card with 'Merged' selected in the switch at its top left
         - type: instructions
+          step_description: Tap 'Open' in the switch at the card's top left
+        - type: validation
+          step_description: '''Open'' is selected in the switch, and the card shows pull request #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'', #8 ''Find rare bugs when a shopper searches for Rare'' or #9 ''Give each tab in the bottom bar its own icon'''
+        - type: extraction
+          step_description: The pull request number after '#' in the line under the card's title, digits only
+          variable_name: first-open-pull-request-number
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: 'The card shows another one of #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'', #8 ''Find rare bugs when a shopper searches for Rare'' and #9 ''Give each tab in the bottom bar its own icon'', not #{{first-open-pull-request-number}}'
+        - type: extraction
+          step_description: The pull request number after '#' in the line under the card's title, digits only
+          variable_name: second-open-pull-request-number
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: 'The card shows the one of #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'', #8 ''Find rare bugs when a shopper searches for Rare'' and #9 ''Give each tab in the bottom bar its own icon'' that is neither #{{first-open-pull-request-number}} nor #{{second-open-pull-request-number}}'
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: The page says 'That's every open PR' and 'You've seen every open pull request in this demo with a video, screenshot or GIF.'
+        - type: instructions
           step_description: Tap the Settings tab again
         - type: validation
           step_description: The 'Videos only' toggle is still off
@@ -40,3 +62,25 @@ test:
           step_description: Tap the 'Videos only' toggle
         - type: validation
           step_description: The 'Videos only' toggle is on
+        - type: instructions
+          step_description: Tap the Feed tab
+        - type: validation
+          step_description: '''Open'' is selected in the switch, and the page says ''That''s every open PR'' and ''You''ve seen every open pull request in this demo that leads with a video.'''
+        - type: instructions
+          step_description: Swipe down on the middle of the page
+        - type: validation
+          step_description: 'The card shows pull request #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'' or #8 ''Find rare bugs when a shopper searches for Rare'', not #9 ''Give each tab in the bottom bar its own icon'''
+        - type: extraction
+          step_description: The pull request number after '#' in the line under the card's title, digits only
+          variable_name: last-open-pull-request-number
+        - type: instructions
+          step_description: Swipe down on the middle of the card
+        - type: validation
+          step_description: 'The card shows the other one of #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'' and #8 ''Find rare bugs when a shopper searches for Rare'', not #{{last-open-pull-request-number}} and not #9 ''Give each tab in the bottom bar its own icon'''
+        - type: extraction
+          step_description: The pull request number after '#' in the line under the card's title, digits only
+          variable_name: first-open-pull-request-number-with-videos-only
+        - type: instructions
+          step_description: Swipe down on the middle of the card
+        - type: validation
+          step_description: 'The card for #{{first-open-pull-request-number-with-videos-only}} still shows, since it is Open''s first card, and no card for #9 ''Give each tab in the bottom bar its own icon'' has appeared'
