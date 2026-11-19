@@ -66,7 +66,7 @@ enum GitHubGraphQLDocument {
           feedRepository: repository(owner: $owner, name: $name) {
             pullRequests(states: $states, first: 50, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
               pageInfo { hasNextPage endCursor }
-              nodes { id updatedAt }
+              nodes { id updatedAt mergedAt }
             }
           }
         }

@@ -1,14 +1,18 @@
 import Foundation
+import os
 import OSLog
 
 // The signed-in person's GitHub API. Every request carries their access token, and a refused one renews the sign-in once and tries again, since GitHub also refuses a token another refresh just retired (AGENTS.md, "iOS App").
 final class GitHubAccountAPI: Sendable {
     private static let requestTimeoutSeconds: TimeInterval = 60
     private static let restPageSize = 100
+    private static let rateLimitCooldownWithoutResetSeconds: TimeInterval = 60
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "github")
 
     private let accessTokenVault: GitHubAccessTokenVault
     private let urlSession: URLSession
+    // GitHub refuses the account's requests until its limit resets, so none goes out before then, whichever part of the app asks.
+    private let rateLimitCooldownEndDate = OSAllocatedUnfairLock<Date?>(initialState: nil)
 
     init(accessTokenVault: GitHubAccessTokenVault) {
         self.accessTokenVault = accessTokenVault
@@ -26,6 +30,9 @@ final class GitHubAccountAPI: Sendable {
     }
 
     func sendAuthorizedRequest(_ request: URLRequest, operationName: String) async throws -> Data {
+        if let currentCooldownEndDate = rateLimitCooldownEndDate.withLock({ $0 }), currentCooldownEndDate > .now {
+            throw GitHubAPIError.rateLimited
+        }
         let accessToken = try await accessTokenVault.validAccessToken()
         var (responseData, httpResponse) = try await send(request, accessToken: accessToken, operationName: operationName)
         if httpResponse.statusCode == 401 {
@@ -37,9 +44,18 @@ final class GitHubAccountAPI: Sendable {
             Self.logger.error("GitHub rejected the access token on \(operationName, privacy: .public)")
             throw GitHubAPIError.accessTokenRejected
         }
-        if [403, 429].contains(httpResponse.statusCode),
-           httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0" || httpResponse.value(forHTTPHeaderField: "Retry-After") != nil {
-            Self.logger.error("GitHub rate-limited \(operationName, privacy: .public)")
+        let isRateLimitUsedUp = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
+        let retryAfterSeconds = httpResponse.value(forHTTPHeaderField: "Retry-After").map { TimeInterval($0) ?? Self.rateLimitCooldownWithoutResetSeconds }
+        let isRefusedForRateLimit = [403, 429].contains(httpResponse.statusCode) && (isRateLimitUsedUp || retryAfterSeconds != nil)
+        if isRefusedForRateLimit || isRateLimitUsedUp {
+            let rateLimitResetDate = httpResponse.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap { TimeInterval($0) }.map { Date(timeIntervalSince1970: $0) }
+            let cooldownEndDate = retryAfterSeconds.map { Date.now.addingTimeInterval($0) }
+                ?? rateLimitResetDate
+                ?? Date.now.addingTimeInterval(Self.rateLimitCooldownWithoutResetSeconds)
+            rateLimitCooldownEndDate.withLock { $0 = max($0 ?? cooldownEndDate, cooldownEndDate) }
+            Self.logger.error("GitHub's rate limit for this account is used up at \(operationName, privacy: .public), so nothing more is asked for \(Int(cooldownEndDate.timeIntervalSinceNow), privacy: .public) s")
+        }
+        if isRefusedForRateLimit {
             throw GitHubAPIError.rateLimited
         }
         guard (200..<300).contains(httpResponse.statusCode) else {

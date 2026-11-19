@@ -155,6 +155,7 @@ struct PullRequestUpdatesPageData: Decodable {
     struct UpdatedPullRequestNode: Decodable {
         let id: String
         let updatedAt: Date
+        let mergedAt: Date?
     }
 
     struct UpdatedPullRequestConnectionNode: Decodable {

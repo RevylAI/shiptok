@@ -185,6 +185,11 @@ struct FeedView: View {
         return feed
     }
 
+    // Refreshes run only while the feed is on screen, never under Inbox or Settings (AGENTS.md, "Feed Order").
+    private var liveRefreshFeedContext: FeedContext? {
+        selectedTab == .feed ? feedContext : nil
+    }
+
     // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
     private var visibleWeeklyEditions: [WeeklyEdition] {
         weeklyEditionsStore.weeklyEditions.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
@@ -371,15 +376,23 @@ struct FeedView: View {
         .fullScreenCover(item: $mediaDeckPullRequestID) { presentedPullRequestID in
             MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, signInSession: signInSession, pullRequestID: presentedPullRequestID.id)
         }
-        .task(id: feedContext) { await refreshShownFeedContextWhileShown() }
+        .task(id: liveRefreshFeedContext) {
+            if liveRefreshFeedContext != nil {
+                await refreshShownFeedContextWhileShown()
+            }
+        }
         .task { await inboxStore?.runLiveRefreshLoop() }
         .task { await userSettingsStore?.refresh() }
-        .onAppear { focusPage(at: currentPageIndex) }
+        .onAppear {
+            feedStore.changeShownFeed(to: shownPullRequestFeed)
+            focusPage(at: currentPageIndex)
+        }
         .onChange(of: currentPageIndex) { _, newPageIndex in
             focusPage(at: newPageIndex)
         }
         .onChange(of: feedContext) {
             postVibeAwaitingFeedback()
+            feedStore.changeShownFeed(to: shownPullRequestFeed)
             focusPage(at: currentPageIndex)
         }
         .onChange(of: selectedTab) { _, newSelectedTab in
@@ -403,7 +416,9 @@ struct FeedView: View {
         .onChange(of: scenePhase) { _, newScenePhase in
             switch newScenePhase {
             case .active:
-                Task { await refreshShownFeedContext() }
+                if selectedTab == .feed {
+                    Task { await refreshShownFeedContext() }
+                }
                 Task { await inboxStore?.refresh() }
                 Task { await userSettingsStore?.refresh() }
             case .background:

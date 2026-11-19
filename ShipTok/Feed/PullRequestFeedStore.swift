@@ -185,6 +185,10 @@ final class PullRequestFeedStore {
     @ObservationIgnored private var nextOpenPullRequestsPageCursor: String?
     @ObservationIgnored private var savedFeedGeneration = 0
     @ObservationIgnored private var mediaFetchedAtByPullRequestID: [String: Date] = [:]
+    // The update each pull request was at when the store last read it whole, so a refresh doesn't read again what it already has (AGENTS.md, "Feed Order").
+    @ObservationIgnored private var appliedUpdateDateByPullRequestID: [String: Date] = [:]
+    @ObservationIgnored private var shownFeed: PullRequestFeed?
+    @ObservationIgnored private var shownModeTasksByID: [UUID: Task<Void, Never>] = [:]
     private var mediaLoadFailureRecovery = MediaLoadFailureRecovery()
     @ObservationIgnored private var pullRequestIDsRenewingMediaURLsAfterLoadFailure: Set<String> = []
     @ObservationIgnored private var reactionWriteCountByPullRequestID: [String: Int] = [:]
@@ -252,6 +256,7 @@ final class PullRequestFeedStore {
     }
 
     func closeWeek() {
+        stopShownModeWork()
         openWeekLoadTask?.cancel()
         openWeekLoadTask = nil
         openWeekPullRequests = []
@@ -265,7 +270,7 @@ final class PullRequestFeedStore {
         focusedOpenWeekPullRequestID = focusedPullRequestID
         let focusedPullRequest = openWeekPullRequests[pageIndex]
         let nextPullRequest = openWeekPullRequests.indices.contains(pageIndex + 1) ? openWeekPullRequests[pageIndex + 1] : nil
-        feedWork.start { [self] in
+        startShownModeWork { [self] in
             async let focusedPullRequestRefetch: Void = fetchAndApplyPullRequest(
                 number: focusedPullRequest.number,
                 forcesMediaURLRenewal: isMediaURLRenewalDue(forPullRequestID: focusedPullRequest.id)
@@ -409,7 +414,7 @@ final class PullRequestFeedStore {
                     analytics.capture(.olderPullRequestsLoaded(feed, addedPullRequestCount: addedPullRequestCount, addedVisiblePullRequestCount: addedVisiblePullRequestCount))
                 }
                 Self.logger.info("Read \(isNewestPage ? "the newest" : "an older", privacy: .public) page of \(feed.rawValue, privacy: .public) pull requests: \(addedPullRequestCount, privacy: .public) more with media in \(Self.millisecondsElapsed(since: pageReadStartedAt), privacy: .public) ms")
-            } while !loadedFeed(feed).hasLoadedEveryPullRequest && visiblePullRequests(in: feed).count - visibleCountBeforeLoad < Self.olderPullRequestLoadCardCount
+            } while !loadedFeed(feed).hasLoadedEveryPullRequest && visiblePullRequests(in: feed).count - visibleCountBeforeLoad < Self.olderPullRequestLoadCardCount && feed == shownFeed
             saveFeeds()
         } catch {
             if error.isTaskCancellation { return }
@@ -425,12 +430,19 @@ final class PullRequestFeedStore {
     // Counting only the cards the viewer is shown, so the next page is in before they reach the end (AGENTS.md, "Feed Order").
     func loadOlderPullRequestsIfViewerNearsEnd(in feed: PullRequestFeed) {
         let loadedFeed = loadedFeed(feed)
-        guard loadedFeed.isNewestPageLoaded, !loadedFeed.hasLoadedEveryPullRequest, !olderPullRequestLoadRunningFeeds.contains(feed) else { return }
+        guard feed == shownFeed, loadedFeed.isNewestPageLoaded, !loadedFeed.hasLoadedEveryPullRequest, !olderPullRequestLoadRunningFeeds.contains(feed) else { return }
         let pullRequestsAfterFocus = loadedFeed.isFeedEndFocused
             ? []
             : loadedFeed.pullRequests.dropFirst(loadedFeed.focusedPullRequestID == nil ? 0 : loadedFeed.focusedPageIndex + 1)
         guard pullRequestsAfterFocus.filter({ visibleCopy(of: $0) != nil }).count <= Self.olderPullRequestLoadDistanceInCards else { return }
-        feedWork.start { [self] in await loadOlderPullRequestPages(in: feed) }
+        startShownModeWork { [self] in await loadOlderPullRequestPages(in: feed) }
+    }
+
+    // Older pages and the reads around the focused card belong to the mode on screen, so they stop when another one shows. Nil is Weekly (AGENTS.md, "Feed Order").
+    func changeShownFeed(to feed: PullRequestFeed?) {
+        guard feed != shownFeed else { return }
+        shownFeed = feed
+        stopShownModeWork()
     }
 
     // The app may be ended once it leaves the screen, so the feeds are saved for the next launch then.
@@ -468,7 +480,8 @@ final class PullRequestFeedStore {
     func focusFeedPage(in feed: PullRequestFeed, showingPullRequestID focusedPullRequestID: String?) {
         updateLoadedFeed(feed) { $0.focus(showingPullRequestID: focusedPullRequestID) }
         loadOlderPullRequestsIfViewerNearsEnd(in: feed)
-        feedWork.start { [self] in await refetchPullRequestsAroundFocus(in: feed) }
+        guard feed == shownFeed else { return }
+        startShownModeWork { [self] in await refetchPullRequestsAroundFocus(in: feed) }
     }
 
     func heroMediaItem(of pullRequest: PullRequest) -> PullRequestMediaItem? {
@@ -528,6 +541,26 @@ final class PullRequestFeedStore {
         case .open: update(&openFeed)
         case .merged: update(&mergedFeed)
         }
+    }
+
+    private func startShownModeWork(_ operation: @escaping @MainActor @Sendable () async -> Void) {
+        let taskID = UUID()
+        guard let task = feedWork.start({ [weak self] in
+            await operation()
+            self?.shownModeTasksByID[taskID] = nil
+        }) else { return }
+        shownModeTasksByID[taskID] = task
+    }
+
+    private func stopShownModeWork() {
+        for task in shownModeTasksByID.values {
+            task.cancel()
+        }
+        shownModeTasksByID.removeAll()
+    }
+
+    private func isUnapplied(_ pullRequestUpdate: PullRequestUpdate) -> Bool {
+        appliedUpdateDateByPullRequestID[pullRequestUpdate.id] != pullRequestUpdate.updatedAt
     }
 
     private func visibleCopy(of pullRequest: PullRequest) -> PullRequest? {
@@ -621,29 +654,25 @@ final class PullRequestFeedStore {
         }
     }
 
-    // Every merged pull request in the loaded merge-date range updated since the last refresh, or in every merge date once the feed holds them all.
+    // Every merged pull request in the loaded merge-date range, or in any once the feed holds them all, updated since the last refresh is read in full, unless the store already read it at that update.
     private func applyMergedPullRequestUpdates(since earliestUpdateDate: Date, fetchedAt refreshStartedAt: Date) async throws -> Int {
-        let updatedPullRequestSearch = try await githubAPIClient.searchMergedPullRequests(
-            updatedSince: earliestUpdateDate,
-            mergedFrom: everyMergedPullRequestLoadedSince,
-            mergedThrough: refreshStartedAt
-        )
-        var updatedPullRequestCount = 0
-        for try await updatedPullRequestPage in updatedPullRequestSearch {
-            for updatedPullRequest in updatedPullRequestPage.sorted(by: { !$0.comesBefore($1, in: .merged) }) {
-                apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
-            }
-            updatedPullRequestCount += updatedPullRequestPage.count
+        let mergedPullRequestUpdates = try await githubAPIClient.fetchPullRequestUpdates(since: earliestUpdateDate, inStates: [.merged])
+        let updatedPullRequests = try await githubAPIClient.fetchPullRequests(ids: mergedPullRequestUpdates.filter { mergedPullRequestUpdate in
+            isUnapplied(mergedPullRequestUpdate)
+                && everyMergedPullRequestLoadedSince.map { (mergedPullRequestUpdate.mergedAt ?? .distantPast) >= $0 } ?? true
+        }.map(\.id))
+        for updatedPullRequest in updatedPullRequests.sorted(by: { !$0.comesBefore($1, in: .merged) }) {
+            apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
         }
-        return updatedPullRequestCount
+        return updatedPullRequests.count
     }
 
-    // A pull request that closed or merged leaves Open; every open one updated since the last refresh is read in full and moves its card to its new slot or takes its slot as a new one.
+    // A pull request that closed or merged leaves Open; every open one updated since the last refresh is read in full, unless the store already read it at that update, and moves its card to its new slot or takes its slot as a new one.
     private func applyOpenPullRequestUpdates(since earliestUpdateDate: Date, fetchedAt refreshStartedAt: Date) async throws -> Int {
-        let closedOrMergedPullRequestIDs = Set(try await githubAPIClient.fetchIDsOfPullRequestsUpdated(since: earliestUpdateDate, inStates: [.closed, .merged]))
+        let closedOrMergedPullRequestIDs = Set(try await githubAPIClient.fetchPullRequestUpdates(since: earliestUpdateDate, inStates: [.closed, .merged]).map(\.id))
         updateLoadedFeed(.open) { $0.removePullRequests { closedOrMergedPullRequestIDs.contains($0.id) } }
-        let updatedOpenPullRequestIDs = try await githubAPIClient.fetchIDsOfPullRequestsUpdated(since: earliestUpdateDate, inStates: [.open])
-        let updatedOpenPullRequests = try await githubAPIClient.fetchPullRequests(ids: updatedOpenPullRequestIDs)
+        let openPullRequestUpdates = try await githubAPIClient.fetchPullRequestUpdates(since: earliestUpdateDate, inStates: [.open])
+        let updatedOpenPullRequests = try await githubAPIClient.fetchPullRequests(ids: openPullRequestUpdates.filter(isUnapplied).map(\.id))
         for updatedPullRequest in updatedOpenPullRequests.sorted(by: { !$0.comesBefore($1, in: .open) }) {
             apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
         }
@@ -657,8 +686,11 @@ final class PullRequestFeedStore {
                 apply(olderPullRequest, fetchedAt: fetchedAt, forcesMediaURLRenewal: false)
             } else if olderPullRequest.belongs(in: feed), hasLoadableMedia(olderPullRequest) {
                 mediaFetchedAtByPullRequestID[olderPullRequest.id] = fetchedAt
+                appliedUpdateDateByPullRequestID[olderPullRequest.id] = olderPullRequest.updatedAt
                 updateLoadedFeed(feed) { $0.appendInFeedOrder(olderPullRequest) }
                 appendedPullRequestCount += 1
+            } else {
+                appliedUpdateDateByPullRequestID[olderPullRequest.id] = olderPullRequest.updatedAt
             }
         }
         return appendedPullRequestCount
@@ -712,6 +744,7 @@ final class PullRequestFeedStore {
     }
 
     private func apply(_ fetchedPullRequest: PullRequest, fetchedAt: Date, forcesMediaURLRenewal: Bool, settlesMediaLoadFailures: Bool = true) {
+        appliedUpdateDateByPullRequestID[fetchedPullRequest.id] = fetchedPullRequest.updatedAt
         let renewedMediaItemIDs = settlesMediaLoadFailures && mediaLoadFailureRecovery.hasPendingLoadFailure
             ? mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPullRequest.mediaItems, readStartedAt: fetchedAt)
             : []
