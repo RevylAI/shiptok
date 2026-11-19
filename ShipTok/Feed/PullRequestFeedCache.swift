@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 
 struct SavedPullRequestFeeds: Codable, Sendable {
-    static let currentFormatVersion = 7
+    static let currentFormatVersion = 8
     let formatVersion: Int
     let viewerGitHubLogin: String
     let repositoryFullName: String
