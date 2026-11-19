@@ -256,23 +256,23 @@ final class PullRequestFeedStore {
     // Videos only: it filters what's shown, never what's read or saved (AGENTS.md, "Feed Order").
     var showsOnlyPullRequestsWithVideos = true
     var transientErrorMessage: String?
-    // The pull requests of the card whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
+    // The pull requests of the card whose deck is open, in its video's order (AGENTS.md, "Pull Request Decks").
     private(set) var openDeckPullRequests: [PullRequest] = []
     private(set) var isOpenDeckLoaded = false
     private(set) var openDeckLoadFailureMessage: String?
     private(set) var isOpenDeckPullToRefreshRunning = false
 
     @ObservationIgnored private var openDeckLoadTask: Task<Void, Never>?
-    // The open deck's pull request numbers, how many of them are in or left out so far, and the last read that failed, so a load the deck left off screen carries on where it stopped (AGENTS.md, "Weekly Mode").
+    // The open deck's pull request numbers, how many of them are in or left out so far, and the last read that failed, so a load the deck left off screen carries on where it stopped (AGENTS.md, "Pull Request Decks").
     @ObservationIgnored private var openDeckPullRequestNumbers: [Int] = []
     // A feature's deck shows its pull requests with or without media of their own; a week's leaves out those without (AGENTS.md, "Features Mode").
     @ObservationIgnored private var openDeckShowsPullRequestsWithoutMedia = false
     @ObservationIgnored private var openDeckResolvedNumberCount = 0
     @ObservationIgnored private var openDeckLastFetchErrorMessage: String?
     @ObservationIgnored private var focusedOpenDeckPullRequestID: String?
-    // Whether the viewer has moved from one card of the open deck to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Weekly Mode").
+    // Whether the viewer has moved from one card of the open deck to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Pull Request Decks").
     @ObservationIgnored private var hasViewerMovedInOpenDeck = false
-    // A deck card that closed or lost its last media while under the viewer's finger, which goes once they move on (AGENTS.md, "Weekly Mode").
+    // A deck card that closed or lost its last media while under the viewer's finger, which goes once they move on (AGENTS.md, "Pull Request Decks").
     @ObservationIgnored private var openDeckPullRequestIDsLeavingOnceUnfocused: Set<String> = []
     @ObservationIgnored private var savedFeedsOpening: Task<Void, Never>?
     @ObservationIgnored private var olderPullRequestLoadRunningFeeds: Set<PullRequestFeed> = []
@@ -374,7 +374,7 @@ final class PullRequestFeedStore {
         openDeckPullRequestIDsLeavingOnceUnfocused = []
     }
 
-    // A deck shows every card it names whatever Videos only says, less what people the viewer hid wrote or posted (AGENTS.md, "Weekly Mode").
+    // A deck shows every card it names whatever Videos only says, less what people the viewer hid wrote or posted (AGENTS.md, "Pull Request Decks").
     var visibleOpenDeckPullRequests: [PullRequest] {
         openDeckPullRequests.compactMap(visibleCopyIgnoringVideosOnly(of:))
     }
@@ -567,7 +567,7 @@ final class PullRequestFeedStore {
         startShownModeWork { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
-    // Older pages, the open deck's load and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly's or Features' list, or Inbox or Settings over the feed (AGENTS.md, "Feed Order" and "Weekly Mode").
+    // Older pages, the open deck's load and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly's or Features' list, or Inbox or Settings over the feed (AGENTS.md, "Feed Order" and "Pull Request Decks").
     func changeOnScreenPullRequests(to newOnScreenPullRequests: OnScreenPullRequests?) {
         if let previouslyShownFeed = shownFeed, newOnScreenPullRequests != .feed(previouslyShownFeed) {
             updateLoadedFeed(previouslyShownFeed) { loadedFeed in loadedFeed.leaveScreen(isShown: { visibleCopy(of: $0) != nil }) }
@@ -687,7 +687,7 @@ final class PullRequestFeedStore {
         shownModeTasksByID[taskID] = task
     }
 
-    // Leaving the deck stops its load and releases what the viewer's finger held, while the viewer's place stays; coming back carries the load on from the first pull request not yet in (AGENTS.md, "Weekly Mode").
+    // Leaving the deck stops its load and releases what the viewer's finger held, while the viewer's place stays; coming back carries the load on from the first pull request not yet in (AGENTS.md, "Pull Request Decks").
     private func leaveOpenDeckScreen() {
         openDeckLoadTask?.cancel()
         openDeckLoadTask = nil
@@ -890,7 +890,7 @@ final class PullRequestFeedStore {
         }
     }
 
-    // Like a mode, a deck that opened on a dead card skips it at once while the viewer hasn't moved off it, and the next card they're shown takes focus (AGENTS.md, "Weekly Mode").
+    // Like a mode, a deck that opened on a dead card skips it at once while the viewer hasn't moved off it, and the next card they're shown takes focus (AGENTS.md, "Pull Request Decks").
     private func removeFromOpenDeckWithMediaGivenUp(pullRequestID: String) {
         let visibleOpenDeckPullRequests = visibleOpenDeckPullRequests
         guard pullRequestID == focusedOpenDeckPullRequestID, !hasViewerMovedInOpenDeck,
@@ -1045,7 +1045,7 @@ final class PullRequestFeedStore {
         return pullRequestKeepingMediaURLs
     }
 
-    // A deck card under the viewer's finger keeps the copy they see until they move on (AGENTS.md, "Weekly Mode").
+    // A deck card under the viewer's finger keeps the copy they see until they move on (AGENTS.md, "Pull Request Decks").
     private func removeFromOpenDeck(pullRequestID: String) {
         if pullRequestID == focusedOpenDeckPullRequestID {
             openDeckPullRequestIDsLeavingOnceUnfocused.insert(pullRequestID)

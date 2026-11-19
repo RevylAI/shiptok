@@ -15,7 +15,7 @@ enum FeedMode: String, Sendable {
 }
 
 // The Open / Merged / Weekly / Features switch over the feed's top left; while a week's or a feature's pull requests are open it becomes the way back to
-// the weeks or features (AGENTS.md, "Weekly Mode" and "Features Mode").
+// the weeks or features (AGENTS.md, "Feed Modes" and "Card Layout").
 struct FeedModeSwitch: View {
     @Binding var feedMode: FeedMode
     let shownDeckSource: PullRequestDeckSource?

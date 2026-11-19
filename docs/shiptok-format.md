@@ -1,10 +1,10 @@
 # The ShipTok format
 
-This is what ShipTok reads from GitHub and writes there, for anyone posting a ShipTok video, vibe or weekly edition and for Revyl's pull request review config. GitHub is the record: the app reads pull requests, issues and comments, and writes reactions and comments as the signed-in person.
+This is what ShipTok reads from GitHub and writes there, for anyone posting a ShipTok video, vibe, weekly edition or feature and for Revyl's pull request review config. GitHub is the record: the app reads pull requests, issues and comments, and writes reactions and comments as the signed-in person.
 
 ## Which pull requests are in the feed
 
-Open shows the open pull requests, drafts included, and Merged the merged ones, in the repository the person chose, when the description or a top-level conversation comment carries at least one media item (see below). No label, age or time window decides. A pull request closed without merging leaves Open, and if the viewer is on its card it stays until they move on; it never shows otherwise. With Videos only on, as it is unless the person turns it off, a pull request shows only when its first media item, once media from people the viewer hid is left out, is a video.
+Open shows the open pull requests, drafts included, and Merged the merged ones, in the repository the person chose, when the description or a top-level conversation comment carries at least one media item (see below). No label, age or time window decides. A pull request closed without merging leaves Open, and if the viewer is on its card it stays until they move on; it never shows otherwise. With Videos only on, as it is unless the person turns it off, a pull request shows only when its first media item, once media from people the viewer hid is left out, is a video. A feature's deck is the one place a pull request shows with no media at all (Features).
 
 ## What counts as media
 
@@ -81,3 +81,36 @@ A weekly edition is a closed issue in the chosen repository labeled `shiptok-wee
 - The media can be in the description or any top-level comment, and needs no tag: videos, images and GIFs all count, and the card shows them in the same order as a pull request's. An edition with no media doesn't show.
 
 Only closed issues are read, so closing the issue publishes the week, and it shows on the app's next read. The app reads the labeled closed issues newest-created first and sorts the editions it finds by week, and each issue is a card of its own, so a second issue for the same week is a second card. The demo holds the 25 most recently created. In the deck, open and merged pull requests with media show; one closed without merging, one with no media and one whose media all failed for the viewer are left out, though the card the viewer is on when it closes or loses its media stays until they move on. Vibes, reactions and comments on a week go on its issue in the same formats as on a pull request.
+
+## Features
+
+A feature is a closed issue in the chosen repository labeled `shiptok-feature`: one per shipped feature, with one video, however many pull requests shipped it. Its description reads:
+
+```markdown
+<!-- shiptok:feature -->
+
+## <the feature's title>
+
+<a one-line hook>
+
+### Pull requests in this video
+
+1. #12
+2. #15
+```
+
+- The first non-empty line is the marker, exactly as shown apart from spaces around it. It carries no date, since a feature dates from when its issue closed.
+- The first line starting with `## ` is the title, and the next non-empty line, which can't start with `#`, is the hook. The card shows at most two lines of each, and the app checks neither length.
+- Every line reading `<n>. #<number>` names a pull request for the feature's deck, in the video's order, and there are 1 to 30 of them. A pull request named twice shows once.
+- The issue's own title isn't read, so name it for people browsing GitHub, usually after the feature. Other labels can stay on the issue.
+- The media can be in the description or any top-level comment, and needs no tag: videos, images and GIFs all count, and the card shows them in the same order as a pull request's. A feature with no media doesn't show.
+
+To publish a feature:
+
+1. Create the `shiptok-feature` label in the repository if it's missing.
+2. Open an issue with the label and the description above, and attach the video to the description or a top-level comment, or paste a Revyl-hosted video link there (ShipTok video, above).
+3. Close the issue as completed.
+
+Only closed issues are read, so closing the issue publishes the feature, and it shows on the app's next read, dated from that close ("shipped 3 days ago"). To change a feature, edit its description or post a newer tagged video with the issue left closed; reopening it takes the card away at the app's next read, and closing it again dates it from the new close. The app reads the labeled closed issues newest-created first and sorts the features it finds by when they closed, newest first, then by the higher issue number, and each issue is a card of its own. The demo holds the 25 most recently created.
+
+In the deck, every open or merged pull request the list names shows, with or without media of its own. One with no media shows its state, additions, deletions and changed files, labels and description in place of media, with a Details button. One closed without merging and one whose media all failed for the viewer are left out, though the card the viewer is on when it closes without merging stays until they move on. Vibes, reactions and comments on a feature go on its issue in the same formats as on a pull request.

@@ -1258,7 +1258,7 @@ struct FeedView: View {
         }
     }
 
-    // The store holds one deck, so opening a feature's deck closes an open week's and the other way round, and the mode behind the closed one shows its list (AGENTS.md, "Features Mode").
+    // The store holds one deck, so opening a feature's deck closes an open week's and the other way round, and the mode behind the closed one shows its list (AGENTS.md, "Feed Modes").
     private func openDeck(of deckSource: PullRequestDeckSource) {
         openDeckPageIndex = 0
         openDeckSource = deckSource

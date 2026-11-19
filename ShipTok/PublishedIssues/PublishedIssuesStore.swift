@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-// The cards of a mode that shows published issues, such as Weekly's weekly editions: every one, read whole from GitHub on each read (AGENTS.md, "Weekly Mode").
+// The cards of a mode that shows published issues, Weekly's weeks or Features' features: every one, read whole from GitHub on each read (AGENTS.md, "Published Issues").
 @Observable
 @MainActor
 final class PublishedIssuesStore<Issue: PublishedIssue> {

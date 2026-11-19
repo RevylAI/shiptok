@@ -1,6 +1,6 @@
 import Foundation
 
-// The card whose deck of pull requests is open: a week in Weekly or a feature in Features, one at a time (AGENTS.md, "Weekly Mode" and "Features Mode").
+// The card whose deck of pull requests is open: a week in Weekly or a feature in Features, one at a time (AGENTS.md, "Pull Request Decks").
 enum PullRequestDeckSource: Equatable {
     case weeklyEdition(WeeklyEdition)
     case feature(Feature)
