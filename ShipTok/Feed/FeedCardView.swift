@@ -34,7 +34,7 @@ struct FeedCardVibes {
     let onRemoveViewerVibe: () -> Void
 }
 
-// One feed page laid out like Instagram Reels: a pull request, a week's video in Weekly or a feature's video in Features. Its layout follows AGENTS.md, "Card Layout".
+// One feed page laid out like Instagram Reels: a pull request, a week's video in Weekly or a feature's video in Features. A pull request with no media, which only a feature's deck shows, puts its summary where the media would be. Its layout follows AGENTS.md, "Card Layout".
 struct FeedCardView: View {
     private struct CardFrames: Equatable {
         let card: CGRect
@@ -96,6 +96,10 @@ struct FeedCardView: View {
     private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
+    private static let shipTokVideoSafeZoneTopFractionOfHeight: CGFloat = 322.0 / 1920.0
+    private static let shipTokVideoSafeZoneBottomFractionOfHeight: CGFloat = 1376.0 / 1920.0
+    private static let summaryToCaptionSpacing: CGFloat = 16
+    private static let summaryOverflowFadeHeight: CGFloat = 48
     private nonisolated static let cardCoordinateSpaceName = "feedCard"
 
     // The box rides the keyboard over the card, so the caption would show half-covered around it; only the dimmed hero stays.
@@ -110,6 +114,10 @@ struct FeedCardView: View {
     // The 2x hint and the scrub readout sit where the caption's last lines do.
     private var isHeroPlaybackGestureActive: Bool {
         isHeroFastPlaybackHeld || videoScrubFraction != nil
+    }
+
+    private var isCardTextHidden: Bool {
+        isReactionPickerPresented || showsOnlyHeroBehindVibeFeedbackComposer || isHeroPlaybackGestureActive
     }
 
     var body: some View {
@@ -128,9 +136,16 @@ struct FeedCardView: View {
                     }
                 }
                 .offset(x: arrangedFrames.card.minX, y: arrangedFrames.card.minY)
+                if case .pullRequest(let pullRequest) = post, heroMediaItem == nil {
+                    let summaryFrame = pullRequestSummaryFrame(frames: arrangedFrames)
+                    pullRequestSummary(pullRequest)
+                        .frame(width: summaryFrame.width, height: summaryFrame.height, alignment: .topLeading)
+                        .opacity(isCardTextHidden ? 0 : 1)
+                        .offset(x: summaryFrame.minX, y: summaryFrame.minY)
+                }
                 caption
                     .frame(width: arrangedFrames.caption.width, height: arrangedFrames.caption.height, alignment: .bottomLeading)
-                    .opacity(isReactionPickerPresented || showsOnlyHeroBehindVibeFeedbackComposer || isHeroPlaybackGestureActive ? 0 : 1)
+                    .opacity(isCardTextHidden ? 0 : 1)
                     .offset(x: arrangedFrames.caption.minX, y: arrangedFrames.caption.minY)
                 if !isBehindVibeFeedbackComposer {
                     actionRail
@@ -308,6 +323,93 @@ struct FeedCardView: View {
         .frame(height: max(backdropHeight, 0))
         .opacity(isHeroPlaybackGestureActive ? 0 : 1)
         .allowsHitTesting(false)
+    }
+
+    // The summary keeps to the band of the card where a ShipTok video keeps everything a viewer must read, beside the rail and above the caption, so nothing the app draws over a card covers it (AGENTS.md, "Card Layout").
+    private func pullRequestSummaryFrame(frames: CardFrames) -> CGRect {
+        let summaryTop = frames.card.minY + frames.card.height * Self.shipTokVideoSafeZoneTopFractionOfHeight
+        let summaryBottom = min(
+            frames.card.minY + frames.card.height * Self.shipTokVideoSafeZoneBottomFractionOfHeight,
+            frames.caption.maxY - captionHeight - Self.summaryToCaptionSpacing
+        )
+        return CGRect(
+            x: frames.caption.minX,
+            y: summaryTop,
+            width: min(frames.caption.width, ReadableContentColumn.maximumWidthPoints),
+            height: max(summaryBottom - summaryTop, 0)
+        )
+    }
+
+    // With nothing to play, the card says what the pull request changed. Only its details button takes a tap, so a double tap anywhere else still likes it and a link in the description never opens.
+    private func pullRequestSummary(_ pullRequest: PullRequest) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                pullRequestStateChip(pullRequest)
+                PullRequestDiffStats(pullRequest: pullRequest)
+            }
+            .allowsHitTesting(false)
+            ViewThatFits(in: .vertical) {
+                pullRequestLabelsAndDescription(pullRequest)
+                pullRequestLabelsAndDescription(pullRequest)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .clipped()
+                    .mask {
+                        VStack(spacing: 0) {
+                            Color.black
+                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: Self.summaryOverflowFadeHeight)
+                        }
+                    }
+            }
+            .allowsHitTesting(false)
+            Button(action: onTapCaption) {
+                Label("Details", systemImage: "text.alignleft")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(RevylBrandColor.textPrimary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(RevylBrandColor.surfaceFloating))
+                    .overlay(Capsule().stroke(RevylBrandColor.border, lineWidth: 1))
+                    .expandingTapTargetVertically()
+            }
+            .buttonStyle(.swipeYielding)
+            .accessibilityHint("Opens the pull request's details")
+        }
+    }
+
+    private func pullRequestStateChip(_ pullRequest: PullRequest) -> some View {
+        let (stateName, systemImageName, stateColor): (String, String, Color) =
+            if pullRequest.mergedAt != nil {
+                ("Merged", "arrow.triangle.merge", RevylBrandColor.brand)
+            } else if pullRequest.isDraft {
+                ("Draft", "arrow.triangle.pull", RevylBrandColor.textSubtle)
+            } else {
+                ("Open", "arrow.triangle.pull", RevylBrandColor.success)
+            }
+        return Label(stateName, systemImage: systemImageName)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(RevylBrandColor.textPrimary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(stateColor.opacity(0.25)))
+            .overlay(Capsule().stroke(stateColor, lineWidth: 1))
+    }
+
+    private func pullRequestLabelsAndDescription(_ pullRequest: PullRequest) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !pullRequest.labels.isEmpty {
+                PullRequestLabelChips(labels: pullRequest.labels)
+            }
+            if MarkdownSummaryParser.blocks(from: pullRequest.descriptionMarkdown).isEmpty {
+                Text("No description.")
+                    .font(.subheadline)
+                    .foregroundStyle(RevylBrandColor.textMuted)
+            } else {
+                MarkdownSummaryView(markdown: pullRequest.descriptionMarkdown)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder

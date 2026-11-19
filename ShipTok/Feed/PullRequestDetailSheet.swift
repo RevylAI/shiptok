@@ -35,10 +35,7 @@ struct PullRequestDetailSheet: View {
                     HStack(spacing: 10) {
                         Text(verbatim: "\(repositoryFullName)#\(pullRequest.number)")
                             .foregroundStyle(RevylBrandColor.textMuted)
-                        Text(verbatim: "+\(pullRequest.additions)").foregroundStyle(RevylBrandColor.success)
-                        Text(verbatim: "−\(pullRequest.deletions)").foregroundStyle(RevylBrandColor.danger)
-                        Text(verbatim: pullRequest.changedFiles == 1 ? "1 file" : "\(pullRequest.changedFiles) files")
-                            .foregroundStyle(RevylBrandColor.textMuted)
+                        PullRequestDiffStats(pullRequest: pullRequest)
                     }
                     .font(.caption.monospacedDigit())
                     labelChips
@@ -84,18 +81,7 @@ struct PullRequestDetailSheet: View {
     @ViewBuilder
     private var labelChips: some View {
         if !pullRequest.labels.isEmpty {
-            WrappingHorizontalLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                ForEach(pullRequest.labels, id: \.name) { label in
-                    let labelColor = Color(rgbHex: label.rgbHex)
-                    Text(verbatim: label.name)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(RevylBrandColor.textPrimary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(labelColor.opacity(0.25)))
-                        .overlay(Capsule().stroke(labelColor, lineWidth: 1))
-                }
-            }
+            PullRequestLabelChips(labels: pullRequest.labels)
         }
     }
 
