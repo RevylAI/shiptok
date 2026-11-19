@@ -232,6 +232,12 @@ struct LoadedPullRequestFeed: Sendable {
     }
 }
 
+// What the feed view shows of the store: a mode's feed or the open week's deck (AGENTS.md, "Feed Order").
+enum OnScreenPullRequests: Hashable {
+    case feed(PullRequestFeed)
+    case openWeek
+}
+
 // The Open and Merged modes' feeds and a week's open pull requests, read from GitHub and kept current (AGENTS.md, "Feed Order" and "Feed Caching").
 @Observable
 @MainActor
@@ -257,6 +263,10 @@ final class PullRequestFeedStore {
     private(set) var isOpenWeekPullToRefreshRunning = false
 
     @ObservationIgnored private var openWeekLoadTask: Task<Void, Never>?
+    // The open week's pull request numbers, how many of them are in or left out so far, and the last read that failed, so a load the deck left off screen carries on where it stopped (AGENTS.md, "Weekly Mode").
+    @ObservationIgnored private var openWeekPullRequestNumbers: [Int] = []
+    @ObservationIgnored private var openWeekResolvedNumberCount = 0
+    @ObservationIgnored private var openWeekLastFetchErrorMessage: String?
     @ObservationIgnored private var focusedOpenWeekPullRequestID: String?
     // Whether the viewer has moved from one card of the open week to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Weekly Mode").
     @ObservationIgnored private var hasViewerMovedInOpenWeek = false
@@ -272,7 +282,7 @@ final class PullRequestFeedStore {
     @ObservationIgnored private var mediaFetchedAtByPullRequestID: [String: Date] = [:]
     // Each feed's last read of a pull request it took in, its update and merge date, so that feed's refresh doesn't read again what it already has, yet reads one that merged in the second it was read as open (AGENTS.md, "Feed Caching").
     @ObservationIgnored private var appliedUpdatesByFeed: [PullRequestFeed: [String: PullRequestUpdate]] = [:]
-    @ObservationIgnored private var shownFeed: PullRequestFeed?
+    @ObservationIgnored private var onScreenPullRequests: OnScreenPullRequests?
     @ObservationIgnored private var shownModeTasksByID: [UUID: Task<Void, Never>] = [:]
     private var mediaLoadFailureRecovery = MediaLoadFailureRecovery()
     @ObservationIgnored private var pullRequestIDsRenewingMediaURLsAfterLoadFailure: Set<String> = []
@@ -331,21 +341,27 @@ final class PullRequestFeedStore {
     // A week's pull requests show in its video's order as each leading one arrives, so a page never moves under the viewer. A week names its pull requests by number, so they're read by number.
     func openWeek(pullRequestNumbers: [Int]) {
         openWeekLoadTask?.cancel()
+        openWeekLoadTask = nil
         var seenPullRequestNumbers: Set<Int> = []
-        let uniquePullRequestNumbers = pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
+        openWeekPullRequestNumbers = pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
+        openWeekResolvedNumberCount = 0
+        openWeekLastFetchErrorMessage = nil
         openWeekPullRequests = []
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
         focusedOpenWeekPullRequestID = nil
         hasViewerMovedInOpenWeek = false
         openWeekPullRequestIDsLeavingOnceUnfocused = []
-        openWeekLoadTask = feedWork.start { [self] in await loadOpenWeek(pullRequestNumbers: uniquePullRequestNumbers) }
+        startOpenWeekLoadIfUnfinished()
     }
 
     func closeWeek() {
         stopShownModeWork()
         openWeekLoadTask?.cancel()
         openWeekLoadTask = nil
+        openWeekPullRequestNumbers = []
+        openWeekResolvedNumberCount = 0
+        openWeekLastFetchErrorMessage = nil
         openWeekPullRequests = []
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
@@ -403,13 +419,11 @@ final class PullRequestFeedStore {
         }
     }
 
-    private func loadOpenWeek(pullRequestNumbers: [Int]) async {
+    private func loadOpenWeek() async {
         let loadStartedAt = Date.now
         var fetchResultByNumber: [Int: Result<PullRequest, any Error>] = [:]
-        var resolvedNumberCount = 0
-        var lastFetchError: (any Error)?
         await withTaskGroup(of: (number: Int, fetchResult: Result<PullRequest, any Error>).self) { taskGroup in
-            var unrequestedNumbers = ArraySlice(pullRequestNumbers)
+            var unrequestedNumbers = openWeekPullRequestNumbers.dropFirst(openWeekResolvedNumberCount)
             func requestNextPullRequest() {
                 guard let number = unrequestedNumbers.popFirst() else { return }
                 taskGroup.addTask { [githubAPIClient] in
@@ -427,9 +441,9 @@ final class PullRequestFeedStore {
                     return
                 }
                 fetchResultByNumber[number] = fetchResult
-                while resolvedNumberCount < pullRequestNumbers.count, let resolvedFetchResult = fetchResultByNumber[pullRequestNumbers[resolvedNumberCount]] {
-                    let resolvedNumber = pullRequestNumbers[resolvedNumberCount]
-                    resolvedNumberCount += 1
+                while openWeekResolvedNumberCount < openWeekPullRequestNumbers.count, let resolvedFetchResult = fetchResultByNumber[openWeekPullRequestNumbers[openWeekResolvedNumberCount]] {
+                    let resolvedNumber = openWeekPullRequestNumbers[openWeekResolvedNumberCount]
+                    openWeekResolvedNumberCount += 1
                     switch resolvedFetchResult {
                     case .success(let fetchedPullRequest):
                         guard !fetchedPullRequest.mediaItems.isEmpty, !isEveryVisibleMediaItemGivenUp(fetchedPullRequest) else {
@@ -449,7 +463,7 @@ final class PullRequestFeedStore {
                             return
                         }
                         Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its week failed: \(error.publicLogDescription, privacy: .public)")
-                        lastFetchError = error
+                        openWeekLastFetchErrorMessage = error.localizedDescription
                         if let loadedPullRequest = (mergedFeed.pullRequestsOnceViewerMovesOn + openFeed.pullRequestsOnceViewerMovesOn).first(where: { $0.number == resolvedNumber }),
                            !isEveryVisibleMediaItemGivenUp(loadedPullRequest) {
                             openWeekPullRequests.append(loadedPullRequest)
@@ -461,10 +475,10 @@ final class PullRequestFeedStore {
         }
         guard !Task.isCancelled else { return }
         isOpenWeekLoaded = true
-        if openWeekPullRequests.isEmpty, let lastFetchError {
-            openWeekLoadFailureMessage = lastFetchError.localizedDescription
+        if openWeekPullRequests.isEmpty, let openWeekLastFetchErrorMessage {
+            openWeekLoadFailureMessage = openWeekLastFetchErrorMessage
         }
-        Self.logger.info("Read a week's \(self.openWeekPullRequests.count, privacy: .public) of \(pullRequestNumbers.count, privacy: .public) pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
+        Self.logger.info("Read a week's \(self.openWeekPullRequests.count, privacy: .public) of \(self.openWeekPullRequestNumbers.count, privacy: .public) pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
     }
 
     // A launch opens on the saved feeds at once and asks GitHub only for what changed since; a feed with nothing loaded reads its newest page first (AGENTS.md, "Feed Order" and "Feed Caching").
@@ -549,13 +563,19 @@ final class PullRequestFeedStore {
         startShownModeWork { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
-    // Older pages and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly, a week's deck, or Inbox or Settings over the feed (AGENTS.md, "Feed Order").
-    func changeShownFeed(to feed: PullRequestFeed?) {
-        if let previouslyShownFeed = shownFeed, previouslyShownFeed != feed {
+    // Older pages, the open week's load and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly's list, or Inbox or Settings over the feed (AGENTS.md, "Feed Order" and "Weekly Mode").
+    func changeOnScreenPullRequests(to newOnScreenPullRequests: OnScreenPullRequests?) {
+        if let previouslyShownFeed = shownFeed, newOnScreenPullRequests != .feed(previouslyShownFeed) {
             updateLoadedFeed(previouslyShownFeed) { loadedFeed in loadedFeed.leaveScreen(isShown: { visibleCopy(of: $0) != nil }) }
         }
-        shownFeed = feed
+        let wasOpenWeekOnScreen = onScreenPullRequests == .openWeek
+        onScreenPullRequests = newOnScreenPullRequests
         stopShownModeWork()
+        if wasOpenWeekOnScreen, newOnScreenPullRequests != .openWeek {
+            leaveOpenWeekScreen()
+        } else if !wasOpenWeekOnScreen, newOnScreenPullRequests == .openWeek {
+            startOpenWeekLoadIfUnfinished()
+        }
     }
 
     // The app may be ended once it leaves the screen, so the feeds are saved for the next launch then.
@@ -601,20 +621,18 @@ final class PullRequestFeedStore {
         pullRequest.mediaItems.first { !unloadableMediaItemIDs.contains($0.id) } ?? pullRequest.mediaItems.first
     }
 
-    // A failed load renews the pull request's media URLs at once, and when that read fails, the next one that succeeds settles the failure.
-    func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String, wasRefusedToViewer: Bool) async {
-        await feedWork.perform { [self] in
-            guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
-            defer {
-                if let loadedPullRequest = self.pullRequest(withID: pullRequestID) {
-                    removeIfEveryVisibleMediaItemGivenUp(loadedPullRequest)
-                }
-            }
-            guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedToViewer: wasRefusedToViewer),
-                  pullRequestIDsRenewingMediaURLsAfterLoadFailure.insert(pullRequestID).inserted
-            else { return }
-            defer { pullRequestIDsRenewingMediaURLsAfterLoadFailure.remove(pullRequestID) }
+    // A failed load renews the pull request's media URLs at once while its cards are on screen; otherwise, or when that read fails, the next read that succeeds settles the failure (AGENTS.md, "Signed Media URLs").
+    func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String, wasRefusedToViewer: Bool) {
+        guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
+        let isURLRenewalNeeded = mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedToViewer: wasRefusedToViewer)
+        removeIfEveryVisibleMediaItemGivenUp(pullRequest)
+        guard isURLRenewalNeeded, onScreenPullRequests != nil, pullRequestIDsRenewingMediaURLsAfterLoadFailure.insert(pullRequestID).inserted else { return }
+        startShownModeWork { [self] in
             await fetchAndApplyPullRequest(number: pullRequest.number, forcesMediaURLRenewal: true)
+            pullRequestIDsRenewingMediaURLsAfterLoadFailure.remove(pullRequestID)
+            if let loadedPullRequest = self.pullRequest(withID: pullRequestID) {
+                removeIfEveryVisibleMediaItemGivenUp(loadedPullRequest)
+            }
         }
     }
 
@@ -665,11 +683,31 @@ final class PullRequestFeedStore {
         shownModeTasksByID[taskID] = task
     }
 
+    // Leaving the week's deck stops its load and releases what the viewer's finger held, while the viewer's place stays; coming back carries the load on from the first pull request not yet in (AGENTS.md, "Weekly Mode").
+    private func leaveOpenWeekScreen() {
+        openWeekLoadTask?.cancel()
+        openWeekLoadTask = nil
+        focusedOpenWeekPullRequestID = nil
+        openWeekPullRequests.removeAll { openWeekPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
+        openWeekPullRequestIDsLeavingOnceUnfocused.removeAll()
+    }
+
+    private func startOpenWeekLoadIfUnfinished() {
+        guard onScreenPullRequests == .openWeek, !isOpenWeekLoaded else { return }
+        openWeekLoadTask?.cancel()
+        openWeekLoadTask = feedWork.start { [self] in await loadOpenWeek() }
+    }
+
     private func stopShownModeWork() {
         for task in shownModeTasksByID.values {
             task.cancel()
         }
         shownModeTasksByID.removeAll()
+    }
+
+    private var shownFeed: PullRequestFeed? {
+        guard case .feed(let feed) = onScreenPullRequests else { return nil }
+        return feed
     }
 
     private func isUnapplied(_ pullRequestUpdate: PullRequestUpdate, in feed: PullRequestFeed) -> Bool {

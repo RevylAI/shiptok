@@ -185,6 +185,14 @@ struct FeedView: View {
         return feed
     }
 
+    private var onScreenPullRequests: OnScreenPullRequests? {
+        switch onScreenFeedContext {
+        case .pullRequests(let feed): .feed(feed)
+        case .openWeek: .openWeek
+        case .weeklyEditions, nil: nil
+        }
+    }
+
     // Refreshes, focus and the reads around it run only while the feed is on screen, never under Inbox or Settings (AGENTS.md, "Feed Order").
     private var onScreenFeedContext: FeedContext? {
         selectedTab == .feed ? feedContext : nil
@@ -380,7 +388,7 @@ struct FeedView: View {
         .task { await inboxStore?.runLiveRefreshLoop() }
         .task { await userSettingsStore?.refresh() }
         .onAppear {
-            feedStore.changeShownFeed(to: shownPullRequestFeed)
+            feedStore.changeOnScreenPullRequests(to: onScreenPullRequests)
             focusPage(at: currentPageIndex)
         }
         .onChange(of: currentPageIndex) { _, newPageIndex in
@@ -390,7 +398,7 @@ struct FeedView: View {
             postVibeAwaitingFeedback()
         }
         .onChange(of: onScreenFeedContext) {
-            feedStore.changeShownFeed(to: shownPullRequestFeed)
+            feedStore.changeOnScreenPullRequests(to: onScreenPullRequests)
             focusPage(at: currentPageIndex)
         }
         .onChange(of: selectedTab) { _, newSelectedTab in
@@ -718,7 +726,7 @@ struct FeedView: View {
                 openDeck: { mediaDeckPullRequestID = PresentedPullRequestID(id: pullRequest.id) },
                 tapCaption: { detailSheetPullRequest = pullRequest },
                 recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
-                    Task { await feedStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, onPullRequestID: pullRequest.id, wasRefusedToViewer: wasRefusedToViewer) }
+                    feedStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, onPullRequestID: pullRequest.id, wasRefusedToViewer: wasRefusedToViewer)
                 }
             )
         case .weeklyEdition(let weeklyEdition):
@@ -1315,7 +1323,7 @@ private struct MediaDeckCoverContent: View {
             },
             onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent },
             onLoadFailure: { failedMediaItem, wasRefusedToViewer in
-                Task { await feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPullRequestID: pullRequestID, wasRefusedToViewer: wasRefusedToViewer) }
+                feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPullRequestID: pullRequestID, wasRefusedToViewer: wasRefusedToViewer)
             }
         )
         .confirmingHide(of: $postedContentAwaitingHideConfirmation) { postedContent in
