@@ -21,7 +21,7 @@ test:
           step_description: Open the demo feed with Look around first
           module: shiptok-open-demo-feed
         - type: validation
-          step_description: '''Merged'' is selected in the Open / Merged / Weekly switch at the card''s top left, and the line under the pull request''s title reads ''#<number> · merged <when>'', with a number from 1 to 5'
+          step_description: '''Merged'' is selected in the Open / Merged / Weekly / Features switch at the card''s top left, and the line under the pull request''s title reads ''#<number> · merged <when>'', with a number from 1 to 5'
         - type: instructions
           step_description: Tap 'Open' in the switch at the card's top left
         - type: validation

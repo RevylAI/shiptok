@@ -35,8 +35,13 @@ pr_review:
       for the next pull request and down for the previous one; a sideways swipe
       casts a vibe, a double-tap likes, and one tap pauses or resumes a video.
       The right rail holds like, comments, react, vibes, mute, playback speed,
-      the media deck and More; the Open / Merged / Weekly switch sits at the
-      card's top left and opens on Merged; the tab bar holds the feed, the inbox
+      the media deck and More; the Open / Merged / Weekly / Features switch sits
+      at the card's top left and opens on Merged. Weekly shows a video per week
+      and Features a video per shipped feature; tapping one's title or deck
+      button opens its pull requests, and a 'Week of' or 'Features' back button
+      at the top left returns. A pull request with no media appears only in a
+      feature's pull requests, as a card showing its state, stats, labels and
+      description with a Details button. The tab bar holds the feed, the inbox
       and Settings, where Videos only (on by default) limits Open and Merged to
       pull requests that lead with a video. The demo repository may have no
       open pull requests, so an empty Open mode is expected there. In the demo,

@@ -1,0 +1,30 @@
+# Revyl Test Definition
+
+test:
+    metadata:
+        name: shiptok-demo-features-mode
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Open the demo feed with Look around first
+          module: shiptok-open-demo-feed
+        - type: instructions
+          step_description: Tap 'Features' in the Open / Merged / Weekly / Features switch at the card's top left
+        - type: validation
+          step_description: '''Features'' is selected in the switch and the card shows a feature: a ''ShipTok feature'' chip with ''shipped <when>'', a title and a short hook at its lower left'
+        - type: validation
+          step_description: The card plays a video, with no play symbol over it
+        - type: instructions
+          step_description: Tap the feature's title at the card's lower left
+        - type: validation
+          step_description: The switch is replaced by a 'Features' back button with a left chevron at the card's top left, and the card shows a pull request with its author, its title and a '#<number>' line under the title
+        - type: instructions
+          step_description: Tap the 'Features' back button at the card's top left
+        - type: validation
+          step_description: The feature card with its 'ShipTok feature' chip shows again and 'Features' is selected in the switch

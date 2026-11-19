@@ -21,7 +21,7 @@ test:
           step_description: Open the demo feed with Look around first
           module: shiptok-open-demo-feed
         - type: instructions
-          step_description: Tap 'Weekly' in the Open / Merged / Weekly switch at the card's top left
+          step_description: Tap 'Weekly' in the Open / Merged / Weekly / Features switch at the card's top left
         - type: validation
           step_description: '''Weekly'' is selected in the switch and the card shows a week: a ''ShipTok weekly'' chip with the week''s dates, a title and a short hook at its lower left'
         - type: instructions
