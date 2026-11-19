@@ -14,6 +14,10 @@ final class GitHubAPIClient: Sendable {
 
     private static let graphQLEndpointURL = URL(string: "https://api.github.com/graphql")!
     private static let mergedPullRequestSearchRangeMaximumResultCount = 125
+    // A merged page's window is the widest of these spans back from where the last one began that holds at most the target count, or everything older when that fits (AGENTS.md, "Feed Order").
+    private static let mergedPullRequestWindowCandidateSpansHours: [TimeInterval] = [6, 24, 72, 168, 336, 720, 2160, 8760]
+    private static let mergedPullRequestWindowTargetCount = 50
+    private static let pullRequestsByIDBatchCount = 25
     // GitHub limits how much of its server time one account may take each minute, so only a few full pull request reads run at once.
     private static let concurrentlyReadPullRequestBatchCount = 6
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "github")
@@ -59,8 +63,9 @@ final class GitHubAPIClient: Sendable {
             if graphQLErrors.contains(where: { $0.type == "NOT_FOUND" && $0.path == ["feedRepository"] }) {
                 throw GitHubAPIError.feedRepositoryNotVisible(repositoryFullName: repositoryFullName)
             }
-            // A pull request number the repository doesn't hold reads as null beside this error, so a by-number read can say it isn't there.
-            if graphQLErrors.allSatisfy({ $0.type == "NOT_FOUND" && $0.path == ["feedRepository", "pullRequest"] }), let responseData = responseEnvelope.data {
+            // A pull request number the repository doesn't hold, or an id GitHub no longer has, reads as null beside this error, so a read by number or id can say it isn't there.
+            if graphQLErrors.allSatisfy({ $0.type == "NOT_FOUND" && ($0.path == ["feedRepository", "pullRequest"] || $0.path.first == "nodes") }),
+               let responseData = responseEnvelope.data {
                 return responseData
             }
             Self.logger.error("GitHub refused \(operationName, privacy: .public): \(graphQLErrors.compactMap(\.type).joined(separator: ","), privacy: .public)")
@@ -72,9 +77,8 @@ final class GitHubAPIClient: Sendable {
         return responseData
     }
 
-    // Every merged pull request in a merge-date range, with a label and updated since a date if either is given, read in full; each page arrives as it loads, so the caller can show it at once (AGENTS.md, "Feed Order").
+    // Every merged pull request in a merge-date range, updated since a date if one is given, read in full; each page arrives as it loads (AGENTS.md, "Feed Order").
     func searchMergedPullRequests(
-        labeled labelName: String?,
         updatedSince earliestUpdateDate: Date?,
         mergedFrom earliestMergeDate: Date?,
         mergedThrough latestMergeDate: Date
@@ -85,8 +89,7 @@ final class GitHubAPIClient: Sendable {
             for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
                 guard let mergedAt = pullRequestNode.mergedAt,
                       earliestMergeDate.map({ mergedAt >= $0 }) ?? true,
-                      mergedAt <= latestMergeDate,
-                      labelName.map({ Self.pullRequestNode(pullRequestNode, isLabeled: $0) }) ?? true
+                      mergedAt <= latestMergeDate
                 else { continue }
                 mergedPullRequests.append(try await pullRequest(from: pullRequestNode))
             }
@@ -96,7 +99,6 @@ final class GitHubAPIClient: Sendable {
             }
         }
         let searchRanges = try await mergedPullRequestSearchRanges(
-            labeled: labelName,
             updatedSince: earliestUpdateDate,
             mergedFrom: earliestMergeDate,
             mergedThrough: latestMergeDate
@@ -122,38 +124,60 @@ final class GitHubAPIClient: Sendable {
         }
     }
 
-    // One cheap search, so a launch with nothing saved opens on the labeled pull requests before it reads the window (AGENTS.md, "Feed Order").
-    func fetchMergedPullRequests(labeled labelName: String) async throws -> [PullRequest] {
+    // The newest merge-date window ending before a date that holds at most about 50 merged pull requests, the widest that does, read whole. Its start is where the next window ends, and nil once nothing older is left (AGENTS.md, "Feed Order").
+    func fetchMergedPullRequestWindow(mergedBefore windowEndDate: Date) async throws -> MergedPullRequestWindow {
+        let latestMergeDate = windowEndDate.addingTimeInterval(-1)
         if case .demoFeed(let demoFeed) = source {
             var mergedPullRequests: [PullRequest] = []
             for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
-                guard pullRequestNode.mergedAt != nil, Self.pullRequestNode(pullRequestNode, isLabeled: labelName) else { continue }
+                guard let mergedAt = pullRequestNode.mergedAt, mergedAt <= latestMergeDate else { continue }
                 mergedPullRequests.append(try await pullRequest(from: pullRequestNode))
             }
-            return mergedPullRequests
+            return MergedPullRequestWindow(pullRequests: mergedPullRequests, startDate: nil)
         }
-        let searchQuery = "\(mergedPullRequestSearchQualifiers) label:\(labelName) sort:updated-desc"
+        let candidateStartDates: [Date?] = Self.mergedPullRequestWindowCandidateSpansHours.map { windowEndDate.addingTimeInterval(-$0 * 60 * 60) } + [nil]
+        let candidateSearchQueries = candidateStartDates.map { candidateStartDate in
+            mergedPullRequestSearchQuery(updatedSince: nil, mergedFrom: candidateStartDate, mergedThrough: latestMergeDate)
+        }
+        let countsQuery = GitHubGraphQLDocument.mergedPullRequestCountsQuery(searchQueryCount: candidateSearchQueries.count)
+        let countsByAlias: [String: IssueCountNode] = try await sendGraphQLQuery(
+            countsQuery,
+            variables: Dictionary(uniqueKeysWithValues: candidateSearchQueries.enumerated().map { ("searchQuery\($0.offset)", $0.element as any Sendable) })
+        )
+        let candidateCounts = try candidateSearchQueries.indices.map { candidateIndex in
+            guard let issueCount = countsByAlias["count\(candidateIndex)"]?.issueCount else {
+                throw GitHubAPIError.responseUnreadable(operationName: Self.operationName(in: countsQuery))
+            }
+            return issueCount
+        }
+        let windowIndex = candidateCounts.indices.last { candidateCounts[$0] <= Self.mergedPullRequestWindowTargetCount } ?? 0
+        let windowStartDate = candidateStartDates[windowIndex]
+        guard candidateCounts[windowIndex] > 0 else {
+            return MergedPullRequestWindow(pullRequests: [], startDate: windowStartDate)
+        }
+        guard candidateCounts[windowIndex] > Self.mergedPullRequestSearchRangeMaximumResultCount else {
+            return MergedPullRequestWindow(pullRequests: try await everyMergedPullRequest(matchingSearchQuery: candidateSearchQueries[windowIndex]), startDate: windowStartDate)
+        }
         var mergedPullRequests: [PullRequest] = []
-        var pageCursor: String?
-        repeat {
-            let page = try await fetchMergedPullRequestSearchPage(matchingSearchQuery: searchQuery, after: pageCursor)
-            mergedPullRequests += page.mergedPullRequests
-            pageCursor = page.nextPageCursor
-        } while pageCursor != nil
-        return mergedPullRequests
+        for try await mergedPullRequestPage in try await searchMergedPullRequests(updatedSince: nil, mergedFrom: windowStartDate, mergedThrough: latestMergeDate) {
+            mergedPullRequests += mergedPullRequestPage
+        }
+        return MergedPullRequestWindow(pullRequests: mergedPullRequests, startDate: windowStartDate)
+    }
+
+    private func mergedPullRequestSearchQuery(updatedSince earliestUpdateDate: Date?, mergedFrom earliestMergeDate: Date?, mergedThrough latestMergeDate: Date) -> String {
+        let mergedRangeText = earliestMergeDate.map { "\($0.formatted(.iso8601))..\(latestMergeDate.formatted(.iso8601))" } ?? "<=\(latestMergeDate.formatted(.iso8601))"
+        let updatedQualifier = earliestUpdateDate.map { " updated:>=\($0.formatted(.iso8601))" } ?? ""
+        return "\(mergedPullRequestSearchQualifiers) merged:\(mergedRangeText)\(updatedQualifier) sort:updated-desc"
     }
 
     // GitHub search returns at most 1,000 results, so a merge-date range is halved until each part is small, which also lets the parts load in parallel. A pull request's merge date never changes, so paging through a part never skips one that wasn't updated meanwhile, and one that was is read by the next search.
     private func mergedPullRequestSearchRanges(
-        labeled labelName: String?,
         updatedSince earliestUpdateDate: Date?,
         mergedFrom earliestMergeDate: Date?,
         mergedThrough latestMergeDate: Date
     ) async throws -> [String] {
-        let labelQualifier = labelName.map { " label:\($0)" } ?? ""
-        let mergedRangeText = earliestMergeDate.map { "\($0.formatted(.iso8601))..\(latestMergeDate.formatted(.iso8601))" } ?? "<=\(latestMergeDate.formatted(.iso8601))"
-        let updatedQualifier = earliestUpdateDate.map { " updated:>=\($0.formatted(.iso8601))" } ?? ""
-        let searchQuery = "\(mergedPullRequestSearchQualifiers)\(labelQualifier) merged:\(mergedRangeText)\(updatedQualifier) sort:updated-desc"
+        let searchQuery = mergedPullRequestSearchQuery(updatedSince: earliestUpdateDate, mergedFrom: earliestMergeDate, mergedThrough: latestMergeDate)
         let probe: MergedPullRequestSearchProbeData = try await sendGraphQLQuery(GitHubGraphQLDocument.mergedPullRequestSearchProbeQuery, variables: [
             "owner": repositoryOwnerLogin,
             "name": repositoryName,
@@ -166,18 +190,27 @@ final class GitHubAPIClient: Sendable {
         let rangeStartDate = earliestMergeDate ?? probe.feedRepository.createdAt
         let rangeMidpointDate = Date(timeIntervalSince1970: ((rangeStartDate.timeIntervalSince1970 + latestMergeDate.timeIntervalSince1970) / 2).rounded(.down))
         async let newerHalfSearchRanges = mergedPullRequestSearchRanges(
-            labeled: labelName,
             updatedSince: earliestUpdateDate,
             mergedFrom: rangeMidpointDate.addingTimeInterval(1),
             mergedThrough: latestMergeDate
         )
         let olderHalfSearchRanges = try await mergedPullRequestSearchRanges(
-            labeled: labelName,
             updatedSince: earliestUpdateDate,
             mergedFrom: rangeStartDate,
             mergedThrough: rangeMidpointDate
         )
         return try await newerHalfSearchRanges + olderHalfSearchRanges
+    }
+
+    private func everyMergedPullRequest(matchingSearchQuery searchQuery: String) async throws -> [PullRequest] {
+        var mergedPullRequests: [PullRequest] = []
+        var pageCursor: String?
+        repeat {
+            let page = try await fetchMergedPullRequestSearchPage(matchingSearchQuery: searchQuery, after: pageCursor)
+            mergedPullRequests += page.mergedPullRequests
+            pageCursor = page.nextPageCursor
+        } while pageCursor != nil
+        return mergedPullRequests
     }
 
     private func yieldMergedPullRequestPages(
@@ -209,10 +242,94 @@ final class GitHubAPIClient: Sendable {
         return (mergedPullRequests, page.search.pageInfo.hasNextPage ? page.search.pageInfo.endCursor : nil)
     }
 
+    // A page of open pull requests, newest update first, through the repository's pull request list rather than search (AGENTS.md, "Feed Order").
+    func fetchOpenPullRequestsPage(after pageCursor: String?) async throws -> OpenPullRequestsPage {
+        if case .demoFeed(let demoFeed) = source {
+            var openPullRequests: [PullRequest] = []
+            for pullRequestNode in try await demoFeed.snapshot().openPullRequests where !Self.isClosedWithoutMerging(pullRequestNode) {
+                openPullRequests.append(try await pullRequest(from: pullRequestNode))
+            }
+            return OpenPullRequestsPage(pullRequests: openPullRequests.sorted { $0.comesBefore($1, in: .open) }, nextPageCursor: nil)
+        }
+        var variables: [String: any Sendable] = ["owner": repositoryOwnerLogin, "name": repositoryName]
+        if let pageCursor {
+            variables["after"] = pageCursor
+        }
+        let page: OpenPullRequestsPageData = try await sendGraphQLQuery(GitHubGraphQLDocument.openPullRequestsPageQuery, variables: variables)
+        guard let pullRequestConnection = page.feedRepository?.pullRequests else {
+            throw GitHubAPIError.responseUnreadable(operationName: Self.operationName(in: GitHubGraphQLDocument.openPullRequestsPageQuery))
+        }
+        var openPullRequests: [PullRequest] = []
+        for pullRequestNode in pullRequestConnection.nodes.compactMap({ $0 }) {
+            openPullRequests.append(try await pullRequest(from: pullRequestNode))
+        }
+        return OpenPullRequestsPage(
+            pullRequests: openPullRequests,
+            nextPageCursor: pullRequestConnection.pageInfo.hasNextPage ? pullRequestConnection.pageInfo.endCursor : nil
+        )
+    }
+
+    // The ids of the pull requests in these states updated since a date, newest update first. Only ids, so a refresh reads in full only what changed (AGENTS.md, "Feed Order").
+    func fetchIDsOfPullRequestsUpdated(since earliestUpdateDate: Date, inStates pullRequestStates: [GitHubPullRequestState]) async throws -> [String] {
+        if case .demoFeed(let demoFeed) = source {
+            // The demo feed may carry no update dates, so it answers with every pull request in those states.
+            let snapshot = try await demoFeed.snapshot()
+            let openPullRequestNodes = pullRequestStates.contains(.open) ? snapshot.openPullRequests : []
+            let mergedPullRequestNodes = pullRequestStates.contains(.merged) ? snapshot.mergedPullRequests : []
+            return (openPullRequestNodes + mergedPullRequestNodes).map(\.id)
+        }
+        var updatedPullRequestIDs: [String] = []
+        var pageCursor: String?
+        repeat {
+            var variables: [String: any Sendable] = [
+                "owner": repositoryOwnerLogin,
+                "name": repositoryName,
+                "states": pullRequestStates.map(\.rawValue),
+            ]
+            if let pageCursor {
+                variables["after"] = pageCursor
+            }
+            let page: PullRequestUpdatesPageData = try await sendGraphQLQuery(GitHubGraphQLDocument.pullRequestUpdatesQuery, variables: variables)
+            guard let pullRequestConnection = page.feedRepository?.pullRequests else {
+                throw GitHubAPIError.responseUnreadable(operationName: Self.operationName(in: GitHubGraphQLDocument.pullRequestUpdatesQuery))
+            }
+            for updatedPullRequestNode in pullRequestConnection.nodes.compactMap({ $0 }) {
+                guard updatedPullRequestNode.updatedAt >= earliestUpdateDate else { return updatedPullRequestIDs }
+                updatedPullRequestIDs.append(updatedPullRequestNode.id)
+            }
+            pageCursor = pullRequestConnection.pageInfo.hasNextPage ? pullRequestConnection.pageInfo.endCursor : nil
+        } while pageCursor != nil
+        return updatedPullRequestIDs
+    }
+
+    // Open and merged pull requests read by id, a few at a time; one closed without merging or gone is left out.
+    func fetchPullRequests(ids pullRequestIDs: [String]) async throws -> [PullRequest] {
+        if case .demoFeed(let demoFeed) = source {
+            let snapshot = try await demoFeed.snapshot()
+            let requestedPullRequestIDs = Set(pullRequestIDs)
+            var pullRequests: [PullRequest] = []
+            for pullRequestNode in snapshot.openPullRequests + snapshot.mergedPullRequests
+            where requestedPullRequestIDs.contains(pullRequestNode.id) && !Self.isClosedWithoutMerging(pullRequestNode) {
+                pullRequests.append(try await pullRequest(from: pullRequestNode))
+            }
+            return pullRequests
+        }
+        var pullRequests: [PullRequest] = []
+        for batchStartIndex in stride(from: 0, to: pullRequestIDs.count, by: Self.pullRequestsByIDBatchCount) {
+            let pullRequestIDBatch = Array(pullRequestIDs[batchStartIndex..<min(batchStartIndex + Self.pullRequestsByIDBatchCount, pullRequestIDs.count)])
+            let response: PullRequestsByIDData = try await sendGraphQLQuery(GitHubGraphQLDocument.pullRequestsByIDQuery, variables: ["ids": pullRequestIDBatch])
+            for pullRequestNode in response.nodes.compactMap({ $0 }) where !Self.isClosedWithoutMerging(pullRequestNode) {
+                pullRequests.append(try await pullRequest(from: pullRequestNode))
+            }
+        }
+        return pullRequests
+    }
+
     func fetchPullRequest(number: Int) async throws -> PullRequest {
         if case .demoFeed(let demoFeed) = source {
-            guard let pullRequestNode = try await demoFeed.snapshot().mergedPullRequests.first(where: { $0.number == number }),
-                  pullRequestNode.mergedAt != nil
+            let snapshot = try await demoFeed.snapshot()
+            guard let pullRequestNode = (snapshot.mergedPullRequests + snapshot.openPullRequests).first(where: { $0.number == number }),
+                  !Self.isClosedWithoutMerging(pullRequestNode)
             else {
                 throw GitHubAPIError.pullRequestNeitherOpenNorMerged(number: number)
             }
@@ -363,10 +480,6 @@ final class GitHubAPIClient: Sendable {
         )
     }
 
-    private static func pullRequestNode(_ pullRequestNode: PullRequestNode, isLabeled labelName: String) -> Bool {
-        (pullRequestNode.labels?.nodes ?? []).contains { $0?.name.caseInsensitiveCompare(labelName) == .orderedSame }
-    }
-
     // A pull request closed without merging is neither open nor merged, so ShipTok never shows it (docs/shiptok-format.md).
     private static func isClosedWithoutMerging(_ pullRequestNode: PullRequestNode) -> Bool {
         pullRequestNode.mergedAt == nil && pullRequestNode.state == "CLOSED"
@@ -430,4 +543,22 @@ final class GitHubAPIClient: Sendable {
             return "an unknown place"
         }
     }
+}
+
+struct MergedPullRequestWindow: Sendable {
+    let pullRequests: [PullRequest]
+    // Nil once the window reaches back past the repository's first merged pull request.
+    let startDate: Date?
+}
+
+struct OpenPullRequestsPage: Sendable {
+    let pullRequests: [PullRequest]
+    // Nil once this page is the last.
+    let nextPageCursor: String?
+}
+
+enum GitHubPullRequestState: String, Sendable {
+    case open = "OPEN"
+    case closed = "CLOSED"
+    case merged = "MERGED"
 }

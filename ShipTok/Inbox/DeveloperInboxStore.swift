@@ -22,21 +22,25 @@ struct DeveloperInboxItem: Identifiable, Equatable, Sendable {
 @MainActor
 final class DeveloperInboxStore {
     private static let refreshIntervalSeconds = 15
-    private static let viewerMergedPullRequestActivityQuery = """
-    query DeveloperInboxViewerMergedPullRequestActivity($searchQuery: String!) {
-      search(query: $searchQuery, type: ISSUE, first: 20) {
-        nodes {
-          ... on PullRequest {
-            number
-            title
-            reactions(last: 20) {
-              nodes { id content createdAt user { login avatarUrl } }
-            }
-            comments(last: 20) {
-              nodes { id body createdAt url viewerCanDelete author { __typename login avatarUrl } }
-            }
-          }
-        }
+    // GitHub search can't ask for open or merged in one query, so the viewer's open and merged pull requests are two searches; one closed without merging is in neither.
+    private static let viewerPullRequestActivityQuery = """
+    query DeveloperInboxViewerPullRequestActivity($openSearchQuery: String!, $mergedSearchQuery: String!) {
+      openPullRequests: search(query: $openSearchQuery, type: ISSUE, first: 20) {
+        nodes { ...DeveloperInboxPullRequestActivity }
+      }
+      mergedPullRequests: search(query: $mergedSearchQuery, type: ISSUE, first: 20) {
+        nodes { ...DeveloperInboxPullRequestActivity }
+      }
+    }
+
+    fragment DeveloperInboxPullRequestActivity on PullRequest {
+      number
+      title
+      reactions(last: 20) {
+        nodes { id content createdAt user { login avatarUrl } }
+      }
+      comments(last: 20) {
+        nodes { id body createdAt url viewerCanDelete author { __typename login avatarUrl } }
       }
     }
     """
@@ -69,12 +73,19 @@ final class DeveloperInboxStore {
 
     func refresh() async {
         do {
-            let activityResponse: ViewerMergedPullRequestActivityResponse = try await githubAPIClient.sendGraphQLQuery(
-                Self.viewerMergedPullRequestActivityQuery,
-                variables: ["searchQuery": "repo:\(githubAPIClient.repositoryFullName) is:pr is:merged author:\(viewer.githubLogin) sort:updated-desc"]
+            let viewerPullRequestsSearchQuery = "repo:\(githubAPIClient.repositoryFullName) is:pr author:\(viewer.githubLogin) sort:updated-desc"
+            let activityResponse: ViewerPullRequestActivityResponse = try await githubAPIClient.sendGraphQLQuery(
+                Self.viewerPullRequestActivityQuery,
+                variables: [
+                    "openSearchQuery": "\(viewerPullRequestsSearchQuery) is:open",
+                    "mergedSearchQuery": "\(viewerPullRequestsSearchQuery) is:merged",
+                ]
             )
-            let fetchedItems = activityResponse.search.nodes
+            // A pull request merged between the two searches can be in both.
+            var seenPullRequestNumbers: Set<Int> = []
+            let fetchedItems = (activityResponse.openPullRequests.nodes + activityResponse.mergedPullRequests.nodes)
                 .compactMap { $0 }
+                .filter { seenPullRequestNumbers.insert($0.number).inserted }
                 .flatMap(inboxItemsFromOtherPeople(on:))
                 .sorted { $0.occurredAt > $1.occurredAt }
             if fetchedItems != fetchedInboxItems {
@@ -101,7 +112,7 @@ final class DeveloperInboxStore {
         UserDefaults.standard.set(newestOccurredAt, forKey: lastSeenOccurredAtDefaultsKey)
     }
 
-    private func inboxItemsFromOtherPeople(on pullRequestNode: ViewerMergedPullRequestActivityResponse.PullRequestNode) -> [DeveloperInboxItem] {
+    private func inboxItemsFromOtherPeople(on pullRequestNode: ViewerPullRequestActivityResponse.PullRequestNode) -> [DeveloperInboxItem] {
         let commentItems = pullRequestNode.comments.nodes.compactMap { $0 }.compactMap { commentNode -> DeveloperInboxItem? in
             let comment = PullRequestComment(
                 id: commentNode.id,
@@ -148,8 +159,9 @@ final class DeveloperInboxStore {
     }
 }
 
-private struct ViewerMergedPullRequestActivityResponse: Decodable {
-    let search: Search
+private struct ViewerPullRequestActivityResponse: Decodable {
+    let openPullRequests: Search
+    let mergedPullRequests: Search
 
     // GitHub returns null for a node it can't resolve, such as a comment deleted while the query ran.
     struct Search: Decodable {

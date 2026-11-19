@@ -1,11 +1,19 @@
 import SwiftUI
 
 enum FeedMode: String, Sendable {
-    case perPullRequest
+    case open
+    case merged
     case weekly
+
+    init(_ feed: PullRequestFeed) {
+        switch feed {
+        case .open: self = .open
+        case .merged: self = .merged
+        }
+    }
 }
 
-// The PRs / Weekly switch over the feed's top left; while a week's pull requests are open it becomes the way back to the weeks (AGENTS.md, "Weekly Mode").
+// The Open / Merged / Weekly switch over the feed's top left; while a week's pull requests are open it becomes the way back to the weeks (AGENTS.md, "Weekly Mode").
 struct FeedModeSwitch: View {
     @Binding var feedMode: FeedMode
     let openWeekDatesText: String?
@@ -30,7 +38,8 @@ struct FeedModeSwitch: View {
                 .accessibilityHint("Goes back to the weekly videos")
             } else {
                 HStack(spacing: 2) {
-                    segment("PRs", mode: .perPullRequest)
+                    segment("Open", mode: .open)
+                    segment("Merged", mode: .merged)
                     segment("Weekly", mode: .weekly)
                 }
                 .padding(3)

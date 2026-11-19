@@ -2,7 +2,7 @@ import SwiftUI
 
 struct FeedView: View {
     private enum FeedContext: Hashable {
-        case pullRequests
+        case pullRequests(PullRequestFeed)
         case weeklyEditions
         case openWeek
     }
@@ -57,11 +57,12 @@ struct FeedView: View {
     @State private var inboxStore: DeveloperInboxStore?
     @State private var userSettingsStore: UserSettingsStore?
     @State private var demoSignInPromptAction: DemoSignInPromptAction?
-    @AppStorage("feed-mode") private var savedFeedMode: FeedMode = .perPullRequest
-    @State private var demoVisitFeedMode: FeedMode = .perPullRequest
+    @AppStorage("feed-mode") private var savedFeedMode: FeedMode = .merged
+    @State private var demoVisitFeedMode: FeedMode = .merged
     @State private var playbackRateChoice: VideoPlaybackRateChoice
     @State private var openWeeklyEdition: WeeklyEdition?
-    @State private var pullRequestsPageIndex = 0
+    @State private var openPullRequestsPageIndex = 0
+    @State private var mergedPullRequestsPageIndex = 0
     @State private var weeklyEditionsPageIndex = 0
     @State private var openWeekPageIndex = 0
     @State private var verticalDragOffset: CGFloat = 0
@@ -90,6 +91,7 @@ struct FeedView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
+    private static let liveRefreshIntervalSeconds = 10
     private static let pullToRefreshThresholdFraction: CGFloat = 0.18
     private static let toastMaximumWidth: CGFloat = 440
     private static let vibeFeedbackComposerMaximumWidth: CGFloat = 560
@@ -127,6 +129,7 @@ struct FeedView: View {
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
             viewerGitHubLogin: viewer.githubLogin,
+            hiddenPeopleStore: viewer.hiddenPeopleStore,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         )
         let weeklyEditionsStore = WeeklyEditionsStore(
@@ -165,16 +168,18 @@ struct FeedView: View {
 
     private var feedContext: FeedContext {
         switch feedMode {
-        case .perPullRequest: .pullRequests
+        case .open: .pullRequests(.open)
+        case .merged: .pullRequests(.merged)
         case .weekly: openWeeklyEdition == nil ? .weeklyEditions : .openWeek
         }
     }
 
-    // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
-    private var visiblePullRequests: [PullRequest] {
-        feedStore.pullRequests.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
+    private var shownPullRequestFeed: PullRequestFeed? {
+        guard case .pullRequests(let feed) = feedContext else { return nil }
+        return feed
     }
 
+    // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
     private var visibleWeeklyEditions: [WeeklyEdition] {
         weeklyEditionsStore.weeklyEditions.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
@@ -185,7 +190,7 @@ struct FeedView: View {
 
     private var feedPages: [FeedPage] {
         switch feedContext {
-        case .pullRequests: visiblePullRequests.map(FeedPage.pullRequest) + [.feedEnd]
+        case .pullRequests(let feed): feedStore.visiblePullRequests(in: feed).map(FeedPage.pullRequest) + [.feedEnd]
         case .weeklyEditions: visibleWeeklyEditions.map(FeedPage.weeklyEdition) + [.feedEnd]
         case .openWeek: visibleOpenWeekPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
         }
@@ -195,14 +200,14 @@ struct FeedView: View {
     private var currentPageIndex: Int {
         get {
             switch feedContext {
-            case .pullRequests: pullRequestsPageIndex
+            case .pullRequests(let feed): pageIndex(in: feed)
             case .weeklyEditions: weeklyEditionsPageIndex
             case .openWeek: openWeekPageIndex
             }
         }
         nonmutating set {
             switch feedContext {
-            case .pullRequests: pullRequestsPageIndex = newValue
+            case .pullRequests(let feed): setPageIndex(newValue, in: feed)
             case .weeklyEditions: weeklyEditionsPageIndex = newValue
             case .openWeek: openWeekPageIndex = newValue
             }
@@ -215,8 +220,9 @@ struct FeedView: View {
 
     private var isPullToRefreshRunning: Bool {
         switch feedContext {
-        case .pullRequests, .openWeek: feedStore.isPullToRefreshRunning
+        case .pullRequests(let feed): feedStore.loadedFeed(feed).isPullToRefreshRunning
         case .weeklyEditions: weeklyEditionsStore.isPullToRefreshRunning
+        case .openWeek: feedStore.isOpenWeekPullToRefreshRunning
         }
     }
 
@@ -275,7 +281,7 @@ struct FeedView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .overlay(alignment: .top) {
                 newerPullRequestsButton
-                    .animation(.snappy, value: feedStore.unseenNewerPullRequestIDs.isEmpty)
+                    .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
             }
             // Scroll content margins rather than safe-area padding, which a List inside the tabs' NavigationStack ignores, leaving its last rows under the pill.
             selectedTabPage
@@ -359,8 +365,7 @@ struct FeedView: View {
         .fullScreenCover(item: $mediaDeckPullRequestID) { presentedPullRequestID in
             MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, signInSession: signInSession, pullRequestID: presentedPullRequestID.id)
         }
-        .task { await feedStore.loadFeed() }
-        .task { await feedStore.runLiveRefreshLoop() }
+        .task(id: feedContext) { await refreshShownFeedContextWhileShown() }
         .task { await inboxStore?.runLiveRefreshLoop() }
         .task { await userSettingsStore?.refresh() }
         .onAppear { focusPage(at: currentPageIndex) }
@@ -374,8 +379,11 @@ struct FeedView: View {
         .onChange(of: selectedTab) { _, newSelectedTab in
             if newSelectedTab != .feed { postVibeAwaitingFeedback() }
         }
-        .onChange(of: visiblePullRequests.map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
-            keepPullRequestsPageInPlace(previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
+        .onChange(of: feedStore.visiblePullRequests(in: .open).map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
+            keepPullRequestsPageInPlace(in: .open, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
+        }
+        .onChange(of: feedStore.visiblePullRequests(in: .merged).map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
+            keepPullRequestsPageInPlace(in: .merged, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
         }
         .onChange(of: visibleWeeklyEditions.map(\.id)) { previousWeeklyEditionIDs, currentWeeklyEditionIDs in
             guard previousWeeklyEditionIDs.indices.contains(weeklyEditionsPageIndex),
@@ -386,16 +394,13 @@ struct FeedView: View {
         .onChange(of: scenePhase) { _, newScenePhase in
             switch newScenePhase {
             case .active:
-                Task { await feedStore.refreshAfterReturningToForeground() }
-                if feedContext == .weeklyEditions {
-                    Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
-                }
+                Task { await refreshShownFeedContext() }
                 Task { await inboxStore?.refresh() }
                 Task { await userSettingsStore?.refresh() }
             case .background:
                 postVibeAwaitingFeedback()
                 vibeOutbox.postAllQueuedVibesBeforeSuspension()
-                feedStore.saveFeed()
+                feedStore.saveFeeds()
             default:
                 break
             }
@@ -412,10 +417,21 @@ struct FeedView: View {
 
     @ViewBuilder
     private var newerPullRequestsButton: some View {
-        let visiblePullRequests = self.visiblePullRequests
-        let unseenNewerPageIndexes = visiblePullRequests.indices.filter { feedStore.unseenNewerPullRequestIDs.contains(visiblePullRequests[$0].id) }
-        if feedContext == .pullRequests, let firstUnseenNewerPageIndex = unseenNewerPageIndexes.first, firstUnseenNewerPageIndex < currentPageIndex {
+        if let shownPullRequestFeed {
+            newerPullRequestsButton(in: shownPullRequestFeed)
+        }
+    }
+
+    @ViewBuilder
+    private func newerPullRequestsButton(in feed: PullRequestFeed) -> some View {
+        let visiblePullRequests = feedStore.visiblePullRequests(in: feed)
+        let unseenNewerPullRequestIDs = feedStore.loadedFeed(feed).unseenNewerPullRequestIDs
+        let unseenNewerPageIndexes = visiblePullRequests.indices.filter { unseenNewerPullRequestIDs.contains(visiblePullRequests[$0].id) }
+        if let firstUnseenNewerPageIndex = unseenNewerPageIndexes.first, firstUnseenNewerPageIndex < currentPageIndex {
             let unseenNewerPullRequestCount = unseenNewerPageIndexes.count
+            let unseenNewerPullRequestsDescription = feed == .merged
+                ? (unseenNewerPullRequestCount == 1 ? "newly merged PR" : "newly merged PRs")
+                : (unseenNewerPullRequestCount == 1 ? "newly updated open PR" : "newly updated open PRs")
             Button {
                 withAnimation(.spring(duration: 0.35)) { currentPageIndex = firstUnseenNewerPageIndex }
             } label: {
@@ -431,7 +447,7 @@ struct FeedView: View {
             }
             .fixedSize()
             .padding(.top, 8)
-            .accessibilityLabel(unseenNewerPullRequestCount == 1 ? "1 newly merged PR above" : "\(unseenNewerPullRequestCount) newly merged PRs above")
+            .accessibilityLabel("\(unseenNewerPullRequestCount) \(unseenNewerPullRequestsDescription) above")
             .transition(.scale.combined(with: .opacity))
         }
     }
@@ -471,7 +487,7 @@ struct FeedView: View {
                         onChooseRepository: { repositoryFullName in
                             postVibeAwaitingFeedback()
                             vibeOutbox.postAllQueuedVibesBeforeSuspension()
-                            await feedStore.saveFeed()?.value
+                            await feedStore.saveFeeds()?.value
                             onChooseRepository(repositoryFullName)
                         }
                     )
@@ -500,8 +516,8 @@ struct FeedView: View {
     @ViewBuilder
     private func feedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
         switch feedContext {
-        case .pullRequests:
-            pullRequestsFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+        case .pullRequests(let feed):
+            pullRequestsFeedContent(in: feed, pageSize: pageSize, pageChromeInsets: pageChromeInsets)
         case .weeklyEditions:
             weeklyEditionsFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
         case .openWeek:
@@ -519,7 +535,7 @@ struct FeedView: View {
                 title: Text("Couldn't load the weekly videos"),
                 message: Text(verbatim: loadFailureMessage),
                 actionTitle: Text("Try again"),
-                action: { Task { await weeklyEditionsStore.retryLoad() } }
+                action: { Task { await weeklyEditionsStore.refresh() } }
             )
         } else if !weeklyEditionsStore.isLoaded {
             FeedLoadingView(message: "Finding the weekly videos…")
@@ -550,33 +566,44 @@ struct FeedView: View {
             RevylContentUnavailableView(
                 systemImageName: "rectangle.stack",
                 title: Text("None of this week's pull requests could be read"),
-                message: Text("They may be private to you or no longer merged."),
+                message: Text("They may be private to you, or closed without being merged."),
                 actionTitle: Text("Back to weekly videos"),
                 action: closeWeek
             )
         }
     }
 
+    // Until a card shows, the feed keeps reading older pages, so it's loading until GitHub has no more (AGENTS.md, "Feed Order").
     @ViewBuilder
-    private func pullRequestsFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
-        if !feedStore.pullRequests.isEmpty {
+    private func pullRequestsFeedContent(in feed: PullRequestFeed, pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+        let loadedFeed = feedStore.loadedFeed(feed)
+        if !feedStore.visiblePullRequests(in: feed).isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
-        } else if let failureMessage = feedStore.feedLoadFailureMessage {
+        } else if let loadFailureMessage = loadedFeed.loadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
-                title: Text("Couldn't load merged PRs"),
-                message: Text(verbatim: failureMessage),
+                title: Text(feed == .merged ? "Couldn't load merged PRs" : "Couldn't load open PRs"),
+                message: Text(verbatim: loadFailureMessage),
                 actionTitle: Text("Try again"),
-                action: { Task { await feedStore.loadFeed() } }
+                action: { Task { await feedStore.loadOlderPullRequests(in: feed) } }
             )
-        } else if !feedStore.isFeedWindowLoaded {
-            FeedLoadingView(message: "Finding merged PRs with videos and screenshots…")
+        } else if !loadedFeed.hasLoadedEveryPullRequest {
+            FeedLoadingView(message: feed == .merged ? "Finding merged PRs with videos and screenshots…" : "Finding open PRs with videos and screenshots…")
         } else {
-            RevylContentUnavailableView(
-                systemImageName: "film.stack",
-                title: Text("No PRs with media yet"),
-                message: Text("ShipTok shows pull requests merged into \(githubAPIClient.repositoryFullName) in the last two weeks that carry a video, screenshot or GIF. None do yet.")
-            )
+            switch feed {
+            case .open:
+                RevylContentUnavailableView(
+                    systemImageName: "film.stack",
+                    title: Text("No open PRs with media"),
+                    message: Text("ShipTok shows open pull requests in \(githubAPIClient.repositoryFullName), drafts included, that carry a video, screenshot or GIF. None do right now.")
+                )
+            case .merged:
+                RevylContentUnavailableView(
+                    systemImageName: "film.stack",
+                    title: Text("No merged PRs with media yet"),
+                    message: Text("ShipTok shows pull requests merged into \(githubAPIClient.repositoryFullName) that carry a video, screenshot or GIF. None do yet.")
+                )
+            }
         }
     }
 
@@ -773,12 +800,14 @@ struct FeedView: View {
     @ViewBuilder
     private var feedEndPage: some View {
         switch feedContext {
-        case .pullRequests:
+        case .pullRequests(let feed):
+            let loadedFeed = feedStore.loadedFeed(feed)
             FeedEndPageView(
+                feed: feed,
                 repositoryFullName: githubAPIClient.repositoryFullName,
-                feedLoadFailureMessage: feedStore.feedLoadFailureMessage,
-                isFeedWindowLoaded: feedStore.isFeedWindowLoaded,
-                onRetry: { Task { await feedStore.loadFeed() } }
+                loadFailureMessage: loadedFeed.loadFailureMessage,
+                hasLoadedEveryPullRequest: loadedFeed.hasLoadedEveryPullRequest,
+                onRetry: { Task { await feedStore.loadOlderPullRequests(in: feed) } }
             )
         case .weeklyEditions:
             RevylContentUnavailableView(
@@ -1000,7 +1029,7 @@ struct FeedView: View {
 
     private func refreshFromPull() {
         switch feedContext {
-        case .pullRequests: Task { await feedStore.refreshFromPull() }
+        case .pullRequests(let feed): Task { await feedStore.refreshFromPull(in: feed) }
         case .weeklyEditions: Task { await weeklyEditionsStore.refreshFromPull() }
         case .openWeek: Task { await feedStore.refreshOpenWeekFromPull() }
         }
@@ -1008,8 +1037,8 @@ struct FeedView: View {
 
     private func focusPage(at pageIndex: Int) {
         switch feedContext {
-        case .pullRequests:
-            focusPullRequestsPage(at: pageIndex)
+        case .pullRequests(let feed):
+            focusPullRequestsPage(in: feed, at: pageIndex)
         case .weeklyEditions:
             Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
         case .openWeek:
@@ -1019,9 +1048,43 @@ struct FeedView: View {
         }
     }
 
-    private func focusPullRequestsPage(at pageIndex: Int) {
-        let visiblePullRequests = self.visiblePullRequests
-        feedStore.focusFeedPage(showingPullRequestID: visiblePullRequests.indices.contains(pageIndex) ? visiblePullRequests[pageIndex].id : nil)
+    private func focusPullRequestsPage(in feed: PullRequestFeed, at pageIndex: Int) {
+        let visiblePullRequests = feedStore.visiblePullRequests(in: feed)
+        feedStore.focusFeedPage(in: feed, showingPullRequestID: visiblePullRequests.indices.contains(pageIndex) ? visiblePullRequests[pageIndex].id : nil)
+    }
+
+    private func pageIndex(in feed: PullRequestFeed) -> Int {
+        switch feed {
+        case .open: openPullRequestsPageIndex
+        case .merged: mergedPullRequestsPageIndex
+        }
+    }
+
+    private func setPageIndex(_ pageIndex: Int, in feed: PullRequestFeed) {
+        switch feed {
+        case .open: openPullRequestsPageIndex = pageIndex
+        case .merged: mergedPullRequestsPageIndex = pageIndex
+        }
+    }
+
+    // An iOS app shows the newest data it has, so the shown mode reads GitHub again as soon as it shows and every few seconds while it stays (AGENTS.md, "Feed Order").
+    private func refreshShownFeedContextWhileShown() async {
+        while !Task.isCancelled {
+            await refreshShownFeedContext()
+            do {
+                try await Task.sleep(for: .seconds(Self.liveRefreshIntervalSeconds))
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func refreshShownFeedContext() async {
+        switch feedContext {
+        case .pullRequests(let feed): await feedStore.refreshNewestData(in: feed)
+        case .weeklyEditions: await weeklyEditionsStore.refresh()
+        case .openWeek: await feedStore.refreshFocusedOpenWeekPullRequest()
+        }
     }
 
     private func openWeek(_ weeklyEdition: WeeklyEdition) {
@@ -1138,31 +1201,38 @@ struct FeedView: View {
         withAnimation(.spring(duration: 0.35)) { currentPageIndex = pageIndex }
     }
 
-    private func keepPullRequestsPageInPlace(previousPullRequestIDs: [String], currentPullRequestIDs: [String]) {
-        let isShowingPullRequests = feedContext == .pullRequests
-        guard previousPullRequestIDs.indices.contains(pullRequestsPageIndex) else {
-            if isShowingPullRequests { focusPullRequestsPage(at: pullRequestsPageIndex) }
+    // The viewer's card keeps its place as cards arrive or leave around it. At the feed's end the viewer stays just past every card they had, so the first older card that loads is the one they see next (AGENTS.md, "Feed Order").
+    private func keepPullRequestsPageInPlace(in feed: PullRequestFeed, previousPullRequestIDs: [String], currentPullRequestIDs: [String]) {
+        let isShowingFeed = feedContext == .pullRequests(feed)
+        let previousPageIndex = pageIndex(in: feed)
+        defer {
+            if isShowingFeed { feedStore.loadOlderPullRequestsIfViewerNearsEnd(in: feed) }
+        }
+        guard previousPullRequestIDs.indices.contains(previousPageIndex) else {
+            let previousPullRequestIDSet = Set(previousPullRequestIDs)
+            setPageIndex((currentPullRequestIDs.lastIndex { previousPullRequestIDSet.contains($0) } ?? -1) + 1, in: feed)
+            if isShowingFeed { focusPullRequestsPage(in: feed, at: pageIndex(in: feed)) }
             return
         }
-        let currentPullRequestID = previousPullRequestIDs[pullRequestsPageIndex]
-        if let movedPageIndex = currentPullRequestIDs.firstIndex(of: currentPullRequestID) {
-            if movedPageIndex != pullRequestsPageIndex {
-                pullRequestsPageIndex = movedPageIndex
+        if let movedPageIndex = currentPullRequestIDs.firstIndex(of: previousPullRequestIDs[previousPageIndex]) {
+            if movedPageIndex != previousPageIndex {
+                setPageIndex(movedPageIndex, in: feed)
             }
         } else {
-            pullRequestsPageIndex = min(pullRequestsPageIndex, currentPullRequestIDs.count)
-            if isShowingPullRequests { focusPullRequestsPage(at: pullRequestsPageIndex) }
+            setPageIndex(min(previousPageIndex, currentPullRequestIDs.count), in: feed)
+            if isShowingFeed { focusPullRequestsPage(in: feed, at: pageIndex(in: feed)) }
         }
     }
 
     private func openPullRequest(number: Int) {
-        guard let pageIndex = visiblePullRequests.firstIndex(where: { $0.number == number }) else {
-            openURL(githubAPIClient.pullRequestURL(number: number))
+        for feed in [PullRequestFeed.merged, .open] {
+            guard let pageIndex = feedStore.visiblePullRequests(in: feed).firstIndex(where: { $0.number == number }) else { continue }
+            feedMode = FeedMode(feed)
+            selectedTab = .feed
+            setPageIndex(pageIndex, in: feed)
             return
         }
-        feedMode = .perPullRequest
-        selectedTab = .feed
-        pullRequestsPageIndex = pageIndex
+        openURL(githubAPIClient.pullRequestURL(number: number))
     }
 }
 

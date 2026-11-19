@@ -56,7 +56,7 @@ final class WeeklyEditionsStore {
         await refresh(reportsFailure: true)
     }
 
-    func retryLoad() async {
+    func refresh() async {
         await refresh(reportsFailure: false)
     }
 

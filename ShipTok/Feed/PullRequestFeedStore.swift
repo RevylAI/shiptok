@@ -2,49 +2,124 @@ import Foundation
 import Observation
 import OSLog
 
+// One pull request feed as loaded so far, and where the viewer is in it.
+struct LoadedPullRequestFeed: Sendable {
+    let feed: PullRequestFeed
+    fileprivate(set) var pullRequests: [PullRequest] = []
+    fileprivate(set) var unseenNewerPullRequestIDs: Set<String> = []
+    // Set once the newest page is in, from the saved feeds or GitHub: every update before it is applied.
+    fileprivate(set) var everyUpdateAppliedBefore: Date?
+    fileprivate(set) var hasLoadedEveryPullRequest = false
+    fileprivate(set) var loadFailureMessage: String?
+    fileprivate(set) var isPullToRefreshRunning = false
+    fileprivate(set) var focusedPullRequestID: String?
+    fileprivate(set) var isFeedEndFocused = false
+
+    var isNewestPageLoaded: Bool {
+        everyUpdateAppliedBefore != nil
+    }
+
+    func index(ofPullRequestID pullRequestID: String) -> Int? {
+        pullRequests.firstIndex { $0.id == pullRequestID }
+    }
+
+    fileprivate var focusedPageIndex: Int {
+        if let focusedPullRequestID, let focusedIndex = index(ofPullRequestID: focusedPullRequestID) {
+            return focusedIndex
+        }
+        return isFeedEndFocused ? pullRequests.count : 0
+    }
+
+    fileprivate var hasFocusedPage: Bool {
+        focusedPullRequestID != nil || isFeedEndFocused
+    }
+
+    // The focused card and the one after it are already rendered under the viewer's finger, so a newly found card never lands above or between them unless it's flagged as unseen (AGENTS.md, "Feed Order").
+    private var firstUnrenderedPageIndex: Int {
+        hasFocusedPage ? min(focusedPageIndex + 2, pullRequests.count) : 0
+    }
+
+    // A newly found card can take a slot anywhere above the viewer, so the first unseen one can be anywhere (AGENTS.md, "Feed Order").
+    private var firstUnseenNewerPageIndex: Int? {
+        pullRequests.firstIndex { unseenNewerPullRequestIDs.contains($0.id) }
+    }
+
+    // Nil focuses the feed's end.
+    fileprivate mutating func focus(showingPullRequestID newFocusedPullRequestID: String?) {
+        focusedPullRequestID = newFocusedPullRequestID
+        isFeedEndFocused = newFocusedPullRequestID == nil && !pullRequests.isEmpty
+        if let firstUnseenNewerPageIndex, focusedPageIndex <= firstUnseenNewerPageIndex {
+            unseenNewerPullRequestIDs.removeAll()
+        } else if let newFocusedPullRequestID {
+            unseenNewerPullRequestIDs.remove(newFocusedPullRequestID)
+        }
+    }
+
+    // A pull request found after the feed opened takes its sorted slot. At or above the viewer it's flagged for the "new" pill; below, it never goes above the two cards already rendered. One that sorts below every loaded card is left for its own page unless it may go last (AGENTS.md, "Feed Order").
+    fileprivate mutating func insertIntoFeedOrderFlaggingUnseen(_ pullRequest: PullRequest, mayGoLast: Bool) -> Bool {
+        guard let feedOrderIndex = pullRequests.firstIndex(where: { pullRequest.comesBefore($0, in: feed) }) ?? (mayGoLast ? pullRequests.count : nil) else {
+            return false
+        }
+        if hasFocusedPage, feedOrderIndex <= focusedPageIndex {
+            pullRequests.insert(pullRequest, at: feedOrderIndex)
+            unseenNewerPullRequestIDs.insert(pullRequest.id)
+        } else {
+            pullRequests.insert(pullRequest, at: max(feedOrderIndex, firstUnrenderedPageIndex))
+        }
+        return true
+    }
+
+    // The card under the viewer's finger never leaves.
+    fileprivate mutating func removePullRequests(where shouldRemove: (PullRequest) -> Bool) {
+        guard pullRequests.contains(where: { $0.id != focusedPullRequestID && shouldRemove($0) }) else { return }
+        pullRequests.removeAll { $0.id != focusedPullRequestID && shouldRemove($0) }
+        unseenNewerPullRequestIDs.formIntersection(pullRequests.map(\.id))
+    }
+}
+
+// The Open and Merged modes' feeds and a week's open pull requests, read from GitHub and kept current (AGENTS.md, "Feed Order" and "Feed Caching").
 @Observable
 @MainActor
 final class PullRequestFeedStore {
-    private static let liveRefreshIntervalSeconds = 10
-    private static let feedWindowSeconds: TimeInterval = 14 * 24 * 60 * 60
     private static let mediaURLRenewalAgeSeconds: TimeInterval = 120
     private static let updateSearchOverlapSeconds: TimeInterval = 180
-    private static let pastWindowRecheckAgeSeconds: TimeInterval = 300
+    // Older pull requests load once the viewer is this many shown cards from the end, until this many more show (AGENTS.md, "Feed Order").
+    private static let olderPullRequestLoadDistanceInCards = 5
+    private static let olderPullRequestLoadCardCount = 10
     // GitHub limits how much of its server time one account may take each minute, so a week's pull requests load a few at a time.
     private static let concurrentOpenWeekFetchCount = 6
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
 
-    private(set) var pullRequests: [PullRequest] = []
-    private(set) var isFeedWindowLoaded = false
-    private(set) var feedLoadFailureMessage: String?
-    private(set) var isPullToRefreshRunning = false
-    private(set) var unseenNewerPullRequestIDs: Set<String> = []
+    private(set) var openFeed = LoadedPullRequestFeed(feed: .open)
+    private(set) var mergedFeed = LoadedPullRequestFeed(feed: .merged)
     var transientErrorMessage: String?
     // The pull requests of the weekly edition whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
     private(set) var openWeekPullRequests: [PullRequest] = []
     private(set) var isOpenWeekLoaded = false
     private(set) var openWeekLoadFailureMessage: String?
+    private(set) var isOpenWeekPullToRefreshRunning = false
 
-    private var openWeekLoadTask: Task<Void, Never>?
-    private var focusedPullRequestID: String?
-    private var isFeedEndFocused = false
-    private var isFeedLoadRunning = false
-    // Set once the feed holds every pull request that belongs in it as of this date, from the saved feed or the launch's search.
-    private var nextUpdateSearchStartDate: Date?
-    private var isRefreshRunning = false
-    private var savedFeedGeneration = 0
-    private var mediaFetchedAtByPullRequestID: [String: Date] = [:]
-    private var pastWindowRecheckDateByPullRequestID: [String: Date] = [:]
+    @ObservationIgnored private var openWeekLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var focusedOpenWeekPullRequestID: String?
+    @ObservationIgnored private var savedFeedsOpening: Task<Void, Never>?
+    @ObservationIgnored private var olderPullRequestLoadRunningFeeds: Set<PullRequestFeed> = []
+    @ObservationIgnored private var refreshRunningFeeds: Set<PullRequestFeed> = []
+    // The merged feed holds every pull request merged since this date; nil before its newest page and once it holds every one.
+    @ObservationIgnored private var everyMergedPullRequestLoadedSince: Date?
+    @ObservationIgnored private var nextOpenPullRequestsPageCursor: String?
+    @ObservationIgnored private var savedFeedGeneration = 0
+    @ObservationIgnored private var mediaFetchedAtByPullRequestID: [String: Date] = [:]
     private var mediaLoadFailureRecovery = MediaLoadFailureRecovery()
-    private var pullRequestIDsRenewingMediaURLsAfterLoadFailure: Set<String> = []
-    private var reactionWriteCountByPullRequestID: [String: Int] = [:]
+    @ObservationIgnored private var pullRequestIDsRenewingMediaURLsAfterLoadFailure: Set<String> = []
+    @ObservationIgnored private var reactionWriteCountByPullRequestID: [String: Int] = [:]
     // A fetch that started before a delete can still return the comment, so a comment the viewer deleted stays out of every later fetch.
-    private var viewerDeletedCommentIDs: Set<String> = []
+    @ObservationIgnored private var viewerDeletedCommentIDs: Set<String> = []
     private let githubAPIClient: GitHubAPIClient
     private let reactionWriteQueue: ViewerReactionWriteQueue
     private let analytics: ShipTokAnalytics
-    // A demo visitor has none, and their feed isn't saved (AGENTS.md, "Demo Mode").
+    // A demo visitor has none, and their feeds aren't saved (AGENTS.md, "Demo Mode").
     private let viewerGitHubLogin: String?
+    private let hiddenPeopleStore: HiddenPeopleStore
     private let feedCache = PullRequestFeedCache()
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
@@ -52,12 +127,14 @@ final class PullRequestFeedStore {
         githubAPIClient: GitHubAPIClient,
         analytics: ShipTokAnalytics,
         viewerGitHubLogin: String?,
+        hiddenPeopleStore: HiddenPeopleStore,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
     ) {
         self.githubAPIClient = githubAPIClient
         reactionWriteQueue = ViewerReactionWriteQueue(githubAPIClient: githubAPIClient)
         self.analytics = analytics
         self.viewerGitHubLogin = viewerGitHubLogin
+        self.hiddenPeopleStore = hiddenPeopleStore
         self.handleRejectedGitHubAccess = handleRejectedGitHubAccess
     }
 
@@ -65,11 +142,25 @@ final class PullRequestFeedStore {
         mediaLoadFailureRecovery.unloadableMediaItemIDs
     }
 
-    func pullRequest(withID pullRequestID: String) -> PullRequest? {
-        pullRequests.first { $0.id == pullRequestID } ?? openWeekPullRequests.first { $0.id == pullRequestID }
+    func loadedFeed(_ feed: PullRequestFeed) -> LoadedPullRequestFeed {
+        switch feed {
+        case .open: openFeed
+        case .merged: mergedFeed
+        }
     }
 
-    // A week's pull requests show in its video's order as each leading one arrives, so a page never moves under the viewer. A week can reach back past the feed's window, so they're read by number.
+    // What people the viewer hid wrote or posted leaves every card, so only what's left is shown and counted (AGENTS.md, "Report And Hide").
+    func visiblePullRequests(in feed: PullRequestFeed) -> [PullRequest] {
+        loadedFeed(feed).pullRequests.compactMap(visibleCopy(of:))
+    }
+
+    func pullRequest(withID pullRequestID: String) -> PullRequest? {
+        mergedFeed.pullRequests.first { $0.id == pullRequestID }
+            ?? openFeed.pullRequests.first { $0.id == pullRequestID }
+            ?? openWeekPullRequests.first { $0.id == pullRequestID }
+    }
+
+    // A week's pull requests show in its video's order as each leading one arrives, so a page never moves under the viewer. A week names its pull requests by number, so they're read by number.
     func openWeek(pullRequestNumbers: [Int]) {
         openWeekLoadTask?.cancel()
         var seenPullRequestNumbers: Set<Int> = []
@@ -77,6 +168,7 @@ final class PullRequestFeedStore {
         openWeekPullRequests = []
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
+        focusedOpenWeekPullRequestID = nil
         openWeekLoadTask = Task { await loadOpenWeek(pullRequestNumbers: uniquePullRequestNumbers) }
     }
 
@@ -86,10 +178,12 @@ final class PullRequestFeedStore {
         openWeekPullRequests = []
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
+        focusedOpenWeekPullRequestID = nil
     }
 
     func focusOpenWeekPage(showingPullRequestID focusedPullRequestID: String) {
         guard let pageIndex = openWeekPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else { return }
+        focusedOpenWeekPullRequestID = focusedPullRequestID
         let focusedPullRequest = openWeekPullRequests[pageIndex]
         let nextPullRequest = openWeekPullRequests.indices.contains(pageIndex + 1) ? openWeekPullRequests[pageIndex + 1] : nil
         Task {
@@ -104,11 +198,16 @@ final class PullRequestFeedStore {
         }
     }
 
+    func refreshFocusedOpenWeekPullRequest() async {
+        guard let focusedOpenWeekPullRequestID, let focusedPullRequest = openWeekPullRequests.first(where: { $0.id == focusedOpenWeekPullRequestID }) else { return }
+        await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
+    }
+
     // A pull only happens on a week's first card, so that's the card it reads again.
     func refreshOpenWeekFromPull() async {
         guard let firstOpenWeekPullRequest = openWeekPullRequests.first else { return }
-        isPullToRefreshRunning = true
-        defer { isPullToRefreshRunning = false }
+        isOpenWeekPullToRefreshRunning = true
+        defer { isOpenWeekPullToRefreshRunning = false }
         await fetchAndApplyPullRequest(number: firstOpenWeekPullRequest.number, forcesMediaURLRenewal: false)
     }
 
@@ -141,7 +240,7 @@ final class PullRequestFeedStore {
                     resolvedNumberCount += 1
                     switch resolvedFetchResult {
                     case .success(let fetchedPullRequest):
-                        if index(ofPullRequestID: fetchedPullRequest.id) == nil {
+                        if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
                             mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = loadStartedAt
                         }
                         openWeekPullRequests.append(fetchedPullRequest)
@@ -153,8 +252,8 @@ final class PullRequestFeedStore {
                         }
                         Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its week failed: \(error.publicLogDescription, privacy: .public)")
                         lastFetchError = error
-                        if let savedPullRequest = pullRequests.first(where: { $0.number == resolvedNumber }) {
-                            openWeekPullRequests.append(savedPullRequest)
+                        if let loadedPullRequest = (mergedFeed.pullRequests + openFeed.pullRequests).first(where: { $0.number == resolvedNumber }) {
+                            openWeekPullRequests.append(loadedPullRequest)
                         }
                     }
                 }
@@ -169,114 +268,118 @@ final class PullRequestFeedStore {
         Self.logger.info("Read a week's \(self.openWeekPullRequests.count, privacy: .public) of \(pullRequestNumbers.count, privacy: .public) pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
     }
 
-    // A launch opens on the saved feed at once and asks GitHub only for what changed since. With nothing saved it opens on the ShipTok-labeled pull requests, which lead the feed, then reads the window behind them (AGENTS.md, "Feed Order" and "Feed Caching").
-    func loadFeed() async {
-        guard !isFeedLoadRunning, nextUpdateSearchStartDate == nil else { return }
-        isFeedLoadRunning = true
-        defer { isFeedLoadRunning = false }
-        feedLoadFailureMessage = nil
-        let loadStartedAt = Date.now
-        if pullRequests.isEmpty, let viewerGitHubLogin {
-            let savedFeed = await feedCache.loadSavedFeed(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: githubAPIClient.repositoryFullName, appliedSince: feedWindowStartDate)
-            if let savedFeed {
-                let windowStartDate = feedWindowStartDate
-                pullRequests = savedFeed.pullRequests
-                    .filter { $0.belongsInFeed(mergedWindowStartDate: windowStartDate) }
-                    .sorted { $0.comesBeforeInFeed($1) }
-                nextUpdateSearchStartDate = savedFeed.everyUpdateAppliedBefore
-                isFeedWindowLoaded = true
-                Self.logger.info("Opened on \(self.pullRequests.count, privacy: .public) saved pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
-                await refreshNewestData(reportsFailure: false)
-                return
-            }
+    // A launch opens on the saved feeds at once and asks GitHub only for what changed since; a feed with nothing loaded reads its newest page first (AGENTS.md, "Feed Order" and "Feed Caching").
+    func refreshNewestData(in feed: PullRequestFeed) async {
+        await refreshNewestData(in: feed, reportsFailure: false)
+    }
+
+    func refreshFromPull(in feed: PullRequestFeed) async {
+        updateLoadedFeed(feed) { $0.isPullToRefreshRunning = true }
+        defer { updateLoadedFeed(feed) { $0.isPullToRefreshRunning = false } }
+        await refreshNewestData(in: feed, reportsFailure: true)
+    }
+
+    // Older pull requests are read a page at a time, each read whole, sorted and put below every card already loaded, so nothing moves under the viewer, until enough more cards show or GitHub has no more (AGENTS.md, "Feed Order").
+    func loadOlderPullRequests(in feed: PullRequestFeed) async {
+        await openSavedFeedsOnce()
+        guard !loadedFeed(feed).hasLoadedEveryPullRequest, olderPullRequestLoadRunningFeeds.insert(feed).inserted else { return }
+        defer { olderPullRequestLoadRunningFeeds.remove(feed) }
+        if loadedFeed(feed).loadFailureMessage != nil {
+            updateLoadedFeed(feed) { $0.loadFailureMessage = nil }
         }
+        let loadStartedAt = Date.now
+        let visibleCountBeforeLoad = visiblePullRequests(in: feed).count
         do {
-            let windowStartDate = loadStartedAt.addingTimeInterval(-Self.feedWindowSeconds)
-            if pullRequests.isEmpty {
-                let labeledPullRequests = try await githubAPIClient.fetchMergedPullRequests(labeled: PullRequest.shipTokLabelName)
-                insertFoundPullRequests(labeledPullRequests, mergedWindowStartDate: windowStartDate, fetchedAt: loadStartedAt)
-                Self.logger.info("Opened on \(self.pullRequests.count, privacy: .public) labeled pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
-            }
-            let windowSearch = try await githubAPIClient.searchMergedPullRequests(labeled: nil, updatedSince: nil, mergedFrom: windowStartDate, mergedThrough: loadStartedAt)
-            for try await windowPage in windowSearch {
-                insertFoundPullRequests(windowPage, mergedWindowStartDate: windowStartDate, fetchedAt: loadStartedAt)
-            }
-            try Task.checkCancellation()
-            nextUpdateSearchStartDate = loadStartedAt
-            isFeedWindowLoaded = true
-            saveFeed()
-            Self.logger.info("Read the window: \(self.pullRequests.count, privacy: .public) pull requests with media in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
+            repeat {
+                let pageReadStartedAt = Date.now
+                let isNewestPage = !loadedFeed(feed).isNewestPageLoaded
+                let olderPullRequests: [PullRequest]
+                let hasLoadedEveryPullRequest: Bool
+                switch feed {
+                case .open:
+                    let openPullRequestsPage = try await githubAPIClient.fetchOpenPullRequestsPage(after: nextOpenPullRequestsPageCursor)
+                    olderPullRequests = openPullRequestsPage.pullRequests
+                    nextOpenPullRequestsPageCursor = openPullRequestsPage.nextPageCursor
+                    hasLoadedEveryPullRequest = openPullRequestsPage.nextPageCursor == nil
+                case .merged:
+                    let mergedPullRequestWindow = try await githubAPIClient.fetchMergedPullRequestWindow(mergedBefore: everyMergedPullRequestLoadedSince ?? loadStartedAt)
+                    olderPullRequests = mergedPullRequestWindow.pullRequests.sorted { $0.comesBefore($1, in: .merged) }
+                    everyMergedPullRequestLoadedSince = mergedPullRequestWindow.startDate
+                    hasLoadedEveryPullRequest = mergedPullRequestWindow.startDate == nil
+                }
+                let visibleCountBeforePage = visiblePullRequests(in: feed).count
+                let addedPullRequestCount = appendOlderPullRequests(olderPullRequests, to: feed, fetchedAt: pageReadStartedAt)
+                updateLoadedFeed(feed) { loadedFeed in
+                    loadedFeed.hasLoadedEveryPullRequest = hasLoadedEveryPullRequest
+                    if loadedFeed.everyUpdateAppliedBefore == nil {
+                        loadedFeed.everyUpdateAppliedBefore = loadStartedAt
+                    }
+                }
+                let addedVisiblePullRequestCount = visiblePullRequests(in: feed).count - visibleCountBeforePage
+                if !isNewestPage {
+                    analytics.capture(.olderPullRequestsLoaded(feed, addedPullRequestCount: addedPullRequestCount, addedVisiblePullRequestCount: addedVisiblePullRequestCount))
+                }
+                Self.logger.info("Read \(isNewestPage ? "the newest" : "an older", privacy: .public) page of \(feed.rawValue, privacy: .public) pull requests: \(addedPullRequestCount, privacy: .public) more with media in \(Self.millisecondsElapsed(since: pageReadStartedAt), privacy: .public) ms")
+            } while !loadedFeed(feed).hasLoadedEveryPullRequest && visiblePullRequests(in: feed).count - visibleCountBeforeLoad < Self.olderPullRequestLoadCardCount
+            saveFeeds()
         } catch {
             if error.isTaskCancellation { return }
             if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                 handleRejectedGitHubAccess(githubAPIError)
                 return
             }
-            Self.logger.error("Loading the feed failed: \(error.publicLogDescription, privacy: .public)")
-            feedLoadFailureMessage = error.localizedDescription
+            Self.logger.error("Loading \(feed.rawValue, privacy: .public) pull requests failed: \(error.publicLogDescription, privacy: .public)")
+            updateLoadedFeed(feed) { $0.loadFailureMessage = error.localizedDescription }
         }
     }
 
-    // The app may be ended once it leaves the screen, so the feed is saved for the next launch then.
+    // Counting only the cards the viewer is shown, so the next page is in before they reach the end (AGENTS.md, "Feed Order").
+    func loadOlderPullRequestsIfViewerNearsEnd(in feed: PullRequestFeed) {
+        let loadedFeed = loadedFeed(feed)
+        guard loadedFeed.isNewestPageLoaded, !loadedFeed.hasLoadedEveryPullRequest, !olderPullRequestLoadRunningFeeds.contains(feed) else { return }
+        let pullRequestsAfterFocus = loadedFeed.isFeedEndFocused
+            ? []
+            : loadedFeed.pullRequests.dropFirst(loadedFeed.focusedPullRequestID == nil ? 0 : loadedFeed.focusedPageIndex + 1)
+        guard pullRequestsAfterFocus.filter({ visibleCopy(of: $0) != nil }).count <= Self.olderPullRequestLoadDistanceInCards else { return }
+        Task { await loadOlderPullRequests(in: feed) }
+    }
+
+    // The app may be ended once it leaves the screen, so the feeds are saved for the next launch then.
     @discardableResult
-    func saveFeed() -> Task<Void, Never>? {
-        guard let nextUpdateSearchStartDate, let viewerGitHubLogin else { return nil }
+    func saveFeeds() -> Task<Void, Never>? {
+        guard let viewerGitHubLogin, savedFeedsOpening != nil else { return nil }
+        let savedMergedFeed = mergedFeed.everyUpdateAppliedBefore.map { everyUpdateAppliedBefore in
+            SavedMergedPullRequestFeed(
+                everyUpdateAppliedBefore: everyUpdateAppliedBefore,
+                everyMergedPullRequestLoadedSince: everyMergedPullRequestLoadedSince,
+                pullRequests: mergedFeed.pullRequests.map(Self.savedCopy(of:))
+            )
+        }
+        let savedOpenFeed = openFeed.everyUpdateAppliedBefore.map { everyUpdateAppliedBefore in
+            SavedOpenPullRequestFeed(
+                everyUpdateAppliedBefore: everyUpdateAppliedBefore,
+                nextPageCursor: nextOpenPullRequestsPageCursor,
+                pullRequests: openFeed.pullRequests.map(Self.savedCopy(of:))
+            )
+        }
+        guard savedMergedFeed != nil || savedOpenFeed != nil else { return nil }
         savedFeedGeneration += 1
-        let savedFeed = SavedMergedPullRequestFeed(
-            formatVersion: SavedMergedPullRequestFeed.currentFormatVersion,
+        let savedFeeds = SavedPullRequestFeeds(
+            formatVersion: SavedPullRequestFeeds.currentFormatVersion,
             viewerGitHubLogin: viewerGitHubLogin,
             repositoryFullName: githubAPIClient.repositoryFullName,
-            everyUpdateAppliedBefore: nextUpdateSearchStartDate,
-            pullRequests: pullRequests.map { pullRequest in
-                PullRequest(
-                    id: pullRequest.id, number: pullRequest.number, title: pullRequest.title, url: pullRequest.url,
-                    author: pullRequest.author, isDraft: pullRequest.isDraft, updatedAt: pullRequest.updatedAt,
-                    mergedAt: pullRequest.mergedAt, descriptionMarkdown: "",
-                    additions: pullRequest.additions, deletions: pullRequest.deletions, changedFiles: pullRequest.changedFiles,
-                    labels: pullRequest.labels, reactions: pullRequest.reactions, comments: [], mediaItems: pullRequest.mediaItems
-                )
-            }
+            mergedFeed: savedMergedFeed,
+            openFeed: savedOpenFeed
         )
         let generation = savedFeedGeneration
-        return Task { [feedCache] in await feedCache.save(savedFeed, generation: generation) }
+        return Task { [feedCache] in await feedCache.save(savedFeeds, generation: generation) }
     }
 
-    func runLiveRefreshLoop() async {
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: .seconds(Self.liveRefreshIntervalSeconds))
-            } catch {
-                return
-            }
-            await refreshNewestData(reportsFailure: false)
-        }
-    }
-
-    func refreshAfterReturningToForeground() async {
-        await refreshNewestData(reportsFailure: false)
-    }
-
-    func refreshFromPull() async {
-        isPullToRefreshRunning = true
-        defer { isPullToRefreshRunning = false }
-        await refreshNewestData(reportsFailure: true)
-    }
-
-    // Nil focuses the feed's end. Pages are named by pull request rather than position, since the feed shows only what people the viewer hid didn't post.
-    func focusFeedPage(showingPullRequestID focusedPullRequestID: String?) {
-        self.focusedPullRequestID = focusedPullRequestID
-        isFeedEndFocused = focusedPullRequestID == nil && !pullRequests.isEmpty
-        if let firstUnseenNewerPageIndex, focusedPageIndex <= firstUnseenNewerPageIndex {
-            unseenNewerPullRequestIDs.removeAll()
-        } else if let focusedPullRequestID {
-            unseenNewerPullRequestIDs.remove(focusedPullRequestID)
-        }
-        Task { await refetchPullRequestsAroundFocus() }
-    }
-
-    // Newly merged pull requests sort into their groups, so the first unseen one can sit anywhere above the viewer (AGENTS.md, "Feed Order").
-    private var firstUnseenNewerPageIndex: Int? {
-        pullRequests.firstIndex { unseenNewerPullRequestIDs.contains($0.id) }
+    // Nil focuses the feed's end. Pages are named by pull request rather than position, since a feed shows only what people the viewer hid didn't post.
+    func focusFeedPage(in feed: PullRequestFeed, showingPullRequestID focusedPullRequestID: String?) {
+        updateLoadedFeed(feed) { $0.focus(showingPullRequestID: focusedPullRequestID) }
+        loadOlderPullRequestsIfViewerNearsEnd(in: feed)
+        Task { await refetchPullRequestsAroundFocus(in: feed) }
     }
 
     func heroMediaItem(of pullRequest: PullRequest) -> PullRequestMediaItem? {
@@ -287,8 +390,8 @@ final class PullRequestFeedStore {
     func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String, wasRefusedToViewer: Bool) async {
         guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
         defer {
-            if let feedPullRequest = pullRequests.first(where: { $0.id == pullRequestID }) {
-                removeIfNoMediaLoadsAheadOfViewer(feedPullRequest)
+            if let loadedPullRequest = self.pullRequest(withID: pullRequestID) {
+                removeIfNoMediaLoadsAheadOfViewer(loadedPullRequest)
             }
         }
         guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedToViewer: wasRefusedToViewer),
@@ -305,24 +408,18 @@ final class PullRequestFeedStore {
 
     func appendComment(_ comment: PullRequestComment, toPullRequestID pullRequestID: String) {
         viewerDeletedCommentIDs.remove(comment.id)
-        updateOpenWeekCopy(ofPullRequestID: pullRequestID) { openWeekPullRequest in
-            if !openWeekPullRequest.comments.contains(where: { $0.id == comment.id }) {
-                openWeekPullRequest.comments.append(comment)
+        updateEveryCopy(ofPullRequestID: pullRequestID) { pullRequest in
+            if !pullRequest.comments.contains(where: { $0.id == comment.id }) {
+                pullRequest.comments.append(comment)
             }
         }
-        guard let pullRequestIndex = index(ofPullRequestID: pullRequestID),
-              !pullRequests[pullRequestIndex].comments.contains(where: { $0.id == comment.id })
-        else { return }
-        pullRequests[pullRequestIndex].comments.append(comment)
     }
 
     func removeViewerDeletedComments(withIDs commentIDs: Set<String>, fromPullRequestID pullRequestID: String) {
         viewerDeletedCommentIDs.formUnion(commentIDs)
-        updateOpenWeekCopy(ofPullRequestID: pullRequestID) { openWeekPullRequest in
-            openWeekPullRequest.comments.removeAll { commentIDs.contains($0.id) }
+        updateEveryCopy(ofPullRequestID: pullRequestID) { pullRequest in
+            pullRequest.comments.removeAll { commentIDs.contains($0.id) }
         }
-        guard let pullRequestIndex = index(ofPullRequestID: pullRequestID) else { return }
-        pullRequests[pullRequestIndex].comments.removeAll { commentIDs.contains($0.id) }
     }
 
     func toggleReaction(_ reaction: GitHubReaction, pullRequestID: String) async {
@@ -335,161 +432,166 @@ final class PullRequestFeedStore {
         await setViewerReaction(.heart, isReacting: true, on: pullRequest)
     }
 
-    private var focusedPageIndex: Int {
-        if let focusedPullRequestID, let focusedIndex = index(ofPullRequestID: focusedPullRequestID) {
-            return focusedIndex
-        }
-        return isFeedEndFocused ? pullRequests.count : 0
-    }
-
-    private var feedWindowStartDate: Date {
-        Date.now.addingTimeInterval(-Self.feedWindowSeconds)
-    }
-
-    // The focused card and the one after it are already rendered under the viewer's finger, so a newly found card never lands above or between them unless it's flagged as unseen (AGENTS.md, "Feed Order").
-    private var firstUnrenderedPageIndex: Int {
-        hasFocusedPage ? min(focusedPageIndex + 2, pullRequests.count) : 0
-    }
-
-    private var hasFocusedPage: Bool {
-        focusedPullRequestID != nil || isFeedEndFocused
-    }
-
-    // A pull request found after the feed opened sorts only into the cards after the one in focus and the one after it, since both are already rendered (AGENTS.md, "Feed Order").
-    private func insertFoundPullRequests(_ foundPullRequests: [PullRequest], mergedWindowStartDate: Date, fetchedAt: Date) {
-        var knownPullRequestIDs = Set(pullRequests.map(\.id))
-        for foundPullRequest in foundPullRequests {
-            guard foundPullRequest.belongsInFeed(mergedWindowStartDate: mergedWindowStartDate),
-                  hasLoadableMedia(foundPullRequest),
-                  knownPullRequestIDs.insert(foundPullRequest.id).inserted
-            else { continue }
-            mediaFetchedAtByPullRequestID[foundPullRequest.id] = fetchedAt
-            pullRequests.insert(foundPullRequest, at: feedOrderInsertionIndex(of: foundPullRequest, searchingFrom: firstUnrenderedPageIndex))
+    private func updateLoadedFeed(_ feed: PullRequestFeed, _ update: (inout LoadedPullRequestFeed) -> Void) {
+        switch feed {
+        case .open: update(&openFeed)
+        case .merged: update(&mergedFeed)
         }
     }
 
-    private func feedOrderInsertionIndex(of pullRequest: PullRequest, searchingFrom startIndex: Int) -> Int {
-        pullRequests[startIndex...].firstIndex { pullRequest.comesBeforeInFeed($0) } ?? pullRequests.count
+    private func visibleCopy(of pullRequest: PullRequest) -> PullRequest? {
+        pullRequest.withoutHiddenPeople(hiddenPeopleStore)
     }
 
-    private func insertIntoFeedOrderFlaggingUnseen(_ pullRequest: PullRequest) {
-        let feedOrderIndex = feedOrderInsertionIndex(of: pullRequest, searchingFrom: 0)
-        if hasFocusedPage, feedOrderIndex <= focusedPageIndex {
-            pullRequests.insert(pullRequest, at: feedOrderIndex)
-            unseenNewerPullRequestIDs.insert(pullRequest.id)
-        } else {
-            pullRequests.insert(pullRequest, at: max(feedOrderIndex, firstUnrenderedPageIndex))
-        }
-    }
-
-    // A card ages out of the window without GitHub reporting a change, so each refresh drops the ones the feed's rules no longer admit, except the one under the viewer's finger (AGENTS.md, "Feed Order").
-    private func removeCardsThatLeftTheFeed() {
-        let windowStartDate = feedWindowStartDate
-        pullRequests.removeAll { $0.id != focusedPullRequestID && !$0.belongsInFeed(mergedWindowStartDate: windowStartDate) }
-        unseenNewerPullRequestIDs.formIntersection(pullRequests.map(\.id))
-    }
-
-    private func index(ofPullRequestID pullRequestID: String) -> Int? {
-        pullRequests.firstIndex { $0.id == pullRequestID }
+    private func isInEitherFeed(pullRequestID: String) -> Bool {
+        PullRequestFeed.allCases.contains { loadedFeed($0).index(ofPullRequestID: pullRequestID) != nil }
     }
 
     private func hasLoadableMedia(_ pullRequest: PullRequest) -> Bool {
         pullRequest.mediaItems.contains { !unloadableMediaItemIDs.contains($0.id) }
     }
 
-    // A pull request none of whose media loads leaves the feed while the viewer is still above it (AGENTS.md, "Feed Order").
-    private func removeIfNoMediaLoadsAheadOfViewer(_ pullRequest: PullRequest) {
-        guard !hasLoadableMedia(pullRequest), let pullRequestIndex = index(ofPullRequestID: pullRequest.id), pullRequestIndex > focusedPageIndex else { return }
-        pullRequests.remove(at: pullRequestIndex)
-        unseenNewerPullRequestIDs.remove(pullRequest.id)
-    }
-
-    // A card from before the window stays only while labeled, and removing the label takes it out of both refresh searches, so each refresh reads again the one read or tried longest ago, which drops it once it no longer belongs. Counting tries keeps a card that can't be read from taking every turn (AGENTS.md, "Feed Order").
-    private var pastWindowPullRequestDueForRecheck: PullRequest? {
-        let windowStartDate = feedWindowStartDate
-        let lastReadOrRecheckDate = { (pullRequest: PullRequest) in
-            max(self.mediaFetchedAtByPullRequestID[pullRequest.id] ?? .distantPast, self.pastWindowRecheckDateByPullRequestID[pullRequest.id] ?? .distantPast)
-        }
-        let pastWindowPullRequests = pullRequests.filter { $0.id != focusedPullRequestID && ($0.mergedAt ?? .distantPast) < windowStartDate }
-        guard let longestUncheckedPullRequest = pastWindowPullRequests.min(by: { lastReadOrRecheckDate($0) < lastReadOrRecheckDate($1) }),
-              Date.now.timeIntervalSince(lastReadOrRecheckDate(longestUncheckedPullRequest)) > Self.pastWindowRecheckAgeSeconds
-        else { return nil }
-        return longestUncheckedPullRequest
-    }
-
     private func isMediaURLRenewalDue(forPullRequestID pullRequestID: String) -> Bool {
         Date.now.timeIntervalSince(mediaFetchedAtByPullRequestID[pullRequestID] ?? .distantPast) > Self.mediaURLRenewalAgeSeconds
     }
 
-    private func refreshNewestData(reportsFailure: Bool) async {
-        if feedLoadFailureMessage != nil {
-            await loadFeed()
+    // Saved feeds are read once, by whichever feed is shown first, and neither feed loads or refreshes before they are.
+    private func openSavedFeedsOnce() async {
+        if savedFeedsOpening == nil {
+            savedFeedsOpening = Task { await openSavedFeeds() }
         }
-        guard !isRefreshRunning, let nextUpdateSearchStartDate else { return }
-        isRefreshRunning = true
-        defer { isRefreshRunning = false }
-        removeCardsThatLeftTheFeed()
-        if let focusedPullRequestID, let focusedPullRequest = pullRequest(withID: focusedPullRequestID) {
+        await savedFeedsOpening?.value
+    }
+
+    private func openSavedFeeds() async {
+        let openStartedAt = Date.now
+        guard let viewerGitHubLogin,
+              let savedFeeds = await feedCache.loadSavedFeeds(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: githubAPIClient.repositoryFullName)
+        else { return }
+        if let savedMergedFeed = savedFeeds.mergedFeed {
+            everyMergedPullRequestLoadedSince = savedMergedFeed.everyMergedPullRequestLoadedSince
+            updateLoadedFeed(.merged) { loadedFeed in
+                loadedFeed.pullRequests = savedMergedFeed.pullRequests.filter { $0.belongs(in: .merged) }
+                loadedFeed.everyUpdateAppliedBefore = savedMergedFeed.everyUpdateAppliedBefore
+                loadedFeed.hasLoadedEveryPullRequest = savedMergedFeed.everyMergedPullRequestLoadedSince == nil
+            }
+        }
+        if let savedOpenFeed = savedFeeds.openFeed {
+            nextOpenPullRequestsPageCursor = savedOpenFeed.nextPageCursor
+            updateLoadedFeed(.open) { loadedFeed in
+                loadedFeed.pullRequests = savedOpenFeed.pullRequests.filter { $0.belongs(in: .open) }
+                loadedFeed.everyUpdateAppliedBefore = savedOpenFeed.everyUpdateAppliedBefore
+                loadedFeed.hasLoadedEveryPullRequest = savedOpenFeed.nextPageCursor == nil
+            }
+        }
+        Self.logger.info("Opened on \(self.mergedFeed.pullRequests.count, privacy: .public) saved merged and \(self.openFeed.pullRequests.count, privacy: .public) saved open pull requests in \(Self.millisecondsElapsed(since: openStartedAt), privacy: .public) ms")
+    }
+
+    private func refreshNewestData(in feed: PullRequestFeed, reportsFailure: Bool) async {
+        await openSavedFeedsOnce()
+        guard let everyUpdateAppliedBefore = loadedFeed(feed).everyUpdateAppliedBefore else {
+            await loadOlderPullRequests(in: feed)
+            return
+        }
+        guard refreshRunningFeeds.insert(feed).inserted else { return }
+        defer {
+            refreshRunningFeeds.remove(feed)
+            loadOlderPullRequestsIfViewerNearsEnd(in: feed)
+        }
+        if let focusedPullRequestID = loadedFeed(feed).focusedPullRequestID, let focusedPullRequest = pullRequest(withID: focusedPullRequestID) {
             await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
         }
         let refreshStartedAt = Date.now
-        let windowStartDate = feedWindowStartDate
-        let earliestUpdateDate = nextUpdateSearchStartDate.addingTimeInterval(-Self.updateSearchOverlapSeconds)
+        let earliestUpdateDate = everyUpdateAppliedBefore.addingTimeInterval(-Self.updateSearchOverlapSeconds)
         do {
-            // Only a labeled pull request merged before the window can enter the feed, so nothing else that old is read (AGENTS.md, "Feed Order").
-            let updatedPullRequestSearches = [
-                try await githubAPIClient.searchMergedPullRequests(
-                    labeled: nil,
-                    updatedSince: earliestUpdateDate,
-                    mergedFrom: windowStartDate,
-                    mergedThrough: refreshStartedAt
-                ),
-                try await githubAPIClient.searchMergedPullRequests(
-                    labeled: PullRequest.shipTokLabelName,
-                    updatedSince: earliestUpdateDate,
-                    mergedFrom: nil,
-                    mergedThrough: windowStartDate.addingTimeInterval(-1)
-                ),
-            ]
-            var updatedPullRequestCount = 0
-            for updatedPullRequestSearch in updatedPullRequestSearches {
-                for try await updatedPullRequestPage in updatedPullRequestSearch {
-                    for updatedPullRequest in updatedPullRequestPage.sorted(by: { ($0.mergedAt ?? .distantPast) < ($1.mergedAt ?? .distantPast) }) {
-                        apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
-                    }
-                    updatedPullRequestCount += updatedPullRequestPage.count
-                }
+            let updatedPullRequestCount: Int
+            switch feed {
+            case .open:
+                updatedPullRequestCount = try await applyOpenPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
+            case .merged:
+                updatedPullRequestCount = try await applyMergedPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
             }
             try Task.checkCancellation()
-            Self.logger.debug("Read \(updatedPullRequestCount, privacy: .public) pull requests updated since \(nextUpdateSearchStartDate.formatted(.iso8601), privacy: .public) in \(Self.millisecondsElapsed(since: refreshStartedAt), privacy: .public) ms")
-            self.nextUpdateSearchStartDate = refreshStartedAt
+            Self.logger.debug("Read \(updatedPullRequestCount, privacy: .public) \(feed.rawValue, privacy: .public) pull requests updated since \(everyUpdateAppliedBefore.formatted(.iso8601), privacy: .public) in \(Self.millisecondsElapsed(since: refreshStartedAt), privacy: .public) ms")
+            updateLoadedFeed(feed) { $0.everyUpdateAppliedBefore = refreshStartedAt }
         } catch {
             if error.isTaskCancellation { return }
             if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                 handleRejectedGitHubAccess(githubAPIError)
                 return
             }
-            Self.logger.error("Refreshing the feed failed: \(error.publicLogDescription, privacy: .public)")
+            Self.logger.error("Refreshing \(feed.rawValue, privacy: .public) pull requests failed: \(error.publicLogDescription, privacy: .public)")
             if reportsFailure {
                 transientErrorMessage = "Couldn't refresh. \(error.localizedDescription)"
             }
         }
-        // After the searches, so this one card's read never holds up what they bring in (AGENTS.md, "Feed Order").
-        if let pastWindowPullRequest = pastWindowPullRequestDueForRecheck {
-            pastWindowRecheckDateByPullRequestID[pastWindowPullRequest.id] = .now
-            await fetchAndApplyPullRequest(number: pastWindowPullRequest.number, forcesMediaURLRenewal: false)
+    }
+
+    // Every merged pull request in the loaded merge-date range updated since the last refresh, or in every merge date once the feed holds them all.
+    private func applyMergedPullRequestUpdates(since earliestUpdateDate: Date, fetchedAt refreshStartedAt: Date) async throws -> Int {
+        let updatedPullRequestSearch = try await githubAPIClient.searchMergedPullRequests(
+            updatedSince: earliestUpdateDate,
+            mergedFrom: everyMergedPullRequestLoadedSince,
+            mergedThrough: refreshStartedAt
+        )
+        var updatedPullRequestCount = 0
+        for try await updatedPullRequestPage in updatedPullRequestSearch {
+            for updatedPullRequest in updatedPullRequestPage.sorted(by: { !$0.comesBefore($1, in: .merged) }) {
+                apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+            }
+            updatedPullRequestCount += updatedPullRequestPage.count
+        }
+        return updatedPullRequestCount
+    }
+
+    // A pull request that closed or merged leaves Open; every open one updated since the last refresh is read in full and updates its card in place or takes its slot as a new one.
+    private func applyOpenPullRequestUpdates(since earliestUpdateDate: Date, fetchedAt refreshStartedAt: Date) async throws -> Int {
+        let closedOrMergedPullRequestIDs = Set(try await githubAPIClient.fetchIDsOfPullRequestsUpdated(since: earliestUpdateDate, inStates: [.closed, .merged]))
+        updateLoadedFeed(.open) { $0.removePullRequests { closedOrMergedPullRequestIDs.contains($0.id) } }
+        let updatedOpenPullRequestIDs = try await githubAPIClient.fetchIDsOfPullRequestsUpdated(since: earliestUpdateDate, inStates: [.open])
+        let updatedOpenPullRequests = try await githubAPIClient.fetchPullRequests(ids: updatedOpenPullRequestIDs)
+        for updatedPullRequest in updatedOpenPullRequests.sorted(by: { !$0.comesBefore($1, in: .open) }) {
+            apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+        }
+        return closedOrMergedPullRequestIDs.count + updatedOpenPullRequests.count
+    }
+
+    private func appendOlderPullRequests(_ olderPullRequests: [PullRequest], to feed: PullRequestFeed, fetchedAt: Date) -> Int {
+        var appendedPullRequests: [PullRequest] = []
+        for olderPullRequest in olderPullRequests where !appendedPullRequests.contains(where: { $0.id == olderPullRequest.id }) {
+            if loadedFeed(feed).index(ofPullRequestID: olderPullRequest.id) != nil {
+                apply(olderPullRequest, fetchedAt: fetchedAt, forcesMediaURLRenewal: false)
+            } else if olderPullRequest.belongs(in: feed), hasLoadableMedia(olderPullRequest) {
+                mediaFetchedAtByPullRequestID[olderPullRequest.id] = fetchedAt
+                appendedPullRequests.append(olderPullRequest)
+            }
+        }
+        if !appendedPullRequests.isEmpty {
+            updateLoadedFeed(feed) { $0.pullRequests += appendedPullRequests }
+        }
+        return appendedPullRequests.count
+    }
+
+    // A pull request none of whose media loads leaves each feed while the viewer is still above it (AGENTS.md, "Feed Order").
+    private func removeIfNoMediaLoadsAheadOfViewer(_ pullRequest: PullRequest) {
+        guard !hasLoadableMedia(pullRequest) else { return }
+        for feed in PullRequestFeed.allCases {
+            let loadedFeed = loadedFeed(feed)
+            guard let pullRequestIndex = loadedFeed.index(ofPullRequestID: pullRequest.id), pullRequestIndex > loadedFeed.focusedPageIndex else { continue }
+            updateLoadedFeed(feed) { $0.removePullRequests { $0.id == pullRequest.id } }
         }
     }
 
-    private func refetchPullRequestsAroundFocus() async {
-        guard let focusedPullRequestID, let focusedIndex = index(ofPullRequestID: focusedPullRequestID) else { return }
-        let focusedPullRequest = pullRequests[focusedIndex]
+    private func refetchPullRequestsAroundFocus(in feed: PullRequestFeed) async {
+        let loadedFeed = loadedFeed(feed)
+        guard let focusedPullRequestID = loadedFeed.focusedPullRequestID, let focusedIndex = loadedFeed.index(ofPullRequestID: focusedPullRequestID) else { return }
+        let focusedPullRequest = loadedFeed.pullRequests[focusedIndex]
         async let focusedPullRequestRefetch: Void = fetchAndApplyPullRequest(
             number: focusedPullRequest.number,
             forcesMediaURLRenewal: isMediaURLRenewalDue(forPullRequestID: focusedPullRequest.id)
         )
-        if pullRequests.indices.contains(focusedIndex + 1) {
-            let nextPullRequest = pullRequests[focusedIndex + 1]
+        if loadedFeed.pullRequests.indices.contains(focusedIndex + 1) {
+            let nextPullRequest = loadedFeed.pullRequests[focusedIndex + 1]
             if isMediaURLRenewalDue(forPullRequestID: nextPullRequest.id) {
                 await fetchAndApplyPullRequest(number: nextPullRequest.number, forcesMediaURLRenewal: true)
             }
@@ -503,8 +605,9 @@ final class PullRequestFeedStore {
             let fetchedPullRequest = try await githubAPIClient.fetchPullRequest(number: number)
             apply(fetchedPullRequest, fetchedAt: fetchStartedAt, forcesMediaURLRenewal: forcesMediaURLRenewal)
         } catch GitHubAPIError.pullRequestNeitherOpenNorMerged {
-            pullRequests.removeAll { $0.number == number && $0.id != focusedPullRequestID }
-            unseenNewerPullRequestIDs.formIntersection(pullRequests.map(\.id))
+            for feed in PullRequestFeed.allCases where loadedFeed(feed).pullRequests.contains(where: { $0.number == number }) {
+                updateLoadedFeed(feed) { $0.removePullRequests { $0.number == number } }
+            }
             Self.logger.info("#\(number, privacy: .public) is closed without merging or gone, so its card leaves the feed")
         } catch {
             if error.isTaskCancellation { return }
@@ -516,41 +619,45 @@ final class PullRequestFeedStore {
         }
     }
 
-    // The focused card keeps its signed media URLs so a playing video isn't reloaded; a load failure renews them.
     private func apply(_ fetchedPullRequest: PullRequest, fetchedAt: Date, forcesMediaURLRenewal: Bool, settlesMediaLoadFailures: Bool = true) {
         let renewedMediaItemIDs = settlesMediaLoadFailures && mediaLoadFailureRecovery.hasPendingLoadFailure
             ? mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPullRequest.mediaItems, readStartedAt: fetchedAt)
             : []
         removeIfNoMediaLoadsAheadOfViewer(fetchedPullRequest)
-        updateOpenWeekCopy(ofPullRequestID: fetchedPullRequest.id) { openWeekPullRequest in
-            var updatedOpenWeekPullRequest = fetchedPullRequest
-            updatedOpenWeekPullRequest.comments.removeAll { viewerDeletedCommentIDs.contains($0.id) }
-            if reactionWriteCountByPullRequestID[fetchedPullRequest.id, default: 0] > 0 {
-                updatedOpenWeekPullRequest.reactions = openWeekPullRequest.reactions
+        if let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == fetchedPullRequest.id }) {
+            openWeekPullRequests[openWeekIndex] = keepingLocalWrites(of: openWeekPullRequests[openWeekIndex], in: fetchedPullRequest)
+            if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
+                mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
             }
-            openWeekPullRequest = updatedOpenWeekPullRequest
         }
-        if index(ofPullRequestID: fetchedPullRequest.id) == nil, openWeekPullRequests.contains(where: { $0.id == fetchedPullRequest.id }) {
-            mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
+        for feed in PullRequestFeed.allCases {
+            apply(fetchedPullRequest, to: feed, fetchedAt: fetchedAt, forcesMediaURLRenewal: forcesMediaURLRenewal, renewedMediaItemIDs: renewedMediaItemIDs)
         }
-        guard let existingIndex = index(ofPullRequestID: fetchedPullRequest.id) else {
-            guard fetchedPullRequest.belongsInFeed(mergedWindowStartDate: feedWindowStartDate), hasLoadableMedia(fetchedPullRequest) else { return }
-            mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
-            insertIntoFeedOrderFlaggingUnseen(fetchedPullRequest)
+    }
+
+    // A loaded card updates in place and keeps its slot, and the focused one keeps its signed media URLs so a playing video isn't reloaded; a load failure renews them. A merged pull request merged before the loaded range waits for its own page.
+    private func apply(_ fetchedPullRequest: PullRequest, to feed: PullRequestFeed, fetchedAt: Date, forcesMediaURLRenewal: Bool, renewedMediaItemIDs: Set<String>) {
+        let loadedFeed = loadedFeed(feed)
+        guard let existingIndex = loadedFeed.index(ofPullRequestID: fetchedPullRequest.id) else {
+            guard loadedFeed.isNewestPageLoaded, fetchedPullRequest.belongs(in: feed), hasLoadableMedia(fetchedPullRequest) else { return }
+            let mayGoLast = switch feed {
+            case .open: loadedFeed.hasLoadedEveryPullRequest || loadedFeed.pullRequests.isEmpty
+            case .merged: everyMergedPullRequestLoadedSince.map { (fetchedPullRequest.mergedAt ?? .distantPast) >= $0 } ?? true
+            }
+            var isInserted = false
+            updateLoadedFeed(feed) { isInserted = $0.insertIntoFeedOrderFlaggingUnseen(fetchedPullRequest, mayGoLast: mayGoLast) }
+            if isInserted {
+                mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
+            }
             return
         }
-        let existingPullRequest = pullRequests[existingIndex]
-        let isFocused = existingPullRequest.id == focusedPullRequestID
-        if !fetchedPullRequest.belongsInFeed(mergedWindowStartDate: feedWindowStartDate), !isFocused {
-            pullRequests.remove(at: existingIndex)
-            unseenNewerPullRequestIDs.remove(existingPullRequest.id)
+        let existingPullRequest = loadedFeed.pullRequests[existingIndex]
+        let isFocused = existingPullRequest.id == loadedFeed.focusedPullRequestID
+        if !fetchedPullRequest.belongs(in: feed), !isFocused {
+            updateLoadedFeed(feed) { $0.removePullRequests { $0.id == fetchedPullRequest.id } }
             return
         }
-        var updatedPullRequest = fetchedPullRequest
-        updatedPullRequest.comments.removeAll { viewerDeletedCommentIDs.contains($0.id) }
-        if reactionWriteCountByPullRequestID[fetchedPullRequest.id, default: 0] > 0 {
-            updatedPullRequest.reactions = existingPullRequest.reactions
-        }
+        var updatedPullRequest = keepingLocalWrites(of: existingPullRequest, in: fetchedPullRequest)
         if forcesMediaURLRenewal || !isFocused {
             mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
         } else {
@@ -572,12 +679,19 @@ final class PullRequestFeedStore {
                 )
             }
         }
-        if updatedPullRequest.feedGroup != existingPullRequest.feedGroup, existingIndex >= firstUnrenderedPageIndex {
-            pullRequests.remove(at: existingIndex)
-            insertIntoFeedOrderFlaggingUnseen(updatedPullRequest)
-        } else if updatedPullRequest != existingPullRequest {
-            pullRequests[existingIndex] = updatedPullRequest
+        if updatedPullRequest != existingPullRequest {
+            updateLoadedFeed(feed) { $0.pullRequests[existingIndex] = updatedPullRequest }
         }
+    }
+
+    // GitHub can answer with a reaction still in flight or a comment the viewer just deleted, so the local copy wins for those.
+    private func keepingLocalWrites(of existingPullRequest: PullRequest, in fetchedPullRequest: PullRequest) -> PullRequest {
+        var updatedPullRequest = fetchedPullRequest
+        updatedPullRequest.comments.removeAll { viewerDeletedCommentIDs.contains($0.id) }
+        if reactionWriteCountByPullRequestID[fetchedPullRequest.id, default: 0] > 0 {
+            updatedPullRequest.reactions = existingPullRequest.reactions
+        }
+        return updatedPullRequest
     }
 
     private func setViewerReaction(_ reaction: GitHubReaction, isReacting: Bool, on pullRequest: PullRequest) async {
@@ -616,15 +730,29 @@ final class PullRequestFeedStore {
     }
 
     private func updateReactions(ofPullRequestID pullRequestID: String, _ update: (inout GitHubReactionSummary) -> Void) {
-        updateOpenWeekCopy(ofPullRequestID: pullRequestID) { update(&$0.reactions) }
-        guard let pullRequestIndex = index(ofPullRequestID: pullRequestID) else { return }
-        update(&pullRequests[pullRequestIndex].reactions)
+        updateEveryCopy(ofPullRequestID: pullRequestID) { update(&$0.reactions) }
     }
 
-    // A pull request can be both in the feed and in the open week, and every change shows on both cards.
-    private func updateOpenWeekCopy(ofPullRequestID pullRequestID: String, _ update: (inout PullRequest) -> Void) {
-        guard let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == pullRequestID }) else { return }
-        update(&openWeekPullRequests[openWeekIndex])
+    // A pull request can be in a feed and in the open week at once, and every change shows on each of its cards.
+    private func updateEveryCopy(ofPullRequestID pullRequestID: String, _ update: (inout PullRequest) -> Void) {
+        if let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == pullRequestID }) {
+            update(&openWeekPullRequests[openWeekIndex])
+        }
+        for feed in PullRequestFeed.allCases {
+            guard let pullRequestIndex = loadedFeed(feed).index(ofPullRequestID: pullRequestID) else { continue }
+            updateLoadedFeed(feed) { update(&$0.pullRequests[pullRequestIndex]) }
+        }
+    }
+
+    // A saved feed holds no description, comment or credential (AGENTS.md, "Feed Caching").
+    private static func savedCopy(of pullRequest: PullRequest) -> PullRequest {
+        PullRequest(
+            id: pullRequest.id, number: pullRequest.number, title: pullRequest.title, url: pullRequest.url,
+            author: pullRequest.author, isDraft: pullRequest.isDraft, updatedAt: pullRequest.updatedAt,
+            mergedAt: pullRequest.mergedAt, descriptionMarkdown: "",
+            additions: pullRequest.additions, deletions: pullRequest.deletions, changedFiles: pullRequest.changedFiles,
+            labels: pullRequest.labels, reactions: pullRequest.reactions, comments: [], mediaItems: pullRequest.mediaItems
+        )
     }
 
     private static func millisecondsElapsed(since startDate: Date) -> Int {

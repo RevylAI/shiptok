@@ -50,6 +50,34 @@ enum GitHubGraphQLDocument {
         }
         """ + "\n" + pullRequestFieldsFragment + "\n" + issueCommentFieldsFragment
 
+    static let openPullRequestsPageQuery = """
+        query OpenPullRequestsPage($owner: String!, $name: String!, $after: String) {
+          feedRepository: repository(owner: $owner, name: $name) {
+            pullRequests(states: [OPEN], first: 25, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
+              pageInfo { hasNextPage endCursor }
+              nodes { ...ShipTokPullRequestFields }
+            }
+          }
+        }
+        """ + "\n" + pullRequestFieldsFragment + "\n" + issueCommentFieldsFragment
+
+    static let pullRequestUpdatesQuery = """
+        query PullRequestUpdates($owner: String!, $name: String!, $states: [PullRequestState!]!, $after: String) {
+          feedRepository: repository(owner: $owner, name: $name) {
+            pullRequests(states: $states, first: 50, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
+              pageInfo { hasNextPage endCursor }
+              nodes { id updatedAt }
+            }
+          }
+        }
+        """
+
+    static let pullRequestsByIDQuery = """
+        query PullRequestsByID($ids: [ID!]!) {
+          nodes(ids: $ids) { ... on PullRequest { ...ShipTokPullRequestFields } }
+        }
+        """ + "\n" + pullRequestFieldsFragment + "\n" + issueCommentFieldsFragment
+
     static let pullRequestByNumberQuery = """
         query PullRequestByNumber($owner: String!, $name: String!, $number: Int!) {
           feedRepository: repository(owner: $owner, name: $name) {
@@ -122,6 +150,13 @@ enum GitHubGraphQLDocument {
           search(query: $searchQuery, type: ISSUE, first: 0) { issueCount }
         }
         """
+
+    // One count per search, answered together, so a merged page picks its merge-date window in a single request.
+    static func mergedPullRequestCountsQuery(searchQueryCount: Int) -> String {
+        let variableDefinitions = (0..<searchQueryCount).map { "$searchQuery\($0): String!" }.joined(separator: ", ")
+        let countFields = (0..<searchQueryCount).map { "  count\($0): search(query: $searchQuery\($0), type: ISSUE, first: 0) { issueCount }" }.joined(separator: "\n")
+        return "query MergedPullRequestCounts(\(variableDefinitions)) {\n\(countFields)\n}"
+    }
 
     static let addPullRequestCommentMutation = """
         mutation AddPullRequestComment($subjectID: ID!, $body: String!) {

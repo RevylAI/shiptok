@@ -36,7 +36,7 @@ struct DeveloperInboxView: View {
                     RevylContentUnavailableView(
                         systemImageName: "tray",
                         title: Text("Nothing yet"),
-                        message: Text("When teammates vibe, react to or comment on pull requests you merged, it lands here.")
+                        message: Text("When teammates vibe, react to or comment on your open or merged pull requests, it lands here.")
                     )
                 } else {
                     List {

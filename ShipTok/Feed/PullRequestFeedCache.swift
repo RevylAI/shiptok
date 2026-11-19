@@ -2,62 +2,77 @@ import CryptoKit
 import Foundation
 import OSLog
 
-struct SavedMergedPullRequestFeed: Codable, Sendable {
-    static let currentFormatVersion = 6
+struct SavedPullRequestFeeds: Codable, Sendable {
+    static let currentFormatVersion = 7
     let formatVersion: Int
     let viewerGitHubLogin: String
     let repositoryFullName: String
+    let mergedFeed: SavedMergedPullRequestFeed?
+    let openFeed: SavedOpenPullRequestFeed?
+}
+
+struct SavedMergedPullRequestFeed: Codable, Sendable {
     let everyUpdateAppliedBefore: Date
+    // Nil once the feed holds every merged pull request.
+    let everyMergedPullRequestLoadedSince: Date?
     let pullRequests: [PullRequest]
 }
 
-// The feed and the moment every update before it was applied, saved on the device so a launch opens on it at once and asks GitHub only for what changed since (AGENTS.md, "Feed Caching").
-actor PullRequestFeedCache {
-    static let savedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "merged-pull-request-feeds", directoryHint: .isDirectory)
-    private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
-    private var newestSavedFeedGeneration = 0
+struct SavedOpenPullRequestFeed: Codable, Sendable {
+    let everyUpdateAppliedBefore: Date
+    // Nil once the feed holds every open pull request.
+    let nextPageCursor: String?
+    let pullRequests: [PullRequest]
+}
 
-    // A feed saved for another GitHub login or before the window began is of no use, since its updates would take longer to read than the window itself.
-    func loadSavedFeed(viewerGitHubLogin: String, repositoryFullName: String, appliedSince earliestUsefulDate: Date) -> SavedMergedPullRequestFeed? {
-        // A feed saved in another format can't be read for any login, so it goes.
-        let savedFeedFileURLs = (try? FileManager.default.contentsOfDirectory(at: Self.savedFeedsDirectoryURL, includingPropertiesForKeys: nil)) ?? []
-        for savedFeedFileURL in savedFeedFileURLs {
-            let savedFeed = (try? Data(contentsOf: savedFeedFileURL)).flatMap { try? JSONDecoder().decode(SavedMergedPullRequestFeed.self, from: $0) }
-            if savedFeed?.formatVersion != SavedMergedPullRequestFeed.currentFormatVersion {
-                try? FileManager.default.removeItem(at: savedFeedFileURL)
+// The Open and Merged feeds, each with the moment every update before it was applied and where its next older page starts, saved on the device so a launch opens on them at once and asks GitHub only for what changed since (AGENTS.md, "Feed Caching").
+actor PullRequestFeedCache {
+    static let savedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "pull-request-feeds", directoryHint: .isDirectory)
+    // Where saved feeds were kept before the Open feed existed; whatever is left there is of no use.
+    private static let replacedSavedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "merged-pull-request-feeds", directoryHint: .isDirectory)
+    private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
+    private var newestSavedFeedsGeneration = 0
+
+    func loadSavedFeeds(viewerGitHubLogin: String, repositoryFullName: String) -> SavedPullRequestFeeds? {
+        try? FileManager.default.removeItem(at: Self.replacedSavedFeedsDirectoryURL)
+        // Feeds saved in another format can't be read for any login, so they go.
+        let savedFeedsFileURLs = (try? FileManager.default.contentsOfDirectory(at: Self.savedFeedsDirectoryURL, includingPropertiesForKeys: nil)) ?? []
+        for savedFeedsFileURL in savedFeedsFileURLs {
+            let savedFeeds = (try? Data(contentsOf: savedFeedsFileURL)).flatMap { try? JSONDecoder().decode(SavedPullRequestFeeds.self, from: $0) }
+            if savedFeeds?.formatVersion != SavedPullRequestFeeds.currentFormatVersion {
+                try? FileManager.default.removeItem(at: savedFeedsFileURL)
             }
         }
-        let savedFeedFileURL = Self.savedFeedFileURL(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: repositoryFullName)
-        guard FileManager.default.fileExists(atPath: savedFeedFileURL.path(percentEncoded: false)) else { return nil }
-        let savedFeed: SavedMergedPullRequestFeed
+        let savedFeedsFileURL = Self.savedFeedsFileURL(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: repositoryFullName)
+        guard FileManager.default.fileExists(atPath: savedFeedsFileURL.path(percentEncoded: false)) else { return nil }
+        let savedFeeds: SavedPullRequestFeeds
         do {
-            savedFeed = try JSONDecoder().decode(SavedMergedPullRequestFeed.self, from: Data(contentsOf: savedFeedFileURL))
+            savedFeeds = try JSONDecoder().decode(SavedPullRequestFeeds.self, from: Data(contentsOf: savedFeedsFileURL))
         } catch {
-            Self.logger.error("The saved feed couldn't be read, so the window is read again: \(String(describing: type(of: error)), privacy: .public)")
+            Self.logger.error("The saved feeds couldn't be read, so they're read again from GitHub: \(String(describing: type(of: error)), privacy: .public)")
             return nil
         }
-        guard savedFeed.formatVersion == SavedMergedPullRequestFeed.currentFormatVersion,
-              savedFeed.viewerGitHubLogin.caseInsensitiveCompare(viewerGitHubLogin) == .orderedSame,
-              savedFeed.repositoryFullName.caseInsensitiveCompare(repositoryFullName) == .orderedSame,
-              savedFeed.everyUpdateAppliedBefore >= earliestUsefulDate
+        guard savedFeeds.formatVersion == SavedPullRequestFeeds.currentFormatVersion,
+              savedFeeds.viewerGitHubLogin.caseInsensitiveCompare(viewerGitHubLogin) == .orderedSame,
+              savedFeeds.repositoryFullName.caseInsensitiveCompare(repositoryFullName) == .orderedSame
         else { return nil }
-        return savedFeed
+        return savedFeeds
     }
 
     // Saves arrive from separate tasks, so an older snapshot that lands after a newer one is skipped.
-    func save(_ feed: SavedMergedPullRequestFeed, generation: Int) {
-        guard generation > newestSavedFeedGeneration else { return }
-        newestSavedFeedGeneration = generation
+    func save(_ feeds: SavedPullRequestFeeds, generation: Int) {
+        guard generation > newestSavedFeedsGeneration else { return }
+        newestSavedFeedsGeneration = generation
         do {
-            let savedFeedFileURL = Self.savedFeedFileURL(viewerGitHubLogin: feed.viewerGitHubLogin, repositoryFullName: feed.repositoryFullName)
+            let savedFeedsFileURL = Self.savedFeedsFileURL(viewerGitHubLogin: feeds.viewerGitHubLogin, repositoryFullName: feeds.repositoryFullName)
             try FileManager.default.createDirectory(at: Self.savedFeedsDirectoryURL, withIntermediateDirectories: true)
-            try JSONEncoder().encode(feed).write(to: savedFeedFileURL, options: .atomic)
+            try JSONEncoder().encode(feeds).write(to: savedFeedsFileURL, options: .atomic)
         } catch {
-            Self.logger.error("Saving the feed failed: \(String(describing: type(of: error)), privacy: .public)")
+            Self.logger.error("Saving the feeds failed: \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 
-    private static func savedFeedFileURL(viewerGitHubLogin: String, repositoryFullName: String) -> URL {
+    private static func savedFeedsFileURL(viewerGitHubLogin: String, repositoryFullName: String) -> URL {
         let cacheIdentity = "\(repositoryFullName.lowercased())|\(viewerGitHubLogin.lowercased())"
         let fileName = SHA256.hash(data: Data(cacheIdentity.utf8)).map { String(format: "%02x", $0) }.joined()
         return savedFeedsDirectoryURL.appending(path: "\(fileName).json")

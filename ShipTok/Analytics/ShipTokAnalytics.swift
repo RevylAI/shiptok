@@ -81,6 +81,7 @@ enum ShipTokAnalyticsEvent: Sendable {
     case mutationCompleted(MutationAttempt, outcome: Outcome, commentID: String?, commentDatabaseID: Int?)
     case speedChanged(ShipTokAnalyticsSubject?, control: SpeedControl, previousRate: Float, playbackRate: Float)
     case feedModeChanged(previousMode: FeedMode, mode: FeedMode)
+    case olderPullRequestsLoaded(PullRequestFeed, addedPullRequestCount: Int, addedVisiblePullRequestCount: Int)
     case commentsOpened(ShipTokAnalyticsSubject)
     case likeSelected(ShipTokAnalyticsSubject, control: LikeControl, wasLiked: Bool)
     case signInStarted(attemptID: UUID, demoVisitID: UUID?)
@@ -104,6 +105,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .mutationCompleted(let attempt, _, _, _): "shiptok_\(attempt.mutation.rawValue)_change_completed"
         case .speedChanged: "shiptok_playback_speed_changed"
         case .feedModeChanged: "shiptok_feed_mode_changed"
+        case .olderPullRequestsLoaded: "shiptok_older_pull_requests_loaded"
         case .commentsOpened: "shiptok_comments_opened"
         case .likeSelected: "shiptok_like_selected"
         case .signInStarted: "shiptok_sign_in_started"
@@ -174,6 +176,10 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .feedModeChanged(let previousMode, let mode):
             properties["previous_feed_mode"] = .string(previousMode.rawValue)
             properties["feed_mode"] = .string(mode.rawValue)
+        case .olderPullRequestsLoaded(let feed, let addedPullRequestCount, let addedVisiblePullRequestCount):
+            properties["feed_mode"] = .string(feed.rawValue)
+            properties["added_pull_request_count"] = .integer(addedPullRequestCount)
+            properties["added_visible_pull_request_count"] = .integer(addedVisiblePullRequestCount)
         case .commentsOpened(let subject):
             addSubject(subject)
         case .likeSelected(let subject, let control, let wasLiked):
@@ -282,7 +288,7 @@ final class ShipTokAnalytics {
         if let demoVisitID {
             properties["demo_visit_id"] = .string(demoVisitID.uuidString)
         }
-        properties["schema_version"] = .integer(3)
+        properties["schema_version"] = .integer(4)
         properties["app_version"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")
         properties["app_build"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown")
         #if DEBUG

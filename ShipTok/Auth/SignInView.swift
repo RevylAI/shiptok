@@ -18,7 +18,7 @@ struct SignInView: View {
                     Text(verbatim: "ShipTok")
                         .font(.largeTitle.weight(.heavy))
                         .foregroundStyle(RevylBrandColor.textPrimary)
-                    Text("Every merged pull request with a video or screenshot, one swipe at a time. Swipe right for good vibes, left for bad, and like, react and comment, all on GitHub.")
+                    Text("Every open and merged pull request with a video or screenshot, one swipe at a time. Swipe right for good vibes, left for bad, and like, react and comment, all on GitHub.")
                         .font(.body)
                         .foregroundStyle(RevylBrandColor.textMuted)
                         .multilineTextAlignment(.center)
