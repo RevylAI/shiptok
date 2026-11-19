@@ -17,6 +17,8 @@ struct LoadedPullRequestFeed: Sendable {
     fileprivate(set) var isFeedEndFocused = false
     // From the viewer's first page in the mode until they leave it.
     fileprivate var isOnScreen = false
+    // Whether the viewer has moved from one page to another since the mode came on screen; until then the card in focus is the one the mode opened on, not one they chose (AGENTS.md, "Feed Order").
+    fileprivate var hasViewerMovedSinceShown = false
     // A card that left its feed while under the viewer's finger, which goes once the viewer moves on.
     fileprivate var pullRequestIDsLeavingOnceUnfocused: Set<String> = []
     // A fresh copy of the focused card that the viewer wouldn't be shown, which takes the shown copy's place once they move on (AGENTS.md, "Feed Order").
@@ -71,6 +73,7 @@ struct LoadedPullRequestFeed: Sendable {
     fileprivate mutating func focus(showingPullRequestID newFocusedPullRequestID: String?, isShown: (PullRequest) -> Bool) {
         let previouslyFocusedPullRequestID = focusedPullRequestID
         let isPageChange = newFocusedPullRequestID != focusedPullRequestID || (newFocusedPullRequestID == nil) != isFeedEndFocused
+        hasViewerMovedSinceShown = isOnScreen && (hasViewerMovedSinceShown || (isPageChange && hasFocusedPage))
         isOnScreen = true
         focusedPullRequestID = newFocusedPullRequestID
         isFeedEndFocused = newFocusedPullRequestID == nil && !pullRequests.isEmpty
@@ -88,6 +91,19 @@ struct LoadedPullRequestFeed: Sendable {
         let justLeftPullRequestID = focusedPullRequestID
         isOnScreen = false
         settleCardsWaitingOnViewer(justLeftPullRequestID: justLeftPullRequestID, isShown: isShown)
+    }
+
+    // A card none of whose media loads for this viewer leaves like one that stopped belonging, except the card the mode opened on while the viewer hasn't moved off it: that one goes at once, and the next card the viewer is shown takes its place (AGENTS.md, "Feed Order").
+    fileprivate mutating func removePullRequestWithoutLoadableMedia(withID pullRequestID: String, isShown: (PullRequest) -> Bool) {
+        guard pullRequestID == focusedPullRequestID, isOnScreen, !hasViewerMovedSinceShown, let focusedIndex = index(ofPullRequestID: pullRequestID) else {
+            removePullRequests { $0.id == pullRequestID }
+            return
+        }
+        focusedPullRequestID = nextShownPageIndex(after: focusedIndex, isShown: isShown).map { pullRequests[$0].id }
+        pullRequestIDsLeavingOnceUnfocused.remove(pullRequestID)
+        pullRequestsReplacingOnceUnfocused[pullRequestID] = nil
+        removePullRequests { $0.id == pullRequestID }
+        isFeedEndFocused = focusedPullRequestID == nil && !pullRequests.isEmpty
     }
 
     // The focused card keeps the copy the viewer sees until they move on (AGENTS.md, "Feed Order").
@@ -582,7 +598,7 @@ final class PullRequestFeedStore {
             guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
             defer {
                 if let loadedPullRequest = self.pullRequest(withID: pullRequestID) {
-                    removeIfNoMediaLoadsAheadOfViewer(loadedPullRequest)
+                    removeIfNoMediaLoads(loadedPullRequest)
                 }
             }
             guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedToViewer: wasRefusedToViewer),
@@ -798,13 +814,16 @@ final class PullRequestFeedStore {
         return appendedPullRequestCount
     }
 
-    // A pull request none of whose media loads leaves each feed while the viewer is still above it (AGENTS.md, "Feed Order").
-    private func removeIfNoMediaLoadsAheadOfViewer(_ pullRequest: PullRequest) {
+    // A pull request none of whose media loads for this viewer, refused to them or failing again from a renewed URL, leaves each feed and an open week (AGENTS.md, "Feed Order").
+    private func removeIfNoMediaLoads(_ pullRequest: PullRequest) {
         guard !hasLoadableMedia(pullRequest) else { return }
-        for feed in PullRequestFeed.allCases {
-            let loadedFeed = loadedFeed(feed)
-            guard let pullRequestIndex = loadedFeed.index(ofPullRequestID: pullRequest.id), pullRequestIndex > loadedFeed.focusedPageIndex else { continue }
-            updateLoadedFeed(feed) { $0.removePullRequests { $0.id == pullRequest.id } }
+        for feed in PullRequestFeed.allCases where loadedFeed(feed).index(ofPullRequestID: pullRequest.id) != nil {
+            updateLoadedFeed(feed) { loadedFeed in
+                loadedFeed.removePullRequestWithoutLoadableMedia(withID: pullRequest.id, isShown: { visibleCopy(of: $0) != nil })
+            }
+        }
+        if openWeekPullRequests.contains(where: { $0.id == pullRequest.id }) {
+            removeFromOpenWeek(pullRequestID: pullRequest.id)
         }
     }
 
@@ -851,7 +870,7 @@ final class PullRequestFeedStore {
         let renewedMediaItemIDs = settlesMediaLoadFailures && mediaLoadFailureRecovery.hasPendingLoadFailure
             ? mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPullRequest.mediaItems, readStartedAt: fetchedAt)
             : []
-        removeIfNoMediaLoadsAheadOfViewer(fetchedPullRequest)
+        removeIfNoMediaLoads(fetchedPullRequest)
         if let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == fetchedPullRequest.id }) {
             if hasLoadableMedia(fetchedPullRequest) {
                 let existingPullRequest = openWeekPullRequests[openWeekIndex]
@@ -890,7 +909,7 @@ final class PullRequestFeedStore {
         }
         let existingPullRequest = loadedFeed.pullRequests[existingIndex]
         let isFocused = existingPullRequest.id == loadedFeed.focusedPullRequestID
-        let fetchedPullRequestBelongs = fetchedPullRequest.belongs(in: feed)
+        let fetchedPullRequestBelongs = fetchedPullRequest.belongs(in: feed) && hasLoadableMedia(fetchedPullRequest)
         if !fetchedPullRequestBelongs, !isFocused {
             updateLoadedFeed(feed) { $0.removePullRequests { $0.id == fetchedPullRequest.id } }
             return
