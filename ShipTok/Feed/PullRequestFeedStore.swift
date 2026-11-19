@@ -19,6 +19,8 @@ struct LoadedPullRequestFeed: Sendable {
     fileprivate var isOnScreen = false
     // A card that left its feed while under the viewer's finger, which goes once the viewer moves on.
     fileprivate var pullRequestIDsLeavingOnceUnfocused: Set<String> = []
+    // A fresh copy of the focused card that the viewer wouldn't be shown, which takes the shown copy's place once they move on (AGENTS.md, "Feed Order").
+    fileprivate var pullRequestsReplacingOnceUnfocused: [String: PullRequest] = [:]
     // A card out of feed order because it was on screen, or next, when it changed or arrived; it takes its slot once the viewer moves on (AGENTS.md, "Feed Order").
     fileprivate var pullRequestIDsMovingOnceUnrendered: Set<String> = []
 
@@ -69,33 +71,56 @@ struct LoadedPullRequestFeed: Sendable {
             unseenNewerPullRequestIDs.remove(newFocusedPullRequestID)
         }
         guard isPageChange else { return }
-        if !pullRequestIDsLeavingOnceUnfocused.isEmpty {
-            pullRequests.removeAll { pullRequestIDsLeavingOnceUnfocused.contains($0.id) }
-            unseenNewerPullRequestIDs.subtract(pullRequestIDsLeavingOnceUnfocused)
-            pullRequestIDsMovingOnceUnrendered.subtract(pullRequestIDsLeavingOnceUnfocused)
-            pullRequestIDsLeavingOnceUnfocused.removeAll()
-        }
-        moveCardsNoLongerRendered(justLeftPullRequestID: previouslyFocusedPullRequestID)
+        settleCardsWaitingOnViewer(justLeftPullRequestID: previouslyFocusedPullRequestID)
     }
 
-    // Leaving the mode releases what the viewer's finger held: a card waiting to leave goes and every card takes its slot, while the viewer's place stays (AGENTS.md, "Feed Order").
+    // Leaving the mode releases what the viewer's finger held, while the viewer's place stays (AGENTS.md, "Feed Order").
     fileprivate mutating func leaveScreen() {
         let justLeftPullRequestID = focusedPullRequestID
         isOnScreen = false
-        let leavingPullRequestIDs = pullRequestIDsLeavingOnceUnfocused
-        pullRequestIDsLeavingOnceUnfocused.removeAll()
-        removePullRequests { leavingPullRequestIDs.contains($0.id) }
-        moveCardsNoLongerRendered(justLeftPullRequestID: justLeftPullRequestID)
+        settleCardsWaitingOnViewer(justLeftPullRequestID: justLeftPullRequestID)
     }
 
-    // A fresh read found the card belongs after all, so it no longer waits to leave.
+    // The focused card keeps the copy the viewer sees until they move on (AGENTS.md, "Feed Order").
+    fileprivate mutating func replaceOnceUnfocused(with freshPullRequest: PullRequest) {
+        pullRequestIDsLeavingOnceUnfocused.remove(freshPullRequest.id)
+        pullRequestsReplacingOnceUnfocused[freshPullRequest.id] = freshPullRequest
+    }
+
+    // A fresh read the viewer can be shown, so the card no longer waits to leave or to give way.
     fileprivate mutating func keepPullRequest(withID pullRequestID: String) {
         pullRequestIDsLeavingOnceUnfocused.remove(pullRequestID)
+        pullRequestsReplacingOnceUnfocused[pullRequestID] = nil
     }
 
-    // A card waiting to leave is gone as far as the next launch is concerned.
-    fileprivate var pullRequestsStaying: [PullRequest] {
-        pullRequests.filter { !pullRequestIDsLeavingOnceUnfocused.contains($0.id) }
+    fileprivate func isWaitingOnViewer(pullRequestID: String) -> Bool {
+        pullRequestIDsLeavingOnceUnfocused.contains(pullRequestID) || pullRequestsReplacingOnceUnfocused[pullRequestID] != nil
+    }
+
+    // The cards as they'll stand once the viewer moves on, which is what the next launch opens on.
+    fileprivate var pullRequestsOnceViewerMovesOn: [PullRequest] {
+        pullRequests.compactMap { pullRequest in
+            pullRequestIDsLeavingOnceUnfocused.contains(pullRequest.id) ? nil : pullRequestsReplacingOnceUnfocused[pullRequest.id] ?? pullRequest
+        }
+    }
+
+    // What waited on the viewer happens once they move on: a card waiting to leave goes, a fresh copy takes the shown one's place, and held cards take their slots.
+    private mutating func settleCardsWaitingOnViewer(justLeftPullRequestID: String?) {
+        let leavingPullRequestIDs = pullRequestIDsLeavingOnceUnfocused
+        pullRequestIDsLeavingOnceUnfocused.removeAll()
+        if !leavingPullRequestIDs.isEmpty {
+            removePullRequests { leavingPullRequestIDs.contains($0.id) }
+        }
+        let replacingPullRequests = Array(pullRequestsReplacingOnceUnfocused.values)
+        pullRequestsReplacingOnceUnfocused.removeAll()
+        for replacingPullRequest in replacingPullRequests {
+            guard let replacedIndex = index(ofPullRequestID: replacingPullRequest.id) else { continue }
+            pullRequests[replacedIndex] = replacingPullRequest
+            if !isInFeedOrder(at: replacedIndex) {
+                pullRequestIDsMovingOnceUnrendered.insert(replacingPullRequest.id)
+            }
+        }
+        moveCardsNoLongerRendered(justLeftPullRequestID: justLeftPullRequestID)
     }
 
     // A pull request found after the feed opened, or one whose update moves it, takes its sorted slot. At or above the viewer it's flagged for the "new" pill; below, it never goes above the two cards already rendered, and waits there until the viewer moves on. One that sorts below every loaded card is left for its own page unless it may go last (AGENTS.md, "Feed Order").
@@ -487,14 +512,14 @@ final class PullRequestFeedStore {
             SavedMergedPullRequestFeed(
                 everyUpdateAppliedBefore: everyUpdateAppliedBefore,
                 everyMergedPullRequestLoadedSince: everyMergedPullRequestLoadedSince,
-                pullRequests: mergedFeed.pullRequestsStaying.map(Self.savedCopy(of:))
+                pullRequests: mergedFeed.pullRequestsOnceViewerMovesOn.map(Self.savedCopy(of:))
             )
         }
         let savedOpenFeed = openFeed.everyUpdateAppliedBefore.map { everyUpdateAppliedBefore in
             SavedOpenPullRequestFeed(
                 everyUpdateAppliedBefore: everyUpdateAppliedBefore,
                 nextPageCursor: nextOpenPullRequestsPageCursor,
-                pullRequests: openFeed.pullRequestsStaying.map(Self.savedCopy(of:))
+                pullRequests: openFeed.pullRequestsOnceViewerMovesOn.map(Self.savedCopy(of:))
             )
         }
         guard savedMergedFeed != nil || savedOpenFeed != nil else { return nil }
@@ -812,14 +837,13 @@ final class PullRequestFeedStore {
         }
         let existingPullRequest = loadedFeed.pullRequests[existingIndex]
         let isFocused = existingPullRequest.id == loadedFeed.focusedPullRequestID
-        if !fetchedPullRequest.belongs(in: feed), !isFocused {
+        let fetchedPullRequestBelongs = fetchedPullRequest.belongs(in: feed)
+        if !fetchedPullRequestBelongs, !isFocused {
             updateLoadedFeed(feed) { $0.removePullRequests { $0.id == fetchedPullRequest.id } }
             return
         }
         var updatedPullRequest = keepingLocalWrites(of: existingPullRequest, in: fetchedPullRequest)
-        if forcesMediaURLRenewal || !isFocused {
-            mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
-        } else {
+        if !forcesMediaURLRenewal && isFocused {
             let existingMediaItemsByID = Dictionary(
                 existingPullRequest.mediaItems.filter { $0.url != nil && !renewedMediaItemIDs.contains($0.id) }.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
@@ -838,12 +862,26 @@ final class PullRequestFeedStore {
                 )
             }
         }
+        // A fresh copy the viewer wouldn't be shown, with no media left or no video left under Videos only, never empties or pulls away the card they're on; hiding a person and changing Videos only still apply to the kept copy at once (AGENTS.md, "Feed Order").
+        if isFocused, loadedFeed.isOnScreen, visibleCopy(of: existingPullRequest) != nil, !fetchedPullRequestBelongs || visibleCopy(of: updatedPullRequest) == nil {
+            updateLoadedFeed(feed) { loadedFeed in
+                if fetchedPullRequestBelongs {
+                    loadedFeed.replaceOnceUnfocused(with: updatedPullRequest)
+                } else {
+                    loadedFeed.removePullRequests { $0.id == fetchedPullRequest.id }
+                }
+            }
+            return
+        }
+        if forcesMediaURLRenewal || !isFocused {
+            mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
+        }
         if updatedPullRequest != existingPullRequest {
             updateLoadedFeed(feed) { $0.replace(updatedPullRequest, at: existingIndex) }
         }
-        if !fetchedPullRequest.belongs(in: feed) {
+        if !fetchedPullRequestBelongs {
             updateLoadedFeed(feed) { $0.removePullRequests { $0.id == fetchedPullRequest.id } }
-        } else if loadedFeed.pullRequestIDsLeavingOnceUnfocused.contains(fetchedPullRequest.id) {
+        } else if loadedFeed.isWaitingOnViewer(pullRequestID: fetchedPullRequest.id) {
             updateLoadedFeed(feed) { $0.keepPullRequest(withID: fetchedPullRequest.id) }
         }
     }
