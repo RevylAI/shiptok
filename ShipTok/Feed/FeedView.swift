@@ -103,6 +103,7 @@ struct FeedView: View {
     private static let minimumKeyboardOverlap: CGFloat = 1
     private static let feedModeSwitchInsetInCard = CGSize(width: 16, height: 12)
     private static let feedModeSwitchMinimumGapBelowSafeArea: CGFloat = 6
+    private static let newerPullRequestsButtonGapBelowFeedModeSwitch: CGFloat = 8
 
     init(
         viewer: FeedViewer,
@@ -281,7 +282,7 @@ struct FeedView: View {
                 GeometryReader { pageGeometry in
                     feedContent(pageSize: pageGeometry.size, pageChromeInsets: pageChromeInsets)
                         .overlay(alignment: .topLeading) {
-                            feedModeSwitch(pageSize: pageGeometry.size, pageChromeInsets: pageChromeInsets)
+                            feedModeSwitchAndNewerPullRequestsButton(pageSize: pageGeometry.size, pageChromeInsets: pageChromeInsets)
                         }
                         // Read from this full-screen reader, which never moves with a dragged page, so the rail never jumps mid-swipe.
                         .onChange(of: Self.systemOcclusionFrames(in: pageGeometry), initial: true) { _, measuredSystemOcclusionFrames in
@@ -294,10 +295,6 @@ struct FeedView: View {
                 }
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
-            .overlay(alignment: .top) {
-                newerPullRequestsButton
-                    .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
-            }
             // Scroll content margins rather than safe-area padding, which a List inside the tabs' NavigationStack ignores, leaving its last rows under the pill.
             selectedTabPage
                 .contentMargins(.bottom, AppTabBar.height + tabBarBottomPadding + Self.tabPageScrollEndToTabBarSpacing, for: .scrollContent)
@@ -488,7 +485,6 @@ struct FeedView: View {
                     .contentShape(Rectangle())
             }
             .fixedSize()
-            .padding(.top, 8)
             .accessibilityLabel("\(unseenNewerPullRequestCount) \(unseenNewerPullRequestsDescription) above")
             .transition(.scale.combined(with: .opacity))
         }
@@ -544,19 +540,24 @@ struct FeedView: View {
         }
     }
 
-    // Over the card's top left, inside the format's top safe zone, and never under the status bar (AGENTS.md, "Weekly Mode").
-    private func feedModeSwitch(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    // The switch sits over the card's top left, inside the format's top safe zone and never under the status bar, and the "new" pill sits just under it,
+    // clear of the switch's taps, so the pill never covers the switch however wide the switch grows (AGENTS.md, "Card Layout").
+    private func feedModeSwitchAndNewerPullRequestsButton(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
         let cardFrame = FeedCardView.cardFrame(in: pageSize, pageChromeInsets: pageChromeInsets).card
-        return FeedModeSwitch(
-            feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
-            openWeekDatesText: feedContext == .openWeek ? openWeeklyEdition?.weekDatesText : nil,
-            onCloseWeek: closeWeek
-        )
+        return VStack(alignment: .leading, spacing: Self.newerPullRequestsButtonGapBelowFeedModeSwitch) {
+            FeedModeSwitch(
+                feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
+                openWeekDatesText: feedContext == .openWeek ? openWeeklyEdition?.weekDatesText : nil,
+                onCloseWeek: closeWeek
+            )
+            .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
+            newerPullRequestsButton
+                .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+        }
         .offset(
             x: cardFrame.minX + Self.feedModeSwitchInsetInCard.width,
             y: max(cardFrame.minY + Self.feedModeSwitchInsetInCard.height, pageChromeInsets.top + Self.feedModeSwitchMinimumGapBelowSafeArea)
         )
-        .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
     }
 
     @ViewBuilder
