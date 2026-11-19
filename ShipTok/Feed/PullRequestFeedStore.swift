@@ -232,13 +232,13 @@ struct LoadedPullRequestFeed: Sendable {
     }
 }
 
-// What the feed view shows of the store: a mode's feed or the open week's deck (AGENTS.md, "Feed Order").
+// What the feed view shows of the store: a mode's feed or the open deck of the pull requests a card names, such as a week's (AGENTS.md, "Feed Order").
 enum OnScreenPullRequests: Hashable {
     case feed(PullRequestFeed)
-    case openWeek
+    case openDeck
 }
 
-// The Open and Merged modes' feeds and a week's open pull requests, read from GitHub and kept current (AGENTS.md, "Feed Order" and "Feed Caching").
+// The Open and Merged modes' feeds and the open deck's pull requests, read from GitHub and kept current (AGENTS.md, "Feed Order" and "Feed Caching").
 @Observable
 @MainActor
 final class PullRequestFeedStore {
@@ -247,8 +247,8 @@ final class PullRequestFeedStore {
     // Older pull requests load once the viewer is this many shown cards from the end, until this many more show (AGENTS.md, "Feed Order").
     private static let olderPullRequestLoadDistanceInCards = 5
     private static let olderPullRequestLoadCardCount = 10
-    // GitHub limits how much of its server time one account may take each minute, so a week's pull requests load a few at a time.
-    private static let concurrentOpenWeekFetchCount = 6
+    // GitHub limits how much of its server time one account may take each minute, so a deck's pull requests load a few at a time.
+    private static let concurrentOpenDeckFetchCount = 6
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
 
     private(set) var openFeed = LoadedPullRequestFeed(feed: .open)
@@ -256,22 +256,22 @@ final class PullRequestFeedStore {
     // Videos only: it filters what's shown, never what's read or saved (AGENTS.md, "Feed Order").
     var showsOnlyPullRequestsWithVideos = true
     var transientErrorMessage: String?
-    // The pull requests of the weekly edition whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
-    private(set) var openWeekPullRequests: [PullRequest] = []
-    private(set) var isOpenWeekLoaded = false
-    private(set) var openWeekLoadFailureMessage: String?
-    private(set) var isOpenWeekPullToRefreshRunning = false
+    // The pull requests of the card whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
+    private(set) var openDeckPullRequests: [PullRequest] = []
+    private(set) var isOpenDeckLoaded = false
+    private(set) var openDeckLoadFailureMessage: String?
+    private(set) var isOpenDeckPullToRefreshRunning = false
 
-    @ObservationIgnored private var openWeekLoadTask: Task<Void, Never>?
-    // The open week's pull request numbers, how many of them are in or left out so far, and the last read that failed, so a load the deck left off screen carries on where it stopped (AGENTS.md, "Weekly Mode").
-    @ObservationIgnored private var openWeekPullRequestNumbers: [Int] = []
-    @ObservationIgnored private var openWeekResolvedNumberCount = 0
-    @ObservationIgnored private var openWeekLastFetchErrorMessage: String?
-    @ObservationIgnored private var focusedOpenWeekPullRequestID: String?
-    // Whether the viewer has moved from one card of the open week to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Weekly Mode").
-    @ObservationIgnored private var hasViewerMovedInOpenWeek = false
-    // A week card that closed or lost its last media while under the viewer's finger, which goes once they move on (AGENTS.md, "Weekly Mode").
-    @ObservationIgnored private var openWeekPullRequestIDsLeavingOnceUnfocused: Set<String> = []
+    @ObservationIgnored private var openDeckLoadTask: Task<Void, Never>?
+    // The open deck's pull request numbers, how many of them are in or left out so far, and the last read that failed, so a load the deck left off screen carries on where it stopped (AGENTS.md, "Weekly Mode").
+    @ObservationIgnored private var openDeckPullRequestNumbers: [Int] = []
+    @ObservationIgnored private var openDeckResolvedNumberCount = 0
+    @ObservationIgnored private var openDeckLastFetchErrorMessage: String?
+    @ObservationIgnored private var focusedOpenDeckPullRequestID: String?
+    // Whether the viewer has moved from one card of the open deck to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Weekly Mode").
+    @ObservationIgnored private var hasViewerMovedInOpenDeck = false
+    // A deck card that closed or lost its last media while under the viewer's finger, which goes once they move on (AGENTS.md, "Weekly Mode").
+    @ObservationIgnored private var openDeckPullRequestIDsLeavingOnceUnfocused: Set<String> = []
     @ObservationIgnored private var savedFeedsOpening: Task<Void, Never>?
     @ObservationIgnored private var olderPullRequestLoadRunningFeeds: Set<PullRequestFeed> = []
     @ObservationIgnored private var refreshRunningFeeds: Set<PullRequestFeed> = []
@@ -335,61 +335,61 @@ final class PullRequestFeedStore {
     func pullRequest(withID pullRequestID: String) -> PullRequest? {
         mergedFeed.pullRequests.first { $0.id == pullRequestID }
             ?? openFeed.pullRequests.first { $0.id == pullRequestID }
-            ?? openWeekPullRequests.first { $0.id == pullRequestID }
+            ?? openDeckPullRequests.first { $0.id == pullRequestID }
     }
 
-    // A week's pull requests show in its video's order as each leading one arrives, so a page never moves under the viewer. A week names its pull requests by number, so they're read by number.
-    func openWeek(pullRequestNumbers: [Int]) {
-        openWeekLoadTask?.cancel()
-        openWeekLoadTask = nil
+    // A deck's pull requests show in its video's order as each leading one arrives, so a page never moves under the viewer. A card names its pull requests by number, so they're read by number.
+    func openDeck(pullRequestNumbers: [Int]) {
+        openDeckLoadTask?.cancel()
+        openDeckLoadTask = nil
         var seenPullRequestNumbers: Set<Int> = []
-        openWeekPullRequestNumbers = pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
-        openWeekResolvedNumberCount = 0
-        openWeekLastFetchErrorMessage = nil
-        openWeekPullRequests = []
-        isOpenWeekLoaded = false
-        openWeekLoadFailureMessage = nil
-        focusedOpenWeekPullRequestID = nil
-        hasViewerMovedInOpenWeek = false
-        openWeekPullRequestIDsLeavingOnceUnfocused = []
-        startOpenWeekLoadIfUnfinished()
+        openDeckPullRequestNumbers = pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
+        openDeckResolvedNumberCount = 0
+        openDeckLastFetchErrorMessage = nil
+        openDeckPullRequests = []
+        isOpenDeckLoaded = false
+        openDeckLoadFailureMessage = nil
+        focusedOpenDeckPullRequestID = nil
+        hasViewerMovedInOpenDeck = false
+        openDeckPullRequestIDsLeavingOnceUnfocused = []
+        startOpenDeckLoadIfUnfinished()
     }
 
-    func closeWeek() {
+    func closeDeck() {
         stopShownModeWork()
-        openWeekLoadTask?.cancel()
-        openWeekLoadTask = nil
-        openWeekPullRequestNumbers = []
-        openWeekResolvedNumberCount = 0
-        openWeekLastFetchErrorMessage = nil
-        openWeekPullRequests = []
-        isOpenWeekLoaded = false
-        openWeekLoadFailureMessage = nil
-        focusedOpenWeekPullRequestID = nil
-        hasViewerMovedInOpenWeek = false
-        openWeekPullRequestIDsLeavingOnceUnfocused = []
+        openDeckLoadTask?.cancel()
+        openDeckLoadTask = nil
+        openDeckPullRequestNumbers = []
+        openDeckResolvedNumberCount = 0
+        openDeckLastFetchErrorMessage = nil
+        openDeckPullRequests = []
+        isOpenDeckLoaded = false
+        openDeckLoadFailureMessage = nil
+        focusedOpenDeckPullRequestID = nil
+        hasViewerMovedInOpenDeck = false
+        openDeckPullRequestIDsLeavingOnceUnfocused = []
     }
 
-    // A week shows every card it names whatever Videos only says, less what people the viewer hid wrote or posted (AGENTS.md, "Weekly Mode").
-    var visibleOpenWeekPullRequests: [PullRequest] {
-        openWeekPullRequests.compactMap(visibleCopyIgnoringVideosOnly(of:))
+    // A deck shows every card it names whatever Videos only says, less what people the viewer hid wrote or posted (AGENTS.md, "Weekly Mode").
+    var visibleOpenDeckPullRequests: [PullRequest] {
+        openDeckPullRequests.compactMap(visibleCopyIgnoringVideosOnly(of:))
     }
 
     // Nil focuses the deck's end, or a deck with no card yet.
-    func focusOpenWeekPage(showingPullRequestID focusedPullRequestID: String?) {
-        hasViewerMovedInOpenWeek = hasViewerMovedInOpenWeek || (focusedOpenWeekPullRequestID != nil && focusedPullRequestID != focusedOpenWeekPullRequestID)
-        if focusedPullRequestID != focusedOpenWeekPullRequestID, !openWeekPullRequestIDsLeavingOnceUnfocused.isEmpty {
-            openWeekPullRequests.removeAll { openWeekPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
-            openWeekPullRequestIDsLeavingOnceUnfocused.removeAll()
+    func focusOpenDeckPage(showingPullRequestID focusedPullRequestID: String?) {
+        hasViewerMovedInOpenDeck = hasViewerMovedInOpenDeck || (focusedOpenDeckPullRequestID != nil && focusedPullRequestID != focusedOpenDeckPullRequestID)
+        if focusedPullRequestID != focusedOpenDeckPullRequestID, !openDeckPullRequestIDsLeavingOnceUnfocused.isEmpty {
+            openDeckPullRequests.removeAll { openDeckPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
+            openDeckPullRequestIDsLeavingOnceUnfocused.removeAll()
         }
-        let visibleOpenWeekPullRequests = visibleOpenWeekPullRequests
-        guard let pageIndex = visibleOpenWeekPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else {
-            focusedOpenWeekPullRequestID = nil
+        let visibleOpenDeckPullRequests = visibleOpenDeckPullRequests
+        guard let pageIndex = visibleOpenDeckPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else {
+            focusedOpenDeckPullRequestID = nil
             return
         }
-        focusedOpenWeekPullRequestID = focusedPullRequestID
-        let focusedPullRequest = visibleOpenWeekPullRequests[pageIndex]
-        let nextPullRequest = visibleOpenWeekPullRequests.indices.contains(pageIndex + 1) ? visibleOpenWeekPullRequests[pageIndex + 1] : nil
+        focusedOpenDeckPullRequestID = focusedPullRequestID
+        let focusedPullRequest = visibleOpenDeckPullRequests[pageIndex]
+        let nextPullRequest = visibleOpenDeckPullRequests.indices.contains(pageIndex + 1) ? visibleOpenDeckPullRequests[pageIndex + 1] : nil
         startShownModeWork { [self] in
             async let focusedPullRequestRefetch: Void = fetchAndApplyPullRequest(
                 number: focusedPullRequest.number,
@@ -402,28 +402,28 @@ final class PullRequestFeedStore {
         }
     }
 
-    func refreshFocusedOpenWeekPullRequest() async {
+    func refreshFocusedOpenDeckPullRequest() async {
         await feedWork.perform { [self] in
-            guard let focusedOpenWeekPullRequestID, let focusedPullRequest = openWeekPullRequests.first(where: { $0.id == focusedOpenWeekPullRequestID }) else { return }
+            guard let focusedOpenDeckPullRequestID, let focusedPullRequest = openDeckPullRequests.first(where: { $0.id == focusedOpenDeckPullRequestID }) else { return }
             await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
         }
     }
 
-    // A pull only happens on a week's first card, so that's the card it reads again.
-    func refreshOpenWeekFromPull() async {
+    // A pull only happens on a deck's first card, so that's the card it reads again.
+    func refreshOpenDeckFromPull() async {
         await feedWork.perform { [self] in
-            guard let firstOpenWeekPullRequest = visibleOpenWeekPullRequests.first else { return }
-            isOpenWeekPullToRefreshRunning = true
-            defer { isOpenWeekPullToRefreshRunning = false }
-            await fetchAndApplyPullRequest(number: firstOpenWeekPullRequest.number, forcesMediaURLRenewal: false)
+            guard let firstOpenDeckPullRequest = visibleOpenDeckPullRequests.first else { return }
+            isOpenDeckPullToRefreshRunning = true
+            defer { isOpenDeckPullToRefreshRunning = false }
+            await fetchAndApplyPullRequest(number: firstOpenDeckPullRequest.number, forcesMediaURLRenewal: false)
         }
     }
 
-    private func loadOpenWeek() async {
+    private func loadOpenDeck() async {
         let loadStartedAt = Date.now
         var fetchResultByNumber: [Int: Result<PullRequest, any Error>] = [:]
         await withTaskGroup(of: (number: Int, fetchResult: Result<PullRequest, any Error>).self) { taskGroup in
-            var unrequestedNumbers = openWeekPullRequestNumbers.dropFirst(openWeekResolvedNumberCount)
+            var unrequestedNumbers = openDeckPullRequestNumbers.dropFirst(openDeckResolvedNumberCount)
             func requestNextPullRequest() {
                 guard let number = unrequestedNumbers.popFirst() else { return }
                 taskGroup.addTask { [githubAPIClient] in
@@ -434,39 +434,39 @@ final class PullRequestFeedStore {
                     }
                 }
             }
-            for _ in 0..<Self.concurrentOpenWeekFetchCount { requestNextPullRequest() }
+            for _ in 0..<Self.concurrentOpenDeckFetchCount { requestNextPullRequest() }
             while let (number, fetchResult) = await taskGroup.next() {
                 guard !Task.isCancelled else {
                     taskGroup.cancelAll()
                     return
                 }
                 fetchResultByNumber[number] = fetchResult
-                while openWeekResolvedNumberCount < openWeekPullRequestNumbers.count, let resolvedFetchResult = fetchResultByNumber[openWeekPullRequestNumbers[openWeekResolvedNumberCount]] {
-                    let resolvedNumber = openWeekPullRequestNumbers[openWeekResolvedNumberCount]
-                    openWeekResolvedNumberCount += 1
+                while openDeckResolvedNumberCount < openDeckPullRequestNumbers.count, let resolvedFetchResult = fetchResultByNumber[openDeckPullRequestNumbers[openDeckResolvedNumberCount]] {
+                    let resolvedNumber = openDeckPullRequestNumbers[openDeckResolvedNumberCount]
+                    openDeckResolvedNumberCount += 1
                     switch resolvedFetchResult {
                     case .success(let fetchedPullRequest):
                         guard !fetchedPullRequest.mediaItems.isEmpty, !isEveryMediaItemGivenUp(fetchedPullRequest) else {
-                            Self.logger.info("#\(resolvedNumber, privacy: .public) has no media that loads, so its week leaves it out")
+                            Self.logger.info("#\(resolvedNumber, privacy: .public) has no media that loads, so its deck leaves it out")
                             continue
                         }
                         if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
                             mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = loadStartedAt
                         }
-                        openWeekPullRequests.append(fetchedPullRequest)
+                        openDeckPullRequests.append(fetchedPullRequest)
                     case .failure(GitHubAPIError.pullRequestNeitherOpenNorMerged):
-                        Self.logger.info("#\(resolvedNumber, privacy: .public) is closed without merging or gone, so its week leaves it out")
+                        Self.logger.info("#\(resolvedNumber, privacy: .public) is closed without merging or gone, so its deck leaves it out")
                     case .failure(let error):
                         if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                             handleRejectedGitHubAccess(githubAPIError)
                             taskGroup.cancelAll()
                             return
                         }
-                        Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its week failed: \(error.publicLogDescription, privacy: .public)")
-                        openWeekLastFetchErrorMessage = error.localizedDescription
+                        Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its deck failed: \(error.publicLogDescription, privacy: .public)")
+                        openDeckLastFetchErrorMessage = error.localizedDescription
                         if let loadedPullRequest = (mergedFeed.pullRequestsOnceViewerMovesOn + openFeed.pullRequestsOnceViewerMovesOn).first(where: { $0.number == resolvedNumber }),
                            !isEveryMediaItemGivenUp(loadedPullRequest) {
-                            openWeekPullRequests.append(loadedPullRequest)
+                            openDeckPullRequests.append(loadedPullRequest)
                         }
                     }
                 }
@@ -474,11 +474,11 @@ final class PullRequestFeedStore {
             }
         }
         guard !Task.isCancelled else { return }
-        isOpenWeekLoaded = true
-        if openWeekPullRequests.isEmpty, let openWeekLastFetchErrorMessage {
-            openWeekLoadFailureMessage = openWeekLastFetchErrorMessage
+        isOpenDeckLoaded = true
+        if openDeckPullRequests.isEmpty, let openDeckLastFetchErrorMessage {
+            openDeckLoadFailureMessage = openDeckLastFetchErrorMessage
         }
-        Self.logger.info("Read a week's \(self.openWeekPullRequests.count, privacy: .public) of \(self.openWeekPullRequestNumbers.count, privacy: .public) pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
+        Self.logger.info("Read a deck's \(self.openDeckPullRequests.count, privacy: .public) of \(self.openDeckPullRequestNumbers.count, privacy: .public) pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
     }
 
     // A launch opens on the saved feeds at once and asks GitHub only for what changed since; a feed with nothing loaded reads its newest page first (AGENTS.md, "Feed Order" and "Feed Caching").
@@ -563,18 +563,18 @@ final class PullRequestFeedStore {
         startShownModeWork { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
-    // Older pages, the open week's load and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly's list, or Inbox or Settings over the feed (AGENTS.md, "Feed Order" and "Weekly Mode").
+    // Older pages, the open deck's load and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly's list, or Inbox or Settings over the feed (AGENTS.md, "Feed Order" and "Weekly Mode").
     func changeOnScreenPullRequests(to newOnScreenPullRequests: OnScreenPullRequests?) {
         if let previouslyShownFeed = shownFeed, newOnScreenPullRequests != .feed(previouslyShownFeed) {
             updateLoadedFeed(previouslyShownFeed) { loadedFeed in loadedFeed.leaveScreen(isShown: { visibleCopy(of: $0) != nil }) }
         }
-        let wasOpenWeekOnScreen = onScreenPullRequests == .openWeek
+        let wasOpenDeckOnScreen = onScreenPullRequests == .openDeck
         onScreenPullRequests = newOnScreenPullRequests
         stopShownModeWork()
-        if wasOpenWeekOnScreen, newOnScreenPullRequests != .openWeek {
-            leaveOpenWeekScreen()
-        } else if !wasOpenWeekOnScreen, newOnScreenPullRequests == .openWeek {
-            startOpenWeekLoadIfUnfinished()
+        if wasOpenDeckOnScreen, newOnScreenPullRequests != .openDeck {
+            leaveOpenDeckScreen()
+        } else if !wasOpenDeckOnScreen, newOnScreenPullRequests == .openDeck {
+            startOpenDeckLoadIfUnfinished()
         }
     }
 
@@ -683,19 +683,19 @@ final class PullRequestFeedStore {
         shownModeTasksByID[taskID] = task
     }
 
-    // Leaving the week's deck stops its load and releases what the viewer's finger held, while the viewer's place stays; coming back carries the load on from the first pull request not yet in (AGENTS.md, "Weekly Mode").
-    private func leaveOpenWeekScreen() {
-        openWeekLoadTask?.cancel()
-        openWeekLoadTask = nil
-        focusedOpenWeekPullRequestID = nil
-        openWeekPullRequests.removeAll { openWeekPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
-        openWeekPullRequestIDsLeavingOnceUnfocused.removeAll()
+    // Leaving the deck stops its load and releases what the viewer's finger held, while the viewer's place stays; coming back carries the load on from the first pull request not yet in (AGENTS.md, "Weekly Mode").
+    private func leaveOpenDeckScreen() {
+        openDeckLoadTask?.cancel()
+        openDeckLoadTask = nil
+        focusedOpenDeckPullRequestID = nil
+        openDeckPullRequests.removeAll { openDeckPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
+        openDeckPullRequestIDsLeavingOnceUnfocused.removeAll()
     }
 
-    private func startOpenWeekLoadIfUnfinished() {
-        guard onScreenPullRequests == .openWeek, !isOpenWeekLoaded else { return }
-        openWeekLoadTask?.cancel()
-        openWeekLoadTask = feedWork.start { [self] in await loadOpenWeek() }
+    private func startOpenDeckLoadIfUnfinished() {
+        guard onScreenPullRequests == .openDeck, !isOpenDeckLoaded else { return }
+        openDeckLoadTask?.cancel()
+        openDeckLoadTask = feedWork.start { [self] in await loadOpenDeck() }
     }
 
     private func stopShownModeWork() {
@@ -873,7 +873,7 @@ final class PullRequestFeedStore {
         return appendedPullRequestCount
     }
 
-    // A pull request dead for this viewer leaves each feed and an open week (AGENTS.md, "Feed Order").
+    // A pull request dead for this viewer leaves each feed and the open deck (AGENTS.md, "Feed Order").
     private func removeIfEveryMediaItemGivenUp(_ pullRequest: PullRequest) {
         guard isEveryMediaItemGivenUp(pullRequest) else { return }
         for feed in PullRequestFeed.allCases where loadedFeed(feed).index(ofPullRequestID: pullRequest.id) != nil {
@@ -881,23 +881,23 @@ final class PullRequestFeedStore {
                 loadedFeed.removePullRequestWithoutLoadableMedia(withID: pullRequest.id, isShown: { visibleCopy(of: $0) != nil })
             }
         }
-        if openWeekPullRequests.contains(where: { $0.id == pullRequest.id }) {
-            removeFromOpenWeekWithMediaGivenUp(pullRequestID: pullRequest.id)
+        if openDeckPullRequests.contains(where: { $0.id == pullRequest.id }) {
+            removeFromOpenDeckWithMediaGivenUp(pullRequestID: pullRequest.id)
         }
     }
 
     // Like a mode, a deck that opened on a dead card skips it at once while the viewer hasn't moved off it, and the next card they're shown takes focus (AGENTS.md, "Weekly Mode").
-    private func removeFromOpenWeekWithMediaGivenUp(pullRequestID: String) {
-        let visibleOpenWeekPullRequests = visibleOpenWeekPullRequests
-        guard pullRequestID == focusedOpenWeekPullRequestID, !hasViewerMovedInOpenWeek,
-              let focusedPageIndex = visibleOpenWeekPullRequests.firstIndex(where: { $0.id == pullRequestID })
+    private func removeFromOpenDeckWithMediaGivenUp(pullRequestID: String) {
+        let visibleOpenDeckPullRequests = visibleOpenDeckPullRequests
+        guard pullRequestID == focusedOpenDeckPullRequestID, !hasViewerMovedInOpenDeck,
+              let focusedPageIndex = visibleOpenDeckPullRequests.firstIndex(where: { $0.id == pullRequestID })
         else {
-            removeFromOpenWeek(pullRequestID: pullRequestID)
+            removeFromOpenDeck(pullRequestID: pullRequestID)
             return
         }
-        focusedOpenWeekPullRequestID = visibleOpenWeekPullRequests.indices.contains(focusedPageIndex + 1) ? visibleOpenWeekPullRequests[focusedPageIndex + 1].id : nil
-        openWeekPullRequestIDsLeavingOnceUnfocused.remove(pullRequestID)
-        openWeekPullRequests.removeAll { $0.id == pullRequestID }
+        focusedOpenDeckPullRequestID = visibleOpenDeckPullRequests.indices.contains(focusedPageIndex + 1) ? visibleOpenDeckPullRequests[focusedPageIndex + 1].id : nil
+        openDeckPullRequestIDsLeavingOnceUnfocused.remove(pullRequestID)
+        openDeckPullRequests.removeAll { $0.id == pullRequestID }
     }
 
     private func refetchPullRequestsAroundFocus(in feed: PullRequestFeed) async {
@@ -924,8 +924,8 @@ final class PullRequestFeedStore {
             for feed in PullRequestFeed.allCases where loadedFeed(feed).pullRequests.contains(where: { $0.number == number }) {
                 updateLoadedFeed(feed) { $0.removePullRequests { $0.number == number } }
             }
-            if let openWeekPullRequest = openWeekPullRequests.first(where: { $0.number == number }) {
-                removeFromOpenWeek(pullRequestID: openWeekPullRequest.id)
+            if let openDeckPullRequest = openDeckPullRequests.first(where: { $0.number == number }) {
+                removeFromOpenDeck(pullRequestID: openDeckPullRequest.id)
             }
             Self.logger.info("#\(number, privacy: .public) is closed without merging or gone, so its card leaves the feed")
         } catch {
@@ -943,19 +943,19 @@ final class PullRequestFeedStore {
             ? mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPullRequest.mediaItems, readStartedAt: fetchedAt)
             : []
         removeIfEveryMediaItemGivenUp(fetchedPullRequest)
-        if let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == fetchedPullRequest.id }) {
+        if let openDeckIndex = openDeckPullRequests.firstIndex(where: { $0.id == fetchedPullRequest.id }) {
             if !fetchedPullRequest.mediaItems.isEmpty, !isEveryMediaItemGivenUp(fetchedPullRequest) {
-                let existingPullRequest = openWeekPullRequests[openWeekIndex]
+                let existingPullRequest = openDeckPullRequests[openDeckIndex]
                 var updatedPullRequest = keepingLocalWrites(of: existingPullRequest, in: fetchedPullRequest)
-                if fetchedPullRequest.id == focusedOpenWeekPullRequestID && !forcesMediaURLRenewal {
+                if fetchedPullRequest.id == focusedOpenDeckPullRequestID && !forcesMediaURLRenewal {
                     updatedPullRequest = keepingMediaURLs(of: existingPullRequest, in: updatedPullRequest, except: renewedMediaItemIDs)
                 } else if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
                     mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = fetchedAt
                 }
-                openWeekPullRequests[openWeekIndex] = updatedPullRequest
-                openWeekPullRequestIDsLeavingOnceUnfocused.remove(fetchedPullRequest.id)
+                openDeckPullRequests[openDeckIndex] = updatedPullRequest
+                openDeckPullRequestIDsLeavingOnceUnfocused.remove(fetchedPullRequest.id)
             } else {
-                removeFromOpenWeek(pullRequestID: fetchedPullRequest.id)
+                removeFromOpenDeck(pullRequestID: fetchedPullRequest.id)
             }
         }
         for feed in PullRequestFeed.allCases {
@@ -1041,12 +1041,12 @@ final class PullRequestFeedStore {
         return pullRequestKeepingMediaURLs
     }
 
-    // A week card under the viewer's finger keeps the copy they see until they move on (AGENTS.md, "Weekly Mode").
-    private func removeFromOpenWeek(pullRequestID: String) {
-        if pullRequestID == focusedOpenWeekPullRequestID {
-            openWeekPullRequestIDsLeavingOnceUnfocused.insert(pullRequestID)
+    // A deck card under the viewer's finger keeps the copy they see until they move on (AGENTS.md, "Weekly Mode").
+    private func removeFromOpenDeck(pullRequestID: String) {
+        if pullRequestID == focusedOpenDeckPullRequestID {
+            openDeckPullRequestIDsLeavingOnceUnfocused.insert(pullRequestID)
         } else {
-            openWeekPullRequests.removeAll { $0.id == pullRequestID }
+            openDeckPullRequests.removeAll { $0.id == pullRequestID }
         }
     }
 
@@ -1098,10 +1098,10 @@ final class PullRequestFeedStore {
         updateEveryCopy(ofPullRequestID: pullRequestID) { update(&$0.reactions) }
     }
 
-    // A pull request can be in a feed and in the open week at once, and every change shows on each of its cards.
+    // A pull request can be in a feed and in the open deck at once, and every change shows on each of its cards.
     private func updateEveryCopy(ofPullRequestID pullRequestID: String, _ update: (inout PullRequest) -> Void) {
-        if let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == pullRequestID }) {
-            update(&openWeekPullRequests[openWeekIndex])
+        if let openDeckIndex = openDeckPullRequests.firstIndex(where: { $0.id == pullRequestID }) {
+            update(&openDeckPullRequests[openDeckIndex])
         }
         for feed in PullRequestFeed.allCases {
             guard let pullRequestIndex = loadedFeed(feed).index(ofPullRequestID: pullRequestID) else { continue }

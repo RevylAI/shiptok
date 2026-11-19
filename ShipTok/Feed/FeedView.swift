@@ -189,7 +189,7 @@ struct FeedView: View {
     private var onScreenPullRequests: OnScreenPullRequests? {
         switch onScreenFeedContext {
         case .pullRequests(let feed): .feed(feed)
-        case .openWeek: .openWeek
+        case .openWeek: .openDeck
         case .weeklyEditions, nil: nil
         }
     }
@@ -208,7 +208,7 @@ struct FeedView: View {
         switch feedContext {
         case .pullRequests(let feed): feedStore.visiblePullRequests(in: feed).map(FeedPage.pullRequest) + [.feedEnd]
         case .weeklyEditions: visibleWeeklyEditions.map(FeedPage.weeklyEdition) + [.feedEnd]
-        case .openWeek: feedStore.visibleOpenWeekPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
+        case .openWeek: feedStore.visibleOpenDeckPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
         }
     }
 
@@ -238,7 +238,7 @@ struct FeedView: View {
         switch feedContext {
         case .pullRequests(let feed): feedStore.loadedFeed(feed).isPullToRefreshRunning
         case .weeklyEditions: weeklyEditionsStore.isPullToRefreshRunning
-        case .openWeek: feedStore.isOpenWeekPullToRefreshRunning
+        case .openWeek: feedStore.isOpenDeckPullToRefreshRunning
         }
     }
 
@@ -407,7 +407,7 @@ struct FeedView: View {
         .onChange(of: feedStore.visiblePullRequests(in: .merged).map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
             keepPullRequestsPageInPlace(in: .merged, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
         }
-        .onChange(of: feedStore.visibleOpenWeekPullRequests.map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
+        .onChange(of: feedStore.visibleOpenDeckPullRequests.map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
             let previouslyShownPullRequestID = previousPullRequestIDs.indices.contains(openWeekPageIndex) ? previousPullRequestIDs[openWeekPageIndex] : nil
             if let previouslyShownPullRequestID, let movedPageIndex = currentPullRequestIDs.firstIndex(of: previouslyShownPullRequestID), movedPageIndex != openWeekPageIndex {
                 openWeekPageIndex = movedPageIndex
@@ -597,17 +597,17 @@ struct FeedView: View {
 
     @ViewBuilder
     private func openWeekFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
-        if !feedStore.openWeekPullRequests.isEmpty {
+        if !feedStore.openDeckPullRequests.isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
-        } else if let openWeekLoadFailureMessage = feedStore.openWeekLoadFailureMessage, let openWeeklyEdition {
+        } else if let openWeekLoadFailureMessage = feedStore.openDeckLoadFailureMessage, let openWeeklyEdition {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
                 title: Text("Couldn't load this week's pull requests"),
                 message: Text(verbatim: openWeekLoadFailureMessage),
                 actionTitle: Text("Try again"),
-                action: { feedStore.openWeek(pullRequestNumbers: openWeeklyEdition.pullRequestNumbers) }
+                action: { feedStore.openDeck(pullRequestNumbers: openWeeklyEdition.pullRequestNumbers) }
             )
-        } else if !feedStore.isOpenWeekLoaded {
+        } else if !feedStore.isOpenDeckLoaded {
             FeedLoadingView(message: "Loading the week's pull requests…")
         } else {
             RevylContentUnavailableView(
@@ -868,7 +868,7 @@ struct FeedView: View {
             )
             .background(RevylBrandColor.canvas)
         case .openWeek:
-            if feedStore.isOpenWeekLoaded {
+            if feedStore.isOpenDeckLoaded {
                 RevylContentUnavailableView(
                     systemImageName: "checkmark.seal.fill",
                     title: Text("That's the week of \(openWeeklyEdition?.weekDatesText ?? "")"),
@@ -1082,7 +1082,7 @@ struct FeedView: View {
         switch feedContext {
         case .pullRequests(let feed): Task { await feedStore.refreshFromPull(in: feed) }
         case .weeklyEditions: Task { await weeklyEditionsStore.refreshFromPull() }
-        case .openWeek: Task { await feedStore.refreshOpenWeekFromPull() }
+        case .openWeek: Task { await feedStore.refreshOpenDeckFromPull() }
         }
     }
 
@@ -1095,8 +1095,8 @@ struct FeedView: View {
         case .weeklyEditions:
             Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
         case .openWeek:
-            let visibleOpenWeekPullRequests = feedStore.visibleOpenWeekPullRequests
-            feedStore.focusOpenWeekPage(showingPullRequestID: visibleOpenWeekPullRequests.indices.contains(pageIndex) ? visibleOpenWeekPullRequests[pageIndex].id : nil)
+            let visibleOpenWeekPullRequests = feedStore.visibleOpenDeckPullRequests
+            feedStore.focusOpenDeckPage(showingPullRequestID: visibleOpenWeekPullRequests.indices.contains(pageIndex) ? visibleOpenWeekPullRequests[pageIndex].id : nil)
         }
     }
 
@@ -1135,19 +1135,19 @@ struct FeedView: View {
         switch feedContext {
         case .pullRequests(let feed): await feedStore.refreshNewestData(in: feed)
         case .weeklyEditions: await weeklyEditionsStore.refresh()
-        case .openWeek: await feedStore.refreshFocusedOpenWeekPullRequest()
+        case .openWeek: await feedStore.refreshFocusedOpenDeckPullRequest()
         }
     }
 
     private func openWeek(_ weeklyEdition: WeeklyEdition) {
         openWeekPageIndex = 0
         openWeeklyEdition = weeklyEdition
-        feedStore.openWeek(pullRequestNumbers: weeklyEdition.pullRequestNumbers)
+        feedStore.openDeck(pullRequestNumbers: weeklyEdition.pullRequestNumbers)
     }
 
     private func closeWeek() {
         withAnimation(.spring(duration: 0.3)) { openWeeklyEdition = nil }
-        feedStore.closeWeek()
+        feedStore.closeDeck()
     }
 
     // A vibe from the rail leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
