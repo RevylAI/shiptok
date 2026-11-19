@@ -4,12 +4,25 @@ import Observation
 struct UserSettings: Codable, Equatable, Sendable {
     var showsGoodVibesFeedbackBox: Bool
     var showsBadVibesFeedbackBox: Bool
+    var showsOnlyPullRequestsWithVideos: Bool
 
-    static let defaults = UserSettings(showsGoodVibesFeedbackBox: false, showsBadVibesFeedbackBox: true)
+    static let defaults = UserSettings(showsGoodVibesFeedbackBox: false, showsBadVibesFeedbackBox: true, showsOnlyPullRequestsWithVideos: true)
 
     enum CodingKeys: String, CodingKey {
         case showsGoodVibesFeedbackBox = "shows_good_vibes_feedback_box"
         case showsBadVibesFeedbackBox = "shows_bad_vibes_feedback_box"
+        case showsOnlyPullRequestsWithVideos = "shows_only_pull_requests_with_videos"
+    }
+}
+
+extension UserSettings {
+    // Revyl's backend may not return Videos only yet, and it's on until the person turns it off (AGENTS.md, "Feed Order").
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        showsGoodVibesFeedbackBox = try container.decode(Bool.self, forKey: .showsGoodVibesFeedbackBox)
+        showsBadVibesFeedbackBox = try container.decode(Bool.self, forKey: .showsBadVibesFeedbackBox)
+        showsOnlyPullRequestsWithVideos = try container.decodeIfPresent(Bool.self, forKey: .showsOnlyPullRequestsWithVideos)
+            ?? Self.defaults.showsOnlyPullRequestsWithVideos
     }
 }
 
@@ -29,10 +42,7 @@ final class UserSettingsStore {
     }
 
     func showsFeedbackBox(for vibe: PullRequestVibe) -> Bool {
-        switch vibe {
-        case .good: userSettings.showsGoodVibesFeedbackBox
-        case .bad: userSettings.showsBadVibesFeedbackBox
-        }
+        userSettings[keyPath: Self.feedbackBoxSetting(for: vibe)]
     }
 
     func refresh() async {
@@ -51,10 +61,18 @@ final class UserSettingsStore {
     }
 
     func setShowsFeedbackBox(_ showsFeedbackBox: Bool, for vibe: PullRequestVibe) async {
-        let previousShowsFeedbackBox = self.showsFeedbackBox(for: vibe)
-        guard showsFeedbackBox != previousShowsFeedbackBox else { return }
+        await setSetting(Self.feedbackBoxSetting(for: vibe), to: showsFeedbackBox)
+    }
+
+    func setShowsOnlyPullRequestsWithVideos(_ showsOnlyPullRequestsWithVideos: Bool) async {
+        await setSetting(\.showsOnlyPullRequestsWithVideos, to: showsOnlyPullRequestsWithVideos)
+    }
+
+    private func setSetting(_ setting: WritableKeyPath<UserSettings, Bool>, to newValue: Bool) async {
+        let previousValue = userSettings[keyPath: setting]
+        guard newValue != previousValue else { return }
         localChangeGeneration += 1
-        applyShowsFeedbackBox(showsFeedbackBox, for: vibe)
+        userSettings[keyPath: setting] = newValue
         defer { localChangeGeneration += 1 }
         // Saves replace every setting, so they run one at a time and each sends the settings as they stand when its turn comes; a quick second toggle can't be overwritten by the first one's older copy.
         let previousSave = latestSave
@@ -69,17 +87,17 @@ final class UserSettingsStore {
         do {
             try await save.value
         } catch {
-            if self.showsFeedbackBox(for: vibe) == showsFeedbackBox {
-                applyShowsFeedbackBox(previousShowsFeedbackBox, for: vibe)
+            if userSettings[keyPath: setting] == newValue {
+                userSettings[keyPath: setting] = previousValue
             }
             saveFailureMessage = "The setting is back to how it was. \(error.localizedDescription)"
         }
     }
 
-    private func applyShowsFeedbackBox(_ showsFeedbackBox: Bool, for vibe: PullRequestVibe) {
+    private static func feedbackBoxSetting(for vibe: PullRequestVibe) -> WritableKeyPath<UserSettings, Bool> {
         switch vibe {
-        case .good: userSettings.showsGoodVibesFeedbackBox = showsFeedbackBox
-        case .bad: userSettings.showsBadVibesFeedbackBox = showsFeedbackBox
+        case .good: \.showsGoodVibesFeedbackBox
+        case .bad: \.showsBadVibesFeedbackBox
         }
     }
 }

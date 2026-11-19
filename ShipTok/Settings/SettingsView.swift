@@ -9,6 +9,7 @@ struct SettingsView: View {
     let chosenRepositoryFullName: String
     let signInSession: GitHubSignInSession
     let onChooseRepository: @MainActor (String) async -> Void
+    @Environment(\.shipTokAnalytics) private var analytics
 
     var body: some View {
         NavigationStack {
@@ -26,7 +27,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Section("Feed") {
+                Section {
                     NavigationLink {
                         FeedRepositoryPickerView(
                             accountAPI: accountAPI,
@@ -45,6 +46,11 @@ struct SettingsView: View {
                                 .foregroundStyle(RevylBrandColor.textMuted)
                         }
                     }
+                    Toggle("Videos only", isOn: showsOnlyPullRequestsWithVideosBinding)
+                } header: {
+                    Text("Feed")
+                } footer: {
+                    Text("Open and Merged show only pull requests that lead with a video. Turn it off to see ones with only screenshots or GIFs too. Weekly videos always show.")
                 }
                 Section {
                     Toggle("Ask for feedback on good vibes", isOn: feedbackBoxBinding(for: .good))
@@ -82,6 +88,16 @@ struct SettingsView: View {
         } message: {
             Text(userSettingsStore.saveFailureMessage ?? "")
         }
+    }
+
+    private var showsOnlyPullRequestsWithVideosBinding: Binding<Bool> {
+        Binding(
+            get: { userSettingsStore.userSettings.showsOnlyPullRequestsWithVideos },
+            set: { showsOnlyPullRequestsWithVideos in
+                analytics?.capture(.showsOnlyPullRequestsWithVideosChanged(showsOnlyPullRequestsWithVideos))
+                Task { await userSettingsStore.setShowsOnlyPullRequestsWithVideos(showsOnlyPullRequestsWithVideos) }
+            }
+        )
     }
 
     private func feedbackBoxBinding(for vibe: PullRequestVibe) -> Binding<Bool> {

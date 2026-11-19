@@ -59,6 +59,7 @@ struct FeedView: View {
     @State private var demoSignInPromptAction: DemoSignInPromptAction?
     @AppStorage("feed-mode") private var savedFeedMode: FeedMode = .merged
     @State private var demoVisitFeedMode: FeedMode = .merged
+    @State private var demoVisitShowsOnlyPullRequestsWithVideos = true
     @State private var playbackRateChoice: VideoPlaybackRateChoice
     @State private var openWeeklyEdition: WeeklyEdition?
     @State private var openPullRequestsPageIndex = 0
@@ -164,6 +165,10 @@ struct FeedView: View {
                 savedFeedMode = newValue
             }
         }
+    }
+
+    private var showsOnlyPullRequestsWithVideos: Bool {
+        userSettingsStore?.userSettings.showsOnlyPullRequestsWithVideos ?? demoVisitShowsOnlyPullRequestsWithVideos
     }
 
     private var feedContext: FeedContext {
@@ -391,6 +396,9 @@ struct FeedView: View {
             else { return }
             weeklyEditionsPageIndex = movedPageIndex
         }
+        .onChange(of: showsOnlyPullRequestsWithVideos, initial: true) { _, newShowsOnlyPullRequestsWithVideos in
+            feedStore.showsOnlyPullRequestsWithVideos = newShowsOnlyPullRequestsWithVideos
+        }
         .onChange(of: scenePhase) { _, newScenePhase in
             switch newScenePhase {
             case .active:
@@ -493,7 +501,11 @@ struct FeedView: View {
                     )
                 }
             case .demoVisitor(let demoVisitor):
-                DemoSettingsView(demoVisitor: demoVisitor, signInSession: signInSession)
+                DemoSettingsView(
+                    demoVisitor: demoVisitor,
+                    signInSession: signInSession,
+                    showsOnlyPullRequestsWithVideos: $demoVisitShowsOnlyPullRequestsWithVideos
+                )
             }
         }
     }
@@ -588,20 +600,22 @@ struct FeedView: View {
                 action: { Task { await feedStore.loadOlderPullRequests(in: feed) } }
             )
         } else if !loadedFeed.hasLoadedEveryPullRequest {
-            FeedLoadingView(message: feed == .merged ? "Finding merged PRs with videos and screenshots…" : "Finding open PRs with videos and screenshots…")
+            FeedLoadingView(message: "Finding \(feed == .merged ? "merged" : "open") PRs with \(showsOnlyPullRequestsWithVideos ? "videos" : "videos and screenshots")…")
         } else {
+            let shownMediaDescription = showsOnlyPullRequestsWithVideos ? "lead with a video" : "carry a video, screenshot or GIF"
+            let videosOnlyHint = showsOnlyPullRequestsWithVideos ? " Turn off Videos only in Settings to see ones with only screenshots or GIFs." : ""
             switch feed {
             case .open:
                 RevylContentUnavailableView(
                     systemImageName: "film.stack",
-                    title: Text("No open PRs with media"),
-                    message: Text("ShipTok shows open pull requests in \(githubAPIClient.repositoryFullName), drafts included, that carry a video, screenshot or GIF. None do right now.")
+                    title: Text(showsOnlyPullRequestsWithVideos ? "No open PRs with videos" : "No open PRs with media"),
+                    message: Text("ShipTok shows open pull requests in \(githubAPIClient.repositoryFullName), drafts included, that \(shownMediaDescription). None do right now.\(videosOnlyHint)")
                 )
             case .merged:
                 RevylContentUnavailableView(
                     systemImageName: "film.stack",
-                    title: Text("No merged PRs with media yet"),
-                    message: Text("ShipTok shows pull requests merged into \(githubAPIClient.repositoryFullName) that carry a video, screenshot or GIF. None do yet.")
+                    title: Text(showsOnlyPullRequestsWithVideos ? "No merged PRs with videos yet" : "No merged PRs with media yet"),
+                    message: Text("ShipTok shows pull requests merged into \(githubAPIClient.repositoryFullName) that \(shownMediaDescription). None do yet.\(videosOnlyHint)")
                 )
             }
         }
@@ -805,6 +819,7 @@ struct FeedView: View {
             FeedEndPageView(
                 feed: feed,
                 repositoryFullName: githubAPIClient.repositoryFullName,
+                showsOnlyPullRequestsWithVideos: showsOnlyPullRequestsWithVideos,
                 loadFailureMessage: loadedFeed.loadFailureMessage,
                 hasLoadedEveryPullRequest: loadedFeed.hasLoadedEveryPullRequest,
                 onRetry: { Task { await feedStore.loadOlderPullRequests(in: feed) } }

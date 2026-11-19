@@ -4,6 +4,8 @@ import SwiftUI
 struct DemoSettingsView: View {
     let demoVisitor: DemoVisitor
     let signInSession: GitHubSignInSession
+    // Kept only for the visit, like everything else a demo visitor chooses.
+    @Binding var showsOnlyPullRequestsWithVideos: Bool
 
     var body: some View {
         NavigationStack {
@@ -27,7 +29,7 @@ struct DemoSettingsView: View {
                 } header: {
                     Text("Demo")
                 }
-                Section("Feed") {
+                Section {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Repository")
                             .foregroundStyle(RevylBrandColor.textPrimary)
@@ -35,6 +37,17 @@ struct DemoSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(RevylBrandColor.textMuted)
                     }
+                    Toggle("Videos only", isOn: Binding(
+                        get: { showsOnlyPullRequestsWithVideos },
+                        set: { newShowsOnlyPullRequestsWithVideos in
+                            demoVisitor.analytics.capture(.showsOnlyPullRequestsWithVideosChanged(newShowsOnlyPullRequestsWithVideos))
+                            showsOnlyPullRequestsWithVideos = newShowsOnlyPullRequestsWithVideos
+                        }
+                    ))
+                } header: {
+                    Text("Feed")
+                } footer: {
+                    Text("Open and Merged show only pull requests that lead with a video. Turn it off to see ones with only screenshots or GIFs too. Weekly videos always show. Your choice lasts for the rest of this visit.")
                 }
                 HiddenPeopleSection(
                     hiddenPeopleStore: demoVisitor.hiddenPeopleStore,

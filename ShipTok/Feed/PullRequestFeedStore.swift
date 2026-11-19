@@ -92,6 +92,8 @@ final class PullRequestFeedStore {
 
     private(set) var openFeed = LoadedPullRequestFeed(feed: .open)
     private(set) var mergedFeed = LoadedPullRequestFeed(feed: .merged)
+    // Videos only: it filters what's shown, never what's read or saved (AGENTS.md, "Feed Order").
+    var showsOnlyPullRequestsWithVideos = true
     var transientErrorMessage: String?
     // The pull requests of the weekly edition whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
     private(set) var openWeekPullRequests: [PullRequest] = []
@@ -149,7 +151,7 @@ final class PullRequestFeedStore {
         }
     }
 
-    // What people the viewer hid wrote or posted leaves every card, so only what's left is shown and counted (AGENTS.md, "Report And Hide").
+    // What people the viewer hid wrote or posted leaves every card, and with Videos only on a card shows only if what's left leads with a video, so only what's shown is counted (AGENTS.md, "Report And Hide" and "Feed Order").
     func visiblePullRequests(in feed: PullRequestFeed) -> [PullRequest] {
         loadedFeed(feed).pullRequests.compactMap(visibleCopy(of:))
     }
@@ -440,7 +442,10 @@ final class PullRequestFeedStore {
     }
 
     private func visibleCopy(of pullRequest: PullRequest) -> PullRequest? {
-        pullRequest.withoutHiddenPeople(hiddenPeopleStore)
+        guard let visiblePullRequest = pullRequest.withoutHiddenPeople(hiddenPeopleStore),
+              !showsOnlyPullRequestsWithVideos || visiblePullRequest.mediaItems.first?.kind == .video
+        else { return nil }
+        return visiblePullRequest
     }
 
     private func isInEitherFeed(pullRequestID: String) -> Bool {

@@ -4,6 +4,7 @@ import SwiftUI
 struct FeedEndPageView: View {
     let feed: PullRequestFeed
     let repositoryFullName: String
+    let showsOnlyPullRequestsWithVideos: Bool
     let loadFailureMessage: String?
     let hasLoadedEveryPullRequest: Bool
     let onRetry: () -> Void
@@ -26,17 +27,21 @@ struct FeedEndPageView: View {
                     RevylContentUnavailableView(
                         systemImageName: "checkmark.seal.fill",
                         title: Text("That's every open PR"),
-                        message: Text("You've seen every open pull request in \(repositoryFullName) with a video, screenshot or GIF.")
+                        message: Text("You've seen every open pull request in \(repositoryFullName) \(shownMediaDescription).")
                     )
                 case .merged:
                     RevylContentUnavailableView(
                         systemImageName: "checkmark.seal.fill",
                         title: Text("That's every merged PR"),
-                        message: Text("You've seen every pull request merged into \(repositoryFullName) with a video, screenshot or GIF.")
+                        message: Text("You've seen every pull request merged into \(repositoryFullName) \(shownMediaDescription).")
                     )
                 }
             }
         }
         .background(RevylBrandColor.canvas)
+    }
+
+    private var shownMediaDescription: String {
+        showsOnlyPullRequestsWithVideos ? "that leads with a video" : "with a video, screenshot or GIF"
     }
 }

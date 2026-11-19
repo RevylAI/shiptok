@@ -82,6 +82,7 @@ enum ShipTokAnalyticsEvent: Sendable {
     case speedChanged(ShipTokAnalyticsSubject?, control: SpeedControl, previousRate: Float, playbackRate: Float)
     case feedModeChanged(previousMode: FeedMode, mode: FeedMode)
     case olderPullRequestsLoaded(PullRequestFeed, addedPullRequestCount: Int, addedVisiblePullRequestCount: Int)
+    case showsOnlyPullRequestsWithVideosChanged(Bool)
     case commentsOpened(ShipTokAnalyticsSubject)
     case likeSelected(ShipTokAnalyticsSubject, control: LikeControl, wasLiked: Bool)
     case signInStarted(attemptID: UUID, demoVisitID: UUID?)
@@ -106,6 +107,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .speedChanged: "shiptok_playback_speed_changed"
         case .feedModeChanged: "shiptok_feed_mode_changed"
         case .olderPullRequestsLoaded: "shiptok_older_pull_requests_loaded"
+        case .showsOnlyPullRequestsWithVideosChanged: "shiptok_shows_only_pull_requests_with_videos_changed"
         case .commentsOpened: "shiptok_comments_opened"
         case .likeSelected: "shiptok_like_selected"
         case .signInStarted: "shiptok_sign_in_started"
@@ -180,6 +182,8 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["feed_mode"] = .string(feed.rawValue)
             properties["added_pull_request_count"] = .integer(addedPullRequestCount)
             properties["added_visible_pull_request_count"] = .integer(addedVisiblePullRequestCount)
+        case .showsOnlyPullRequestsWithVideosChanged(let showsOnlyPullRequestsWithVideos):
+            properties["shows_only_pull_requests_with_videos"] = .boolean(showsOnlyPullRequestsWithVideos)
         case .commentsOpened(let subject):
             addSubject(subject)
         case .likeSelected(let subject, let control, let wasLiked):
