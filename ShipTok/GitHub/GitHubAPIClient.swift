@@ -171,7 +171,7 @@ final class GitHubAPIClient: Sendable {
         return "\(mergedPullRequestSearchQualifiers) merged:\(mergedRangeText)\(updatedQualifier) sort:updated-desc"
     }
 
-    // GitHub search returns at most 1,000 results, so a merge-date range is halved until each part is small, which also lets the parts load in parallel. A pull request's merge date never changes, so paging through a part never skips one that wasn't updated meanwhile, and one that was is read by the next search.
+    // GitHub search returns at most 1,000 results, so a merge-date range is halved at whole seconds until each part is small, which also lets the parts load in parallel; a part one second long can't be halved, so it's paged whole. A pull request's merge date never changes, so paging through a part never skips one that wasn't updated meanwhile, and one that was is read by the next search.
     private func mergedPullRequestSearchRanges(
         updatedSince earliestUpdateDate: Date?,
         mergedFrom earliestMergeDate: Date?,
@@ -184,11 +184,13 @@ final class GitHubAPIClient: Sendable {
             "searchQuery": searchQuery,
         ])
         let matchingPullRequestCount = probe.search.issueCount
-        guard matchingPullRequestCount > Self.mergedPullRequestSearchRangeMaximumResultCount else {
+        let rangeStartSecond = (earliestMergeDate ?? probe.feedRepository.createdAt).timeIntervalSince1970.rounded(.down)
+        let latestMergeSecond = latestMergeDate.timeIntervalSince1970.rounded(.down)
+        guard matchingPullRequestCount > Self.mergedPullRequestSearchRangeMaximumResultCount, latestMergeSecond > rangeStartSecond else {
             return matchingPullRequestCount > 0 ? [searchQuery] : []
         }
-        let rangeStartDate = earliestMergeDate ?? probe.feedRepository.createdAt
-        let rangeMidpointDate = Date(timeIntervalSince1970: ((rangeStartDate.timeIntervalSince1970 + latestMergeDate.timeIntervalSince1970) / 2).rounded(.down))
+        let rangeStartDate = Date(timeIntervalSince1970: rangeStartSecond)
+        let rangeMidpointDate = Date(timeIntervalSince1970: ((rangeStartSecond + latestMergeSecond) / 2).rounded(.down))
         async let newerHalfSearchRanges = mergedPullRequestSearchRanges(
             updatedSince: earliestUpdateDate,
             mergedFrom: rangeMidpointDate.addingTimeInterval(1),
