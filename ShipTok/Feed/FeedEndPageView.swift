@@ -1,9 +1,10 @@
 import SwiftUI
 
-// The page after a feed's last card: older pull requests loading, a failed load to retry, or the end of the repository's history (AGENTS.md, "Feed Order").
+// The page after a feed's last card: older pull requests loading, a failed load to retry, or the end of the repository's history, which in the demo is the end of its snapshot (AGENTS.md, "Feed Order" and "Demo Mode").
 struct FeedEndPageView: View {
     let feed: PullRequestFeed
     let repositoryFullName: String
+    let isDemoVisit: Bool
     let showsOnlyPullRequestsWithVideos: Bool
     let loadFailureMessage: String?
     let hasLoadedEveryPullRequest: Bool
@@ -27,13 +28,15 @@ struct FeedEndPageView: View {
                     RevylContentUnavailableView(
                         systemImageName: "checkmark.seal.fill",
                         title: Text("That's every open PR"),
-                        message: Text("You've seen every open pull request in \(repositoryFullName) \(shownMediaDescription).")
+                        message: Text("You've seen every open pull request in \(isDemoVisit ? "this demo" : repositoryFullName) \(shownMediaDescription).")
                     )
                 case .merged:
                     RevylContentUnavailableView(
                         systemImageName: "checkmark.seal.fill",
                         title: Text("That's every merged PR"),
-                        message: Text("You've seen every pull request merged into \(repositoryFullName) \(shownMediaDescription).")
+                        message: Text(isDemoVisit
+                            ? "You've seen every merged pull request in this demo \(shownMediaDescription)."
+                            : "You've seen every pull request merged into \(repositoryFullName) \(shownMediaDescription).")
                     )
                 }
             }

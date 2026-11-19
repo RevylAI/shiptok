@@ -837,6 +837,7 @@ struct FeedView: View {
             FeedEndPageView(
                 feed: feed,
                 repositoryFullName: githubAPIClient.repositoryFullName,
+                isDemoVisit: viewer.teammate == nil,
                 showsOnlyPullRequestsWithVideos: showsOnlyPullRequestsWithVideos,
                 loadFailureMessage: loadedFeed.loadFailureMessage,
                 hasLoadedEveryPullRequest: loadedFeed.hasLoadedEveryPullRequest,
