@@ -181,12 +181,12 @@ struct FeedView: View {
     }
 
     private var shownPullRequestFeed: PullRequestFeed? {
-        guard case .pullRequests(let feed) = feedContext else { return nil }
+        guard case .pullRequests(let feed) = onScreenFeedContext else { return nil }
         return feed
     }
 
-    // Refreshes run only while the feed is on screen, never under Inbox or Settings (AGENTS.md, "Feed Order").
-    private var liveRefreshFeedContext: FeedContext? {
+    // Refreshes, focus and the reads around it run only while the feed is on screen, never under Inbox or Settings (AGENTS.md, "Feed Order").
+    private var onScreenFeedContext: FeedContext? {
         selectedTab == .feed ? feedContext : nil
     }
 
@@ -372,8 +372,8 @@ struct FeedView: View {
         .fullScreenCover(item: $mediaDeckPullRequestID) { presentedPullRequestID in
             MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, signInSession: signInSession, pullRequestID: presentedPullRequestID.id)
         }
-        .task(id: liveRefreshFeedContext) {
-            if liveRefreshFeedContext != nil {
+        .task(id: onScreenFeedContext) {
+            if onScreenFeedContext != nil {
                 await refreshShownFeedContextWhileShown()
             }
         }
@@ -388,6 +388,8 @@ struct FeedView: View {
         }
         .onChange(of: feedContext) {
             postVibeAwaitingFeedback()
+        }
+        .onChange(of: onScreenFeedContext) {
             feedStore.changeShownFeed(to: shownPullRequestFeed)
             focusPage(at: currentPageIndex)
         }
@@ -1070,7 +1072,9 @@ struct FeedView: View {
     }
 
     private func focusPage(at pageIndex: Int) {
-        switch feedContext {
+        switch onScreenFeedContext {
+        case nil:
+            break
         case .pullRequests(let feed):
             focusPullRequestsPage(in: feed, at: pageIndex)
         case .weeklyEditions:
@@ -1237,7 +1241,7 @@ struct FeedView: View {
 
     // The viewer's card keeps its place as cards arrive or leave around it. At the feed's end the viewer stays just past every card they had, so the first older card that loads is the one they see next (AGENTS.md, "Feed Order").
     private func keepPullRequestsPageInPlace(in feed: PullRequestFeed, previousPullRequestIDs: [String], currentPullRequestIDs: [String]) {
-        let isShowingFeed = feedContext == .pullRequests(feed)
+        let isShowingFeed = onScreenFeedContext == .pullRequests(feed)
         let previousPageIndex = pageIndex(in: feed)
         defer {
             if isShowingFeed { feedStore.loadOlderPullRequestsIfViewerNearsEnd(in: feed) }

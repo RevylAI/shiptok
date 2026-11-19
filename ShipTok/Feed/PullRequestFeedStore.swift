@@ -539,10 +539,9 @@ final class PullRequestFeedStore {
         startShownModeWork { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
-    // Older pages and the reads around the focused card belong to the mode on screen, so they stop when another one shows. Nil is Weekly (AGENTS.md, "Feed Order").
+    // Older pages and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly, a week's deck, or Inbox or Settings over the feed (AGENTS.md, "Feed Order").
     func changeShownFeed(to feed: PullRequestFeed?) {
-        guard feed != shownFeed else { return }
-        if let previouslyShownFeed = shownFeed {
+        if let previouslyShownFeed = shownFeed, previouslyShownFeed != feed {
             updateLoadedFeed(previouslyShownFeed) { loadedFeed in loadedFeed.leaveScreen(isShown: { visibleCopy(of: $0) != nil }) }
         }
         shownFeed = feed
