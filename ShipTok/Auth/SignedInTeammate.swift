@@ -9,4 +9,5 @@ struct SignedInTeammate {
     let analytics: ShipTokAnalytics
     let hiddenPeopleStore: HiddenPeopleStore
     let mediaCache: FeedViewerMediaCache
+    let feedWork: FeedViewerWork
 }

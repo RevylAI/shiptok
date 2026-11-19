@@ -59,9 +59,9 @@ actor PullRequestFeedCache {
         return savedFeeds
     }
 
-    // Saves arrive from separate tasks, so an older snapshot that lands after a newer one is skipped.
+    // Saves arrive from separate tasks, so an older snapshot that lands after a newer one is skipped, and a save the ended sign-in cancelled writes nothing.
     func save(_ feeds: SavedPullRequestFeeds, generation: Int) {
-        guard generation > newestSavedFeedsGeneration else { return }
+        guard !Task.isCancelled, generation > newestSavedFeedsGeneration else { return }
         newestSavedFeedsGeneration = generation
         do {
             let savedFeedsFileURL = Self.savedFeedsFileURL(viewerGitHubLogin: feeds.viewerGitHubLogin, repositoryFullName: feeds.repositoryFullName)

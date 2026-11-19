@@ -135,6 +135,7 @@ final class PullRequestFeedStore {
     private let viewerGitHubLogin: String?
     private let hiddenPeopleStore: HiddenPeopleStore
     private let feedCache = PullRequestFeedCache()
+    private let feedWork: FeedViewerWork
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
     init(
@@ -142,9 +143,11 @@ final class PullRequestFeedStore {
         analytics: ShipTokAnalytics,
         viewerGitHubLogin: String?,
         hiddenPeopleStore: HiddenPeopleStore,
+        feedWork: FeedViewerWork,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
     ) {
         self.githubAPIClient = githubAPIClient
+        self.feedWork = feedWork
         reactionWriteQueue = ViewerReactionWriteQueue(githubAPIClient: githubAPIClient)
         self.analytics = analytics
         self.viewerGitHubLogin = viewerGitHubLogin
@@ -183,7 +186,7 @@ final class PullRequestFeedStore {
         isOpenWeekLoaded = false
         openWeekLoadFailureMessage = nil
         focusedOpenWeekPullRequestID = nil
-        openWeekLoadTask = Task { await loadOpenWeek(pullRequestNumbers: uniquePullRequestNumbers) }
+        openWeekLoadTask = feedWork.start { [self] in await loadOpenWeek(pullRequestNumbers: uniquePullRequestNumbers) }
     }
 
     func closeWeek() {
@@ -200,7 +203,7 @@ final class PullRequestFeedStore {
         focusedOpenWeekPullRequestID = focusedPullRequestID
         let focusedPullRequest = openWeekPullRequests[pageIndex]
         let nextPullRequest = openWeekPullRequests.indices.contains(pageIndex + 1) ? openWeekPullRequests[pageIndex + 1] : nil
-        Task {
+        feedWork.start { [self] in
             async let focusedPullRequestRefetch: Void = fetchAndApplyPullRequest(
                 number: focusedPullRequest.number,
                 forcesMediaURLRenewal: isMediaURLRenewalDue(forPullRequestID: focusedPullRequest.id)
@@ -213,16 +216,20 @@ final class PullRequestFeedStore {
     }
 
     func refreshFocusedOpenWeekPullRequest() async {
-        guard let focusedOpenWeekPullRequestID, let focusedPullRequest = openWeekPullRequests.first(where: { $0.id == focusedOpenWeekPullRequestID }) else { return }
-        await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
+        await feedWork.perform { [self] in
+            guard let focusedOpenWeekPullRequestID, let focusedPullRequest = openWeekPullRequests.first(where: { $0.id == focusedOpenWeekPullRequestID }) else { return }
+            await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
+        }
     }
 
     // A pull only happens on a week's first card, so that's the card it reads again.
     func refreshOpenWeekFromPull() async {
-        guard let firstOpenWeekPullRequest = openWeekPullRequests.first else { return }
-        isOpenWeekPullToRefreshRunning = true
-        defer { isOpenWeekPullToRefreshRunning = false }
-        await fetchAndApplyPullRequest(number: firstOpenWeekPullRequest.number, forcesMediaURLRenewal: false)
+        await feedWork.perform { [self] in
+            guard let firstOpenWeekPullRequest = openWeekPullRequests.first else { return }
+            isOpenWeekPullToRefreshRunning = true
+            defer { isOpenWeekPullToRefreshRunning = false }
+            await fetchAndApplyPullRequest(number: firstOpenWeekPullRequest.number, forcesMediaURLRenewal: false)
+        }
     }
 
     private func loadOpenWeek(pullRequestNumbers: [Int]) async {
@@ -284,17 +291,23 @@ final class PullRequestFeedStore {
 
     // A launch opens on the saved feeds at once and asks GitHub only for what changed since; a feed with nothing loaded reads its newest page first (AGENTS.md, "Feed Order" and "Feed Caching").
     func refreshNewestData(in feed: PullRequestFeed) async {
-        await refreshNewestData(in: feed, reportsFailure: false)
+        await feedWork.perform { [self] in await refreshNewestData(in: feed, reportsFailure: false) }
     }
 
     func refreshFromPull(in feed: PullRequestFeed) async {
-        updateLoadedFeed(feed) { $0.isPullToRefreshRunning = true }
-        defer { updateLoadedFeed(feed) { $0.isPullToRefreshRunning = false } }
-        await refreshNewestData(in: feed, reportsFailure: true)
+        await feedWork.perform { [self] in
+            updateLoadedFeed(feed) { $0.isPullToRefreshRunning = true }
+            defer { updateLoadedFeed(feed) { $0.isPullToRefreshRunning = false } }
+            await refreshNewestData(in: feed, reportsFailure: true)
+        }
+    }
+
+    func loadOlderPullRequests(in feed: PullRequestFeed) async {
+        await feedWork.perform { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
     // Older pull requests are read a page at a time, each read whole, sorted and put below every card already loaded, so nothing moves under the viewer, until enough more cards show or GitHub has no more (AGENTS.md, "Feed Order").
-    func loadOlderPullRequests(in feed: PullRequestFeed) async {
+    private func loadOlderPullRequestPages(in feed: PullRequestFeed) async {
         await openSavedFeedsOnce()
         guard !loadedFeed(feed).hasLoadedEveryPullRequest, olderPullRequestLoadRunningFeeds.insert(feed).inserted else { return }
         defer { olderPullRequestLoadRunningFeeds.remove(feed) }
@@ -355,7 +368,7 @@ final class PullRequestFeedStore {
             ? []
             : loadedFeed.pullRequests.dropFirst(loadedFeed.focusedPullRequestID == nil ? 0 : loadedFeed.focusedPageIndex + 1)
         guard pullRequestsAfterFocus.filter({ visibleCopy(of: $0) != nil }).count <= Self.olderPullRequestLoadDistanceInCards else { return }
-        Task { await loadOlderPullRequests(in: feed) }
+        feedWork.start { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
     // The app may be ended once it leaves the screen, so the feeds are saved for the next launch then.
@@ -386,14 +399,14 @@ final class PullRequestFeedStore {
             openFeed: savedOpenFeed
         )
         let generation = savedFeedGeneration
-        return Task { [feedCache] in await feedCache.save(savedFeeds, generation: generation) }
+        return feedWork.start { [feedCache] in await feedCache.save(savedFeeds, generation: generation) }
     }
 
     // Nil focuses the feed's end. Pages are named by pull request rather than position, since a feed shows only what people the viewer hid didn't post.
     func focusFeedPage(in feed: PullRequestFeed, showingPullRequestID focusedPullRequestID: String?) {
         updateLoadedFeed(feed) { $0.focus(showingPullRequestID: focusedPullRequestID) }
         loadOlderPullRequestsIfViewerNearsEnd(in: feed)
-        Task { await refetchPullRequestsAroundFocus(in: feed) }
+        feedWork.start { [self] in await refetchPullRequestsAroundFocus(in: feed) }
     }
 
     func heroMediaItem(of pullRequest: PullRequest) -> PullRequestMediaItem? {
@@ -402,17 +415,19 @@ final class PullRequestFeedStore {
 
     // A failed load renews the pull request's media URLs at once, and when that read fails, the next one that succeeds settles the failure.
     func recoverFromMediaLoadFailure(of mediaItem: PullRequestMediaItem, onPullRequestID pullRequestID: String, wasRefusedToViewer: Bool) async {
-        guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
-        defer {
-            if let loadedPullRequest = self.pullRequest(withID: pullRequestID) {
-                removeIfNoMediaLoadsAheadOfViewer(loadedPullRequest)
+        await feedWork.perform { [self] in
+            guard let pullRequest = pullRequest(withID: pullRequestID) else { return }
+            defer {
+                if let loadedPullRequest = self.pullRequest(withID: pullRequestID) {
+                    removeIfNoMediaLoadsAheadOfViewer(loadedPullRequest)
+                }
             }
+            guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedToViewer: wasRefusedToViewer),
+                  pullRequestIDsRenewingMediaURLsAfterLoadFailure.insert(pullRequestID).inserted
+            else { return }
+            defer { pullRequestIDsRenewingMediaURLsAfterLoadFailure.remove(pullRequestID) }
+            await fetchAndApplyPullRequest(number: pullRequest.number, forcesMediaURLRenewal: true)
         }
-        guard mediaLoadFailureRecovery.recordLoadFailure(of: mediaItem, wasRefusedToViewer: wasRefusedToViewer),
-              pullRequestIDsRenewingMediaURLsAfterLoadFailure.insert(pullRequestID).inserted
-        else { return }
-        defer { pullRequestIDsRenewingMediaURLsAfterLoadFailure.remove(pullRequestID) }
-        await fetchAndApplyPullRequest(number: pullRequest.number, forcesMediaURLRenewal: true)
     }
 
     // A read made elsewhere has no known start, so it leaves failed media loads for the store's own reads to settle.
@@ -507,7 +522,7 @@ final class PullRequestFeedStore {
     private func refreshNewestData(in feed: PullRequestFeed, reportsFailure: Bool) async {
         await openSavedFeedsOnce()
         guard let everyUpdateAppliedBefore = loadedFeed(feed).everyUpdateAppliedBefore else {
-            await loadOlderPullRequests(in: feed)
+            await loadOlderPullRequestPages(in: feed)
             return
         }
         guard refreshRunningFeeds.insert(feed).inserted else { return }

@@ -12,10 +12,12 @@ struct AccountActionsSections: View {
         PrivacyAndSupportSection()
         Section {
             Button("Sign out", role: .destructive) {
-                do {
-                    try signInSession.signOut()
-                } catch {
-                    signOutFailureMessage = error.localizedDescription
+                Task {
+                    do {
+                        try await signInSession.signOut()
+                    } catch {
+                        signOutFailureMessage = error.localizedDescription
+                    }
                 }
             }
             .disabled(isDeletingData)

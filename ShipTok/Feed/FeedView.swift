@@ -131,6 +131,7 @@ struct FeedView: View {
             analytics: viewer.analytics,
             viewerGitHubLogin: viewer.githubLogin,
             hiddenPeopleStore: viewer.hiddenPeopleStore,
+            feedWork: viewer.feedWork,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         )
         let weeklyEditionsStore = WeeklyEditionsStore(

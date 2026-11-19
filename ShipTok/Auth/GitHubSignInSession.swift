@@ -97,7 +97,8 @@ final class GitHubSignInSession {
                 demoFeed: demoFeed,
                 analytics: ShipTokAnalytics(demoVisitID: visitID),
                 hiddenPeopleStore: .forDemoVisit(),
-                mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil)
+                mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil),
+                feedWork: FeedViewerWork()
             )
             demoVisitor.analytics.capture(.demoEntered)
             Self.logger.info("Opened the demo feed")
@@ -133,7 +134,8 @@ final class GitHubSignInSession {
                         demoFeed: visitBeforeDeletion.demoFeed,
                         analytics: visitBeforeDeletion.analytics,
                         hiddenPeopleStore: visitBeforeDeletion.hiddenPeopleStore,
-                        mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil)
+                        mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil),
+                        feedWork: visitBeforeDeletion.feedWork
                     )
                     demoVisitor = continuingVisit
                     phase = .exploringDemo(continuingVisit, signInFailureMessage: nil)
@@ -163,6 +165,7 @@ final class GitHubSignInSession {
             try GitHubSignInKeychainStore.saveStoredSignIn(storedSignIn)
             UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
             Self.logger.info("Signed in with Revyl")
+            demoVisitor?.feedWork.stop()
             activate(storedSignIn).analytics.capture(.signInCompleted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
         } catch {
             let failureReason = Self.signInFailureReason(for: error)
@@ -178,7 +181,7 @@ final class GitHubSignInSession {
 
     // GitHub keeps what the person wrote there, so this deletes what Revyl and this iPhone hold and revokes ShipTok's GitHub token (AGENTS.md, "Ownership And Boundaries").
     func deleteShipTokData() async throws {
-        guard case .signedIn(let teammate) = phase, !isDeletingShipTokData else { return }
+        guard case .signedIn(let teammate) = phase, !isDeletingShipTokData, !teammate.feedWork.hasStopped else { return }
         isDeletingShipTokData = true
         defer { isDeletingShipTokData = false }
         try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
@@ -186,6 +189,8 @@ final class GitHubSignInSession {
         }
         UserDefaults.standard.set(teammate.user.githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
         teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
+        // A feed read that finishes after the files go would save its feeds again, so the feed's work stops and drains first.
+        await teammate.feedWork.stopAndWaitForRunningWork()
         // Revyl has revoked the sign-in's token, so its feed can't work any more: if this iPhone's part fails, the app leaves the sign-in for the sign-in screen saying the deletion is unfinished, as the next launch would.
         do {
             try await finishDeletingShipTokDataOnThisIPhone()
@@ -195,10 +200,12 @@ final class GitHubSignInSession {
         }
     }
 
-    // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile. A sign-in the Keychain still holds would come back on the next launch, so it stays until the Keychain lets it go.
-    func signOut() throws {
-        guard case .signedIn(let teammate) = phase, !isDeletingShipTokData else { return }
+    // Deleting the data ends the sign-in itself, so it can't be signed out of meanwhile. A sign-in the Keychain still holds would come back on the next launch, so it stays until the Keychain lets it go. Its feed's reads and saves stop and drain before it ends, so nothing is saved for it afterwards.
+    func signOut() async throws {
+        guard case .signedIn(let teammate) = phase, !isDeletingShipTokData, !teammate.feedWork.hasStopped else { return }
         try GitHubSignInKeychainStore.deleteStoredSignIn()
+        await teammate.feedWork.stopAndWaitForRunningWork()
+        guard case .signedIn(let currentTeammate) = phase, currentTeammate.signInID == teammate.signInID else { return }
         end(teammate, reason: .signedOut, message: nil)
     }
 
@@ -297,7 +304,8 @@ final class GitHubSignInSession {
             mediaCache: FeedViewerMediaCache(
                 savedMedia: .forSignedInGitHubUser(id: storedSignIn.user.githubUserID),
                 signedInGitHubAccessTokenVault: accessTokenVault
-            )
+            ),
+            feedWork: FeedViewerWork()
         )
         phase = .signedIn(teammate)
         return teammate
@@ -308,6 +316,7 @@ final class GitHubSignInSession {
         teammate.analytics.capture(.signInEnded(reason: reason))
         UserDefaults.standard.set(message, forKey: Self.signedOutReasonDefaultsKey)
         teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
+        teammate.feedWork.stop()
         phase = .signedOut(message: message)
     }
 }

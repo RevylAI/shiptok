@@ -19,6 +19,13 @@ enum FeedViewer {
         }
     }
 
+    var feedWork: FeedViewerWork {
+        switch self {
+        case .teammate(let teammate): teammate.feedWork
+        case .demoVisitor(let demoVisitor): demoVisitor.feedWork
+        }
+    }
+
     var hiddenPeopleStore: HiddenPeopleStore {
         switch self {
         case .teammate(let teammate): teammate.hiddenPeopleStore
