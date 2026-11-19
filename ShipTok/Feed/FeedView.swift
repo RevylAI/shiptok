@@ -403,10 +403,16 @@ struct FeedView: View {
             keepPullRequestsPageInPlace(in: .merged, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
         }
         .onChange(of: feedStore.visibleOpenWeekPullRequests.map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
-            guard previousPullRequestIDs.indices.contains(openWeekPageIndex),
-                  let movedPageIndex = currentPullRequestIDs.firstIndex(of: previousPullRequestIDs[openWeekPageIndex])
-            else { return }
-            openWeekPageIndex = movedPageIndex
+            let previouslyShownPullRequestID = previousPullRequestIDs.indices.contains(openWeekPageIndex) ? previousPullRequestIDs[openWeekPageIndex] : nil
+            if let previouslyShownPullRequestID, let movedPageIndex = currentPullRequestIDs.firstIndex(of: previouslyShownPullRequestID), movedPageIndex != openWeekPageIndex {
+                openWeekPageIndex = movedPageIndex
+                return
+            }
+            // The page stayed but its card changed: the first card arrived, or the one under the viewer left, so the store's focus follows.
+            let shownPullRequestID = currentPullRequestIDs.indices.contains(openWeekPageIndex) ? currentPullRequestIDs[openWeekPageIndex] : nil
+            if shownPullRequestID != previouslyShownPullRequestID {
+                focusPage(at: openWeekPageIndex)
+            }
         }
         .onChange(of: visibleWeeklyEditions.map(\.id)) { previousWeeklyEditionIDs, currentWeeklyEditionIDs in
             guard previousWeeklyEditionIDs.indices.contains(weeklyEditionsPageIndex),
@@ -1081,8 +1087,7 @@ struct FeedView: View {
             Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
         case .openWeek:
             let visibleOpenWeekPullRequests = feedStore.visibleOpenWeekPullRequests
-            guard visibleOpenWeekPullRequests.indices.contains(pageIndex) else { return }
-            feedStore.focusOpenWeekPage(showingPullRequestID: visibleOpenWeekPullRequests[pageIndex].id)
+            feedStore.focusOpenWeekPage(showingPullRequestID: visibleOpenWeekPullRequests.indices.contains(pageIndex) ? visibleOpenWeekPullRequests[pageIndex].id : nil)
         }
     }
 

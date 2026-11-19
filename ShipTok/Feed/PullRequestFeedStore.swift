@@ -355,13 +355,17 @@ final class PullRequestFeedStore {
         openWeekPullRequests.compactMap { $0.withoutHiddenPeople(hiddenPeopleStore) }
     }
 
-    func focusOpenWeekPage(showingPullRequestID focusedPullRequestID: String) {
+    // Nil focuses the deck's end, or a deck with no card yet.
+    func focusOpenWeekPage(showingPullRequestID focusedPullRequestID: String?) {
         if focusedPullRequestID != focusedOpenWeekPullRequestID, !openWeekPullRequestIDsLeavingOnceUnfocused.isEmpty {
             openWeekPullRequests.removeAll { openWeekPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
             openWeekPullRequestIDsLeavingOnceUnfocused.removeAll()
         }
         let visibleOpenWeekPullRequests = visibleOpenWeekPullRequests
-        guard let pageIndex = visibleOpenWeekPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else { return }
+        guard let pageIndex = visibleOpenWeekPullRequests.firstIndex(where: { $0.id == focusedPullRequestID }) else {
+            focusedOpenWeekPullRequestID = nil
+            return
+        }
         focusedOpenWeekPullRequestID = focusedPullRequestID
         let focusedPullRequest = visibleOpenWeekPullRequests[pageIndex]
         let nextPullRequest = visibleOpenWeekPullRequests.indices.contains(pageIndex + 1) ? visibleOpenWeekPullRequests[pageIndex + 1] : nil
@@ -387,7 +391,7 @@ final class PullRequestFeedStore {
     // A pull only happens on a week's first card, so that's the card it reads again.
     func refreshOpenWeekFromPull() async {
         await feedWork.perform { [self] in
-            guard let firstOpenWeekPullRequest = openWeekPullRequests.first else { return }
+            guard let firstOpenWeekPullRequest = visibleOpenWeekPullRequests.first else { return }
             isOpenWeekPullToRefreshRunning = true
             defer { isOpenWeekPullToRefreshRunning = false }
             await fetchAndApplyPullRequest(number: firstOpenWeekPullRequest.number, forcesMediaURLRenewal: false)
