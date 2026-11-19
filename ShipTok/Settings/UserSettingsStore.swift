@@ -32,6 +32,8 @@ final class UserSettingsStore {
     private(set) var userSettings = UserSettings.defaults
     private(set) var refreshFailureMessage: String?
     var saveFailureMessage: String?
+    // What Revyl's backend last confirmed, so a failed save puts a setting back to what's saved, not to what showed before a toggle whose own save may have failed too.
+    private var lastConfirmedUserSettings = UserSettings.defaults
     private var localChangeGeneration = 0
     private var latestSave: Task<Void, Error>?
     private let accessTokenVault: GitHubAccessTokenVault
@@ -54,6 +56,7 @@ final class UserSettingsStore {
             refreshFailureMessage = nil
             guard localChangeGeneration == localChangeGenerationAtFetchStart else { return }
             userSettings = savedUserSettings
+            lastConfirmedUserSettings = savedUserSettings
         } catch {
             if Task.isCancelled { return }
             refreshFailureMessage = error.localizedDescription
@@ -69,8 +72,7 @@ final class UserSettingsStore {
     }
 
     private func setSetting(_ setting: WritableKeyPath<UserSettings, Bool>, to newValue: Bool) async {
-        let previousValue = userSettings[keyPath: setting]
-        guard newValue != previousValue else { return }
+        guard newValue != userSettings[keyPath: setting] else { return }
         localChangeGeneration += 1
         userSettings[keyPath: setting] = newValue
         defer { localChangeGeneration += 1 }
@@ -82,15 +84,16 @@ final class UserSettingsStore {
             _ = try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
                 try await shipTokAPI.replaceUserSettings(userSettingsToSave, gitHubAccessToken: accessToken)
             }
+            lastConfirmedUserSettings = userSettingsToSave
         }
         latestSave = save
         do {
             try await save.value
         } catch {
             if userSettings[keyPath: setting] == newValue {
-                userSettings[keyPath: setting] = previousValue
+                userSettings[keyPath: setting] = lastConfirmedUserSettings[keyPath: setting]
             }
-            saveFailureMessage = "The setting is back to how it was. \(error.localizedDescription)"
+            saveFailureMessage = "The setting is back to its saved value. \(error.localizedDescription)"
         }
     }
 
