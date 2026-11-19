@@ -14,8 +14,6 @@ enum WeeklyEditionFormat {
 
     private static let markerPrefix = "<!-- shiptok:weekly week_start="
     private static let markerSuffix = " -->"
-    private static let titlePrefix = "## "
-    private static let pullRequestCountRange = 1...30
     private static let mondayWeekday = 2
 
     static var weekCalendar: Calendar {
@@ -25,21 +23,15 @@ enum WeeklyEditionFormat {
     }
 
     static func description(fromMarkdown markdown: String) -> Description? {
-        let lines = markdown
-            .split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-        guard let markerLine = lines.first(where: { !$0.isEmpty }),
-              let weekStartDate = weekStartDate(inMarkerLine: markerLine),
-              let titleLineIndex = lines.firstIndex(where: { $0.hasPrefix(titlePrefix) })
+        guard let publishedIssueDescription = PublishedIssueFormat.description(fromMarkdown: markdown),
+              let weekStartDate = weekStartDate(inMarkerLine: publishedIssueDescription.markerLine)
         else { return nil }
-        let title = lines[titleLineIndex].dropFirst(titlePrefix.count).trimmingCharacters(in: .whitespaces)
-        guard !title.isEmpty,
-              let hook = lines[(titleLineIndex + 1)...].first(where: { !$0.isEmpty }),
-              !hook.hasPrefix("#")
-        else { return nil }
-        let pullRequestNumbers = lines.compactMap(pullRequestNumber(inListItem:))
-        guard pullRequestCountRange.contains(pullRequestNumbers.count) else { return nil }
-        return Description(weekStartDate: weekStartDate, title: title, hook: hook, pullRequestNumbers: pullRequestNumbers)
+        return Description(
+            weekStartDate: weekStartDate,
+            title: publishedIssueDescription.title,
+            hook: publishedIssueDescription.hook,
+            pullRequestNumbers: publishedIssueDescription.pullRequestNumbers
+        )
     }
 
     private static func weekStartDate(inMarkerLine line: String) -> Date? {
@@ -54,13 +46,6 @@ enum WeeklyEditionFormat {
               calendar.component(.weekday, from: weekStartDate) == mondayWeekday
         else { return nil }
         return weekStartDate
-    }
-
-    private static func pullRequestNumber(inListItem line: String) -> Int? {
-        guard let periodIndex = line.firstIndex(of: "."), Int(line[..<periodIndex]) != nil else { return nil }
-        let reference = line[line.index(after: periodIndex)...].trimmingCharacters(in: .whitespaces)
-        guard reference.hasPrefix("#"), let number = Int(reference.dropFirst()), number > 0 else { return nil }
-        return number
     }
 }
 

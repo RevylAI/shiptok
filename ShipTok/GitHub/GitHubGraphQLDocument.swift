@@ -105,14 +105,15 @@ enum GitHubGraphQLDocument {
         }
         """ + "\n" + issueCommentFieldsFragment
 
-    private static let weeklyEditionFieldsFragment = """
-        fragment ShipTokWeeklyEditionFields on Issue {
+    private static let issueFieldsFragment = """
+        fragment ShipTokIssueFields on Issue {
           id
           number
           url
           state
           labels(first: 100) { nodes { name color } }
           createdAt
+          closedAt
           lastEditedAt
           body
           bodyHTML
@@ -125,24 +126,24 @@ enum GitHubGraphQLDocument {
         }
         """
 
-    static let closedWeeklyEditionIssuesQuery = """
-        query ClosedWeeklyEditionIssues($owner: String!, $name: String!, $labelName: String!, $after: String) {
+    static let closedIssuesWithLabelQuery = """
+        query ClosedIssuesWithLabel($owner: String!, $name: String!, $labelName: String!, $after: String) {
           feedRepository: repository(owner: $owner, name: $name) {
             issues(labels: [$labelName], states: [CLOSED], first: 25, after: $after, orderBy: { field: CREATED_AT, direction: DESC }) {
               pageInfo { hasNextPage endCursor }
-              nodes { ...ShipTokWeeklyEditionFields }
+              nodes { ...ShipTokIssueFields }
             }
           }
         }
-        """ + "\n" + weeklyEditionFieldsFragment + "\n" + issueCommentFieldsFragment
+        """ + "\n" + issueFieldsFragment + "\n" + issueCommentFieldsFragment
 
-    static let weeklyEditionByNumberQuery = """
-        query WeeklyEditionByNumber($owner: String!, $name: String!, $number: Int!) {
+    static let issueByNumberQuery = """
+        query IssueByNumber($owner: String!, $name: String!, $number: Int!) {
           feedRepository: repository(owner: $owner, name: $name) {
-            issue(number: $number) { ...ShipTokWeeklyEditionFields }
+            issue(number: $number) { ...ShipTokIssueFields }
           }
         }
-        """ + "\n" + weeklyEditionFieldsFragment + "\n" + issueCommentFieldsFragment
+        """ + "\n" + issueFieldsFragment + "\n" + issueCommentFieldsFragment
 
     static let mergedPullRequestSearchProbeQuery = """
         query MergedPullRequestSearchProbe($owner: String!, $name: String!, $searchQuery: String!) {

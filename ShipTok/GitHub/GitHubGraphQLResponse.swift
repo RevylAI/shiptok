@@ -190,13 +190,16 @@ struct CommentsPageData: Decodable {
     let node: CommentedNode?
 }
 
-struct WeeklyEditionNode: Decodable {
+// An issue ShipTok may publish as a card, a weekly edition or a feature, as the issues query and the demo feed's issue lists return it.
+struct IssueNode: Decodable {
     let id: String
     let number: Int
     let url: URL
     let state: String
     let labels: LabelConnectionNode
     let createdAt: Date
+    // A demo feed from before features doesn't send it.
+    let closedAt: Date?
     let lastEditedAt: Date?
     let body: String
     let bodyHTML: String
@@ -205,10 +208,10 @@ struct WeeklyEditionNode: Decodable {
     let comments: IssueCommentConnectionNode
 }
 
-struct WeeklyEditionIssuesPageData: Decodable {
+struct ClosedIssuesWithLabelPageData: Decodable {
     struct IssueConnectionNode: Decodable {
         let pageInfo: PageInfoNode
-        let nodes: [WeeklyEditionNode?]
+        let nodes: [IssueNode?]
     }
 
     struct RepositoryNode: Decodable {
@@ -218,9 +221,9 @@ struct WeeklyEditionIssuesPageData: Decodable {
     let feedRepository: RepositoryNode?
 }
 
-struct WeeklyEditionByNumberData: Decodable {
+struct IssueByNumberData: Decodable {
     struct RepositoryNode: Decodable {
-        let issue: WeeklyEditionNode?
+        let issue: IssueNode?
     }
 
     let feedRepository: RepositoryNode?

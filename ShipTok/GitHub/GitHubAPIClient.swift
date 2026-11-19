@@ -305,58 +305,22 @@ final class GitHubAPIClient: Sendable {
         return try await pullRequest(from: pullRequestNode)
     }
 
-    // Every published weekly edition, newest week first: the closed issues carrying the weekly label, read through the issues API, never search,
-    // so a week shows the moment it closes (AGENTS.md, "Weekly Mode").
+    // Every published weekly edition, newest week first; two issues for one week are two cards (AGENTS.md, "Weekly Mode").
     func fetchWeeklyEditions() async throws -> [WeeklyEdition] {
-        if case .demoFeed(let demoFeed) = source {
-            var weeklyEditions: [WeeklyEdition] = []
-            for weeklyEditionNode in try await demoFeed.snapshot().weeklyEditionIssues {
-                guard let weeklyEdition = try await weeklyEdition(from: weeklyEditionNode) else { continue }
-                weeklyEditions.append(weeklyEdition)
-            }
-            return weeklyEditions.sorted { $0.weekStartDate > $1.weekStartDate }
-        }
         var weeklyEditions: [WeeklyEdition] = []
-        var pageCursor: String?
-        repeat {
-            var variables: [String: any Sendable] = [
-                "owner": repositoryOwnerLogin,
-                "name": repositoryName,
-                "labelName": WeeklyEditionFormat.labelName,
-            ]
-            if let pageCursor { variables["after"] = pageCursor }
-            let page: WeeklyEditionIssuesPageData = try await sendGraphQLQuery(GitHubGraphQLDocument.closedWeeklyEditionIssuesQuery, variables: variables)
-            guard let issueConnection = page.feedRepository?.issues else {
-                throw GitHubAPIError.responseUnreadable(operationName: Self.operationName(in: GitHubGraphQLDocument.closedWeeklyEditionIssuesQuery))
+        for issueNode in try await everyClosedIssueNode(labeled: WeeklyEditionFormat.labelName, inDemoFeed: \.weeklyEditionIssues) {
+            guard let weeklyEdition = try await weeklyEdition(from: issueNode) else {
+                Self.logger.error("#\(issueNode.number, privacy: .public) carries the weekly label but not the weekly format or any media, so it's left out")
+                continue
             }
-            for weeklyEditionNode in issueConnection.nodes.compactMap({ $0 }) {
-                guard let weeklyEdition = try await weeklyEdition(from: weeklyEditionNode) else {
-                    Self.logger.error("#\(weeklyEditionNode.number, privacy: .public) carries the weekly label but not the weekly format, so it's left out")
-                    continue
-                }
-                weeklyEditions.append(weeklyEdition)
-            }
-            pageCursor = issueConnection.pageInfo.hasNextPage ? issueConnection.pageInfo.endCursor : nil
-        } while pageCursor != nil
+            weeklyEditions.append(weeklyEdition)
+        }
         return weeklyEditions.sorted { $0.weekStartDate > $1.weekStartDate }
     }
 
     func fetchWeeklyEdition(number: Int) async throws -> WeeklyEdition {
-        if case .demoFeed(let demoFeed) = source {
-            guard let weeklyEditionNode = try await demoFeed.snapshot().weeklyEditionIssues.first(where: { $0.number == number }),
-                  let weeklyEdition = try await weeklyEdition(from: weeklyEditionNode)
-            else {
-                throw GitHubAPIError.weeklyEditionUnreadable(number: number)
-            }
-            return weeklyEdition
-        }
-        let response: WeeklyEditionByNumberData = try await sendGraphQLQuery(GitHubGraphQLDocument.weeklyEditionByNumberQuery, variables: [
-            "owner": repositoryOwnerLogin,
-            "name": repositoryName,
-            "number": number,
-        ])
-        guard let weeklyEditionNode = response.feedRepository?.issue,
-              let weeklyEdition = try await weeklyEdition(from: weeklyEditionNode)
+        guard let issueNode = try await issueNode(number: number, inDemoFeed: \.weeklyEditionIssues),
+              let weeklyEdition = try await weeklyEdition(from: issueNode)
         else {
             throw GitHubAPIError.weeklyEditionUnreadable(number: number)
         }
@@ -409,34 +373,75 @@ final class GitHubAPIClient: Sendable {
         return commentNodes.map { (comment: PullRequestComment(node: $0), bodyHTML: $0.bodyHTML) }
     }
 
-    private func weeklyEdition(from weeklyEditionNode: WeeklyEditionNode) async throws -> WeeklyEdition? {
-        guard weeklyEditionNode.state == "CLOSED",
-              weeklyEditionNode.labels.nodes.compactMap({ $0 }).contains(where: { $0.name == WeeklyEditionFormat.labelName }),
-              let description = WeeklyEditionFormat.description(fromMarkdown: weeklyEditionNode.body)
+    // A label's closed issues, listed through the issues API, never search, so one shows on the first read after it closes; a demo visit reads the demo feed's list instead (docs/shiptok-format.md).
+    private func everyClosedIssueNode(labeled labelName: String, inDemoFeed demoFeedIssueNodes: KeyPath<DemoFeedSnapshot, [IssueNode]>) async throws -> [IssueNode] {
+        if case .demoFeed(let demoFeed) = source {
+            return try await demoFeed.snapshot()[keyPath: demoFeedIssueNodes]
+        }
+        var issueNodes: [IssueNode] = []
+        var pageCursor: String?
+        repeat {
+            var variables: [String: any Sendable] = [
+                "owner": repositoryOwnerLogin,
+                "name": repositoryName,
+                "labelName": labelName,
+            ]
+            if let pageCursor { variables["after"] = pageCursor }
+            let page: ClosedIssuesWithLabelPageData = try await sendGraphQLQuery(GitHubGraphQLDocument.closedIssuesWithLabelQuery, variables: variables)
+            guard let issueConnection = page.feedRepository?.issues else {
+                throw GitHubAPIError.responseUnreadable(operationName: Self.operationName(in: GitHubGraphQLDocument.closedIssuesWithLabelQuery))
+            }
+            issueNodes += issueConnection.nodes.compactMap { $0 }
+            pageCursor = issueConnection.pageInfo.hasNextPage ? issueConnection.pageInfo.endCursor : nil
+        } while pageCursor != nil
+        return issueNodes
+    }
+
+    private func issueNode(number: Int, inDemoFeed demoFeedIssueNodes: KeyPath<DemoFeedSnapshot, [IssueNode]>) async throws -> IssueNode? {
+        if case .demoFeed(let demoFeed) = source {
+            return try await demoFeed.snapshot()[keyPath: demoFeedIssueNodes].first { $0.number == number }
+        }
+        let response: IssueByNumberData = try await sendGraphQLQuery(GitHubGraphQLDocument.issueByNumberQuery, variables: [
+            "owner": repositoryOwnerLogin,
+            "name": repositoryName,
+            "number": number,
+        ])
+        return response.feedRepository?.issue
+    }
+
+    private func weeklyEdition(from issueNode: IssueNode) async throws -> WeeklyEdition? {
+        guard let description = WeeklyEditionFormat.description(fromMarkdown: issueNode.body),
+              let publishedIssueThread = try await fetchPublishedIssueThread(of: issueNode, labeledWith: WeeklyEditionFormat.labelName)
         else { return nil }
-        let commentsWithBodyHTML = try await everyComment(ofSubjectID: weeklyEditionNode.id, firstPage: weeklyEditionNode.comments)
-        let author = weeklyEditionNode.author.map(GitHubActor.init(node:))
-        let mediaItems = PullRequestMediaExtraction.mediaItems(
-            descriptionMarkdown: weeklyEditionNode.body,
-            descriptionHTML: weeklyEditionNode.bodyHTML,
-            descriptionLastEditedAt: weeklyEditionNode.lastEditedAt ?? weeklyEditionNode.createdAt,
-            descriptionAuthor: author,
-            comments: commentsWithBodyHTML
-        )
-        guard !mediaItems.isEmpty else { return nil }
         return WeeklyEdition(
-            id: weeklyEditionNode.id,
-            number: weeklyEditionNode.number,
-            url: weeklyEditionNode.url,
-            author: author,
+            id: issueNode.id,
+            number: issueNode.number,
+            url: issueNode.url,
+            author: publishedIssueThread.author,
             weekStartDate: description.weekStartDate,
             title: description.title,
             hook: description.hook,
             pullRequestNumbers: description.pullRequestNumbers,
-            reactions: GitHubReactionSummary(reactionGroups: weeklyEditionNode.reactionGroups ?? []),
-            comments: commentsWithBodyHTML.map(\.comment),
-            mediaItems: mediaItems
+            reactions: GitHubReactionSummary(reactionGroups: issueNode.reactionGroups ?? []),
+            comments: publishedIssueThread.comments,
+            mediaItems: publishedIssueThread.mediaItems
         )
+    }
+
+    // An issue is published while it's closed and carries its label, and shows only with media, which needs no tag (docs/shiptok-format.md). Its every comment is read, for the comments and their media.
+    private func fetchPublishedIssueThread(of issueNode: IssueNode, labeledWith labelName: String) async throws -> (author: GitHubActor?, comments: [PullRequestComment], mediaItems: [PullRequestMediaItem])? {
+        guard issueNode.state == "CLOSED", issueNode.labels.nodes.compactMap({ $0 }).contains(where: { $0.name == labelName }) else { return nil }
+        let commentsWithBodyHTML = try await everyComment(ofSubjectID: issueNode.id, firstPage: issueNode.comments)
+        let author = issueNode.author.map(GitHubActor.init(node:))
+        let mediaItems = PullRequestMediaExtraction.mediaItems(
+            descriptionMarkdown: issueNode.body,
+            descriptionHTML: issueNode.bodyHTML,
+            descriptionLastEditedAt: issueNode.lastEditedAt ?? issueNode.createdAt,
+            descriptionAuthor: author,
+            comments: commentsWithBodyHTML
+        )
+        guard !mediaItems.isEmpty else { return nil }
+        return (author, commentsWithBodyHTML.map(\.comment), mediaItems)
     }
 
     // A pull request closed without merging is neither open nor merged, so ShipTok never shows it (docs/shiptok-format.md).

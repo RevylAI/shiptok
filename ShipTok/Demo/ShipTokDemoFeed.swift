@@ -45,7 +45,7 @@ struct DemoFeedSnapshot: Decodable {
     let repositoryFullName: String
     let openPullRequests: [PullRequestNode]
     let mergedPullRequests: [PullRequestNode]
-    let weeklyEditionIssues: [WeeklyEditionNode]
+    let weeklyEditionIssues: [IssueNode]
 
     enum CodingKeys: String, CodingKey {
         case repositoryFullName = "repository_full_name"
@@ -60,6 +60,6 @@ struct DemoFeedSnapshot: Decodable {
         repositoryFullName = try container.decode(String.self, forKey: .repositoryFullName)
         openPullRequests = try container.decodeIfPresent([PullRequestNode].self, forKey: .openPullRequests) ?? []
         mergedPullRequests = try container.decode([PullRequestNode].self, forKey: .mergedPullRequests)
-        weeklyEditionIssues = try container.decode([WeeklyEditionNode].self, forKey: .weeklyEditionIssues)
+        weeklyEditionIssues = try container.decode([IssueNode].self, forKey: .weeklyEditionIssues)
     }
 }
