@@ -151,6 +151,8 @@ final class GitHubAPIClient: Sendable {
         for try await mergedPullRequestPage in try await searchMergedPullRequests(mergedFrom: windowStartDate, mergedThrough: latestMergeDate) {
             mergedPullRequests += mergedPullRequestPage
         }
+        // A cancelled reader leaves the stream's loop as if it had ended, so a window cut short must not pass for a whole one.
+        try Task.checkCancellation()
         return MergedPullRequestWindow(pullRequests: mergedPullRequests, startDate: windowStartDate)
     }
 
