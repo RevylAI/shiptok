@@ -1,6 +1,6 @@
 import Foundation
 
-// What someone sees before signing in: one public repository's open and merged pull requests, weekly videos and feature videos, which Revyl's backend reads with its GitHub App
+// What someone signed in to Revyl sees until they connect GitHub: one public repository's open and merged pull requests, weekly videos and feature videos, which Revyl's backend reads with its GitHub App
 // (AGENTS.md, "Demo Mode"). GitHub signs the media links in it for only minutes, so a snapshot is reused only briefly before it's read again.
 actor ShipTokDemoFeed {
     private static let freshnessSeconds: TimeInterval = 15

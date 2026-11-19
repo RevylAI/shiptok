@@ -52,13 +52,47 @@ enum ShipTokAnalyticsEvent: Sendable {
         case detailSheet = "detail_sheet"
         case mediaDeck = "media_deck"
     }
-    enum SignInEndReason: String, Sendable { case signedOut = "signed_out", githubRejected = "github_rejected", dataDeleted = "data_deleted" }
-    enum SignInFailureReason: String, Sendable {
+    enum SignInEndReason: String, Sendable {
+        case signedOut = "signed_out"
+        case githubRejected = "github_rejected"
+        case githubAccountNotConnected = "github_account_not_connected"
+        case revylSignInRequired = "revyl_sign_in_required"
+        case revylOrganizationRequired = "revyl_organization_required"
+        case dataDeleted = "data_deleted"
+    }
+    enum GitHubSignInFailureReason: String, Sendable {
         case cancelled
         case stateMismatch = "state_mismatch"
         case githubRefused = "github_refused"
         case revylRejected = "revyl_rejected"
         case keychainFailed = "keychain_failed"
+        case unavailable
+    }
+    // An account in no organization closes Revyl's page without a callback, which iOS reports as cancelled too.
+    enum RevylSignInFailureReason: String, Sendable {
+        case cancelled
+        case stateMismatch = "state_mismatch"
+        case codeMissing = "code_missing"
+        case signInExpired = "sign_in_expired"
+        case keychainFailed = "keychain_failed"
+        case unavailable
+    }
+    enum FirstScreenShowReason: String, Sendable {
+        case noSignIn = "no_sign_in"
+        case githubSignInWithoutRevylSignIn = "github_sign_in_without_revyl_sign_in"
+        case signedOut = "signed_out"
+        case revylSignInRequired = "revyl_sign_in_required"
+        case revylOrganizationRequired = "revyl_organization_required"
+        case dataDeleted = "data_deleted"
+        case failure
+    }
+    enum JoinOrganizationShowReason: String, Sendable {
+        case chosenOnFirstScreen = "chosen_on_first_screen"
+        case revylOrganizationRequired = "revyl_organization_required"
+    }
+    enum OrganizationJoinRequestFailureReason: String, Sendable {
+        case emailInvalid = "email_invalid"
+        case rateLimited = "rate_limited"
         case unavailable
     }
 
@@ -86,12 +120,17 @@ enum ShipTokAnalyticsEvent: Sendable {
     case showsOnlyPullRequestsWithVideosChanged(Bool)
     case commentsOpened(ShipTokAnalyticsSubject)
     case likeSelected(ShipTokAnalyticsSubject, control: LikeControl, wasLiked: Bool)
-    case signInStarted(attemptID: UUID, demoVisitID: UUID?)
-    case signInFailed(attemptID: UUID, reason: SignInFailureReason, demoVisitID: UUID?)
-    case signInCompleted(attemptID: UUID, demoVisitID: UUID?)
+    case firstScreenShown(reason: FirstScreenShowReason)
+    case revylSignInStarted(attemptID: UUID)
+    case revylSignInFailed(attemptID: UUID, reason: RevylSignInFailureReason)
+    case joinOrganizationShown(reason: JoinOrganizationShowReason)
+    case organizationJoinRequestFailed(reason: OrganizationJoinRequestFailureReason)
+    case githubSignInStarted(attemptID: UUID, demoVisitID: UUID?)
+    case githubSignInFailed(attemptID: UUID, reason: GitHubSignInFailureReason, demoVisitID: UUID?)
+    case githubSignInCompleted(attemptID: UUID, demoVisitID: UUID?)
     case signInEnded(reason: SignInEndReason)
     case demoEntered
-    case demoSignInPrompted(DemoSignInPromptAction)
+    case demoGitHubConnectionPrompted(DemoGitHubConnectionPromptAction)
     case contentReportOpened(GitHubPostedContent, control: ModerationControl)
     case personHidden(GitHubPostedContent, control: ModerationControl)
     case personUnhidden
@@ -111,12 +150,17 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .showsOnlyPullRequestsWithVideosChanged: "shiptok_shows_only_pull_requests_with_videos_changed"
         case .commentsOpened: "shiptok_comments_opened"
         case .likeSelected: "shiptok_like_selected"
-        case .signInStarted: "shiptok_sign_in_started"
-        case .signInFailed: "shiptok_sign_in_failed"
-        case .signInCompleted: "shiptok_sign_in_completed"
+        case .firstScreenShown: "shiptok_first_screen_shown"
+        case .revylSignInStarted: "shiptok_revyl_sign_in_started"
+        case .revylSignInFailed: "shiptok_revyl_sign_in_failed"
+        case .joinOrganizationShown: "shiptok_join_organization_shown"
+        case .organizationJoinRequestFailed: "shiptok_organization_join_request_failed"
+        case .githubSignInStarted: "shiptok_github_sign_in_started"
+        case .githubSignInFailed: "shiptok_github_sign_in_failed"
+        case .githubSignInCompleted: "shiptok_github_sign_in_completed"
         case .signInEnded: "shiptok_sign_in_ended"
         case .demoEntered: "shiptok_demo_entered"
-        case .demoSignInPrompted: "shiptok_demo_sign_in_prompted"
+        case .demoGitHubConnectionPrompted: "shiptok_demo_github_connection_prompted"
         case .contentReportOpened: "shiptok_content_report_opened"
         case .personHidden: "shiptok_person_hidden"
         case .personUnhidden: "shiptok_person_unhidden"
@@ -191,10 +235,21 @@ enum ShipTokAnalyticsEvent: Sendable {
             addSubject(subject)
             properties["control"] = .string(control.rawValue)
             properties["was_liked"] = .boolean(wasLiked)
-        case .signInStarted(let attemptID, let demoVisitID), .signInCompleted(let attemptID, let demoVisitID):
+        case .firstScreenShown(let reason):
+            properties["show_reason"] = .string(reason.rawValue)
+        case .joinOrganizationShown(let reason):
+            properties["show_reason"] = .string(reason.rawValue)
+        case .revylSignInStarted(let attemptID):
+            properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
+        case .revylSignInFailed(let attemptID, let reason):
+            properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
+            properties["failure_reason"] = .string(reason.rawValue)
+        case .organizationJoinRequestFailed(let reason):
+            properties["failure_reason"] = .string(reason.rawValue)
+        case .githubSignInStarted(let attemptID, let demoVisitID), .githubSignInCompleted(let attemptID, let demoVisitID):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
             properties["demo_visit_id"] = demoVisitID.map { .string($0.uuidString) }
-        case .signInFailed(let attemptID, let reason, let demoVisitID):
+        case .githubSignInFailed(let attemptID, let reason, let demoVisitID):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
             properties["failure_reason"] = .string(reason.rawValue)
             properties["demo_visit_id"] = demoVisitID.map { .string($0.uuidString) }
@@ -204,7 +259,7 @@ enum ShipTokAnalyticsEvent: Sendable {
             if let subject = postedContent.postedOn { addSubject(subject) }
             properties["content_kind"] = .string(postedContent.kind.rawValue)
             properties["control"] = .string(control.rawValue)
-        case .demoSignInPrompted(let action):
+        case .demoGitHubConnectionPrompted(let action):
             properties["demo_action"] = .string(action.rawValue)
         case .personUnhidden, .demoEntered:
             break
@@ -243,7 +298,7 @@ final class ShipTokAnalytics {
     private static let captureURL = URL(string: "https://us.i.posthog.com/i/v0/e/")!
     private let urlSession: URLSession
     private let distinctID: String
-    private let demoVisitID: UUID?
+    private let visitProperty: (name: String, visitID: UUID)?
 
     convenience init(githubUserID: Int64) {
         self.init(distinctID: "github:\(githubUserID)")
@@ -254,14 +309,19 @@ final class ShipTokAnalytics {
         self.init(distinctID: "shiptok-sign-in-attempt:\(signInAttemptID.uuidString)")
     }
 
-    // A demo visitor has no GitHub account, so a visit's events share its own id, and a sign-in that starts from it carries the id to its completion.
-    convenience init(demoVisitID: UUID) {
-        self.init(distinctID: "shiptok-demo-visit:\(demoVisitID.uuidString)", demoVisitID: demoVisitID)
+    // Nobody is signed in on the first screen and the app never learns who signs in to Revyl, so one showing of the first screen and what it leads to share its own id (AGENTS.md, "Product Analytics").
+    convenience init(firstScreenVisitID: UUID) {
+        self.init(distinctID: "shiptok-first-screen-visit:\(firstScreenVisitID.uuidString)", visitProperty: ("first_screen_visit_id", firstScreenVisitID))
     }
 
-    private init(distinctID: String, demoVisitID: UUID? = nil) {
+    // A demo visitor has signed in to Revyl but connected no GitHub account, so a visit's events share its own id, and a GitHub sign-in that starts from it carries the id to its completion.
+    convenience init(demoVisitID: UUID) {
+        self.init(distinctID: "shiptok-demo-visit:\(demoVisitID.uuidString)", visitProperty: ("demo_visit_id", demoVisitID))
+    }
+
+    private init(distinctID: String, visitProperty: (name: String, visitID: UUID)? = nil) {
         self.distinctID = distinctID
-        self.demoVisitID = demoVisitID
+        self.visitProperty = visitProperty
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
@@ -290,10 +350,10 @@ final class ShipTokAnalytics {
         properties["actor_type"] = .string("human")
         properties["identity_provider"] = .string("github")
         properties["source"] = .string("shiptok_ios")
-        if let demoVisitID {
-            properties["demo_visit_id"] = .string(demoVisitID.uuidString)
+        if let visitProperty {
+            properties[visitProperty.name] = .string(visitProperty.visitID.uuidString)
         }
-        properties["schema_version"] = .integer(4)
+        properties["schema_version"] = .integer(5)
         properties["app_version"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")
         properties["app_build"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown")
         #if DEBUG

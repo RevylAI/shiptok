@@ -1,9 +1,9 @@
 import SwiftUI
 
-// A demo visitor's settings: what demo mode is, a way to sign in, and what works without an account (AGENTS.md, "Demo Mode").
+// A demo visitor's settings: what demo mode is, Connect GitHub, what works without a GitHub account, and the Revyl account (AGENTS.md, "Demo Mode").
 struct DemoSettingsView: View {
     let demoVisitor: DemoVisitor
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
     // Kept only for the visit, like everything else a demo visitor chooses.
     @Binding var showsOnlyPullRequestsWithVideos: Bool
 
@@ -15,15 +15,15 @@ struct DemoSettingsView: View {
                         Label("You're looking around", systemImage: "eye")
                             .font(.headline)
                             .foregroundStyle(RevylBrandColor.textPrimary)
-                        Text("This is a demo of ShipTok on a public repository, without an account. Sign in with Revyl, using your GitHub account, to see your team's repositories and to like, react, comment and send vibes.")
+                        Text("This is a demo of ShipTok on a public repository. Connect your GitHub account to see your team's repositories and to like, react, comment and send vibes.")
                             .font(.subheadline)
                             .foregroundStyle(RevylBrandColor.textMuted)
-                        if let signInFailureMessage = signInSession.demoSignInFailureMessage {
-                            Text(signInFailureMessage)
+                        if let githubConnectionFailureMessage = signInSession.githubConnectionFailureMessage {
+                            Text(githubConnectionFailureMessage)
                                 .font(.footnote)
                                 .foregroundStyle(RevylBrandColor.warning)
                         }
-                        SignInWithRevylButton(signInSession: signInSession)
+                        ConnectGitHubButton(signInSession: signInSession)
                     }
                     .padding(.vertical, 6)
                 } header: {
@@ -54,7 +54,7 @@ struct DemoSettingsView: View {
                     footerText: "Their pull requests, weekly and feature videos, comments, vibes and media don't show for the rest of this visit. They aren't told, and nothing changes on GitHub."
                 )
                 GesturesSection()
-                PrivacyAndSupportSection()
+                AccountActionsSections(signInSession: signInSession)
             }
             .scrollContentBackground(.hidden)
             .scrollContentCenteredInReadableContentColumn()

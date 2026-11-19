@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
-// Media under one id never changes, so a video or image downloaded once plays from the device on later launches until it goes a month unused. Each viewer's files live in a folder of their own, a signed-in person's by GitHub user ID and the demo's in one shared folder, so no viewer ever reads another's. Files are named by a hash of the media item's id, which never carries a signed query string (AGENTS.md, "Feed Caching").
+// Media under one id never changes, so a video or image downloaded once plays from the device on later launches until it goes a month unused. Each viewer's files live in a folder of their own: one per connected GitHub account, by its user ID, and one shared folder for the demo, so no viewer ever reads another's. Files are named by a hash of the media item's id, which never carries a signed query string (AGENTS.md, "Feed Caching").
 struct PullRequestMediaDiskCache: Sendable {
     static let rootDirectoryURL = URL.cachesDirectory.appending(path: "pull-request-media", directoryHint: .isDirectory)
     static let forDemoVisits = PullRequestMediaDiskCache(viewerFolderName: "demo")

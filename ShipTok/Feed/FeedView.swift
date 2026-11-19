@@ -51,7 +51,7 @@ struct FeedView: View {
     }
 
     let viewer: FeedViewer
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
     let onChooseRepository: @MainActor (String) -> Void
     private let githubAPIClient: GitHubAPIClient
     @State private var feedStore: PullRequestFeedStore
@@ -61,7 +61,7 @@ struct FeedView: View {
     // A demo visitor has no inbox or saved settings.
     @State private var inboxStore: DeveloperInboxStore?
     @State private var userSettingsStore: UserSettingsStore?
-    @State private var demoSignInPromptAction: DemoSignInPromptAction?
+    @State private var demoGitHubConnectionPromptAction: DemoGitHubConnectionPromptAction?
     @AppStorage("feed-mode") private var savedFeedMode: FeedMode = .merged
     @State private var demoVisitFeedMode: FeedMode = .merged
     @State private var demoVisitShowsOnlyPullRequestsWithVideos = true
@@ -111,11 +111,12 @@ struct FeedView: View {
     private static let feedModeSwitchInsetInCard = CGSize(width: 16, height: 12)
     private static let feedModeSwitchMinimumGapBelowSafeArea: CGFloat = 6
     private static let newerPullRequestsButtonGapBelowFeedModeSwitch: CGFloat = 8
+    private static let connectGitHubButtonGapBeforeNewerPullRequestsButton: CGFloat = 8
 
     init(
         viewer: FeedViewer,
         repositoryFullName: String,
-        signInSession: GitHubSignInSession,
+        signInSession: ShipTokSignInSession,
         onChooseRepository: @escaping @MainActor (String) -> Void,
         onFeedRepositoryLost: @escaping @MainActor (String) -> Void
     ) {
@@ -332,7 +333,7 @@ struct FeedView: View {
                 if !isKeyboardShown {
                     AppTabBar(
                         selectedTab: Binding(get: { selectedTab }, set: { newSelectedTab in
-                            if newSelectedTab == .inbox, promptsSignIn(for: .inbox) { return }
+                            if newSelectedTab == .inbox, promptsGitHubConnection(for: .inbox) { return }
                             selectedTab = newSelectedTab
                         }),
                         unseenInboxItemCount: inboxStore?.unseenItemCount ?? 0,
@@ -492,7 +493,7 @@ struct FeedView: View {
             viewer.hiddenPeopleStore.hide(postedContent.postedBy)
             viewer.analytics.capture(.personHidden(postedContent, control: .feedRail))
         }
-        .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
+        .demoGitHubConnectionPrompt($demoGitHubConnectionPromptAction, signInSession: signInSession)
         .environment(\.shipTokAnalytics, viewer.analytics)
         .environment(\.feedViewerMediaCache, viewer.mediaCache)
         .environment(playbackRateChoice)
@@ -532,6 +533,25 @@ struct FeedView: View {
             .accessibilityLabel("\(unseenNewerPullRequestCount) \(unseenNewerPullRequestsDescription) above")
             .transition(.scale.combined(with: .opacity))
         }
+    }
+
+    // Its whole 44-point tap target is its frame, like the "new" pill's, so the row under the switch never reaches into the switch's taps.
+    private var connectGitHubButton: some View {
+        Button {
+            _ = promptsGitHubConnection(for: .connectGitHub)
+        } label: {
+            Label("Connect GitHub", systemImage: "link")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(RevylBrandColor.brand))
+                .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.swipeYielding)
+        .fixedSize()
     }
 
     @ViewBuilder
@@ -584,8 +604,9 @@ struct FeedView: View {
         }
     }
 
-    // The switch sits over the card's top left, inside the format's top safe zone and never under the status bar, and the "new" pill sits just under it,
-    // clear of the switch's taps, so the pill never covers the switch however wide the switch grows (AGENTS.md, "Card Layout").
+    // The switch sits over the card's top left, inside the format's top safe zone and never under the status bar. Under it, clear of the switch's taps,
+    // one row holds a demo visitor's Connect GitHub, so the way to their own feed always shows, and then the "new" pill, so neither covers the switch or the
+    // other however wide the switch grows (AGENTS.md, "Card Layout" and "Demo Mode").
     private func feedModeSwitchAndNewerPullRequestsButton(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
         let cardFrame = FeedCardView.cardFrame(in: pageSize, pageChromeInsets: pageChromeInsets).card
         return VStack(alignment: .leading, spacing: Self.newerPullRequestsButtonGapBelowFeedModeSwitch) {
@@ -595,8 +616,14 @@ struct FeedView: View {
                 onCloseDeck: closeDeck
             )
             .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
-            newerPullRequestsButton
-                .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+            HStack(spacing: Self.connectGitHubButtonGapBeforeNewerPullRequestsButton) {
+                if viewer.teammate == nil {
+                    connectGitHubButton
+                        .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
+                }
+                newerPullRequestsButton
+                    .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+            }
         }
         .offset(
             x: cardFrame.minX + Self.feedModeSwitchInsetInCard.width,
@@ -884,19 +911,19 @@ struct FeedView: View {
             horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
             likeBurstTrigger: likeBurstTriggers[thread.id, default: 0],
             onDoubleTap: {
-                guard !promptsSignIn(for: .like) else { return }
+                guard !promptsGitHubConnection(for: .like) else { return }
                 showLikeBurst(onPostID: thread.id)
                 viewer.analytics.capture(.likeSelected(analyticsSubject, control: .doubleTap, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
                 likeUnlessAlreadyLiked()
             },
             onToggleLike: {
-                guard !promptsSignIn(for: .like) else { return }
+                guard !promptsGitHubConnection(for: .like) else { return }
                 likeHapticTrigger += 1
                 viewer.analytics.capture(.likeSelected(analyticsSubject, control: .feedRail, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
                 toggleReaction(.heart)
             },
             onToggleReaction: { reaction in
-                guard !promptsSignIn(for: .reaction) else { return }
+                guard !promptsGitHubConnection(for: .reaction) else { return }
                 toggleReaction(reaction)
             },
             onOpenComments: {
@@ -925,7 +952,7 @@ struct FeedView: View {
         GitHubPostedContentModeration(
             reportableContents: reportableContents,
             onReport: { postedContent in
-                guard !promptsSignIn(for: .report) else { return }
+                guard !promptsGitHubConnection(for: .report) else { return }
                 viewer.analytics.capture(.contentReportOpened(postedContent, control: .feedRail))
                 openURL(postedContent.githubReportURL)
             },
@@ -1272,7 +1299,7 @@ struct FeedView: View {
 
     // A vibe from the rail leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
     private func flingCard(of vibeTarget: VibeTarget, castingVibe vibe: PullRequestVibe, deckWidth: CGFloat) {
-        guard !promptsSignIn(for: .vibe) else {
+        guard !promptsGitHubConnection(for: .vibe) else {
             withAnimation(.spring(duration: 0.3)) { horizontalDragOffset = 0 }
             return
         }
@@ -1345,11 +1372,11 @@ struct FeedView: View {
         isPageTransitionRunning = false
     }
 
-    // A demo visitor is asked to sign in instead of posting to GitHub; true when that's what happened (AGENTS.md, "Demo Mode").
-    private func promptsSignIn(for action: DemoSignInPromptAction) -> Bool {
+    // A demo visitor is asked to connect GitHub instead of posting to GitHub; true when that's what happened (AGENTS.md, "Demo Mode").
+    private func promptsGitHubConnection(for action: DemoGitHubConnectionPromptAction) -> Bool {
         guard case .demoVisitor(let demoVisitor) = viewer else { return false }
-        demoVisitor.analytics.capture(.demoSignInPrompted(action))
-        demoSignInPromptAction = action
+        demoVisitor.analytics.capture(.demoGitHubConnectionPrompted(action))
+        demoGitHubConnectionPromptAction = action
         return true
     }
 
@@ -1411,10 +1438,10 @@ struct FeedView: View {
 private struct MediaDeckCoverContent: View {
     let feedStore: PullRequestFeedStore
     let viewer: FeedViewer
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
     let pullRequestID: String
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-    @State private var demoSignInPromptAction: DemoSignInPromptAction?
+    @State private var demoGitHubConnectionPromptAction: DemoGitHubConnectionPromptAction?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
@@ -1435,8 +1462,8 @@ private struct MediaDeckCoverContent: View {
             },
             onReport: { postedContent in
                 if case .demoVisitor(let demoVisitor) = viewer {
-                    demoVisitor.analytics.capture(.demoSignInPrompted(.report))
-                    demoSignInPromptAction = .report
+                    demoVisitor.analytics.capture(.demoGitHubConnectionPrompted(.report))
+                    demoGitHubConnectionPromptAction = .report
                     return
                 }
                 viewer.analytics.capture(.contentReportOpened(postedContent, control: .mediaDeck))
@@ -1452,7 +1479,7 @@ private struct MediaDeckCoverContent: View {
             viewer.analytics.capture(.personHidden(postedContent, control: .mediaDeck))
             if visiblePullRequest == nil { dismiss() }
         }
-        .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
+        .demoGitHubConnectionPrompt($demoGitHubConnectionPromptAction, signInSession: signInSession)
     }
 }
 
@@ -1460,11 +1487,11 @@ private struct DetailSheetContent: View {
     let feedStore: PullRequestFeedStore
     let vibeOutbox: VibeOutbox
     let viewer: FeedViewer
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
     let repositoryFullName: String
     let presentedPullRequest: PullRequest
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-    @State private var demoSignInPromptAction: DemoSignInPromptAction?
+    @State private var demoGitHubConnectionPromptAction: DemoGitHubConnectionPromptAction?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
@@ -1484,14 +1511,14 @@ private struct DetailSheetContent: View {
                     excludingContentBy: viewer.githubLogin
                 ).filter { $0.kind == .description },
                 onReport: { postedContent in
-                    guard !promptsSignIn(for: .report) else { return }
+                    guard !promptsGitHubConnection(for: .report) else { return }
                     viewer.analytics.capture(.contentReportOpened(postedContent, control: .detailSheet))
                     openURL(postedContent.githubReportURL)
                 },
                 onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent }
             ),
             onToggleReaction: { reaction in
-                guard !promptsSignIn(for: .reaction) else { return }
+                guard !promptsGitHubConnection(for: .reaction) else { return }
                 Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) }
             }
         )
@@ -1500,13 +1527,13 @@ private struct DetailSheetContent: View {
             viewer.analytics.capture(.personHidden(postedContent, control: .detailSheet))
             dismiss()
         }
-        .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
+        .demoGitHubConnectionPrompt($demoGitHubConnectionPromptAction, signInSession: signInSession)
     }
 
-    private func promptsSignIn(for action: DemoSignInPromptAction) -> Bool {
+    private func promptsGitHubConnection(for action: DemoGitHubConnectionPromptAction) -> Bool {
         guard case .demoVisitor(let demoVisitor) = viewer else { return false }
-        demoVisitor.analytics.capture(.demoSignInPrompted(action))
-        demoSignInPromptAction = action
+        demoVisitor.analytics.capture(.demoGitHubConnectionPrompted(action))
+        demoGitHubConnectionPromptAction = action
         return true
     }
 }

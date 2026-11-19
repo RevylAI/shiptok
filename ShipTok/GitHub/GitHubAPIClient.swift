@@ -36,7 +36,7 @@ final class GitHubAPIClient: Sendable {
         URL(string: "https://github.com/\(repositoryFullName)/pull/\(number)")!
     }
 
-    // A demo visitor has no GitHub account, so every write and every read beyond the demo feed asks them to sign in.
+    // A demo visitor has no connected GitHub account, so every write and every read beyond the demo feed asks them to connect GitHub.
     func sendGraphQLQuery<ResponseData: Decodable>(_ query: String, variables: [String: any Sendable]) async throws -> ResponseData {
         guard case .signedInAccount(let accountAPI) = source else { throw GitHubAPIError.signInRequired }
         let operationName = Self.operationName(in: query)
@@ -98,7 +98,7 @@ final class GitHubAPIClient: Sendable {
         }
     }
 
-    // The demo's whole list for a mode, as its latest snapshot holds it; nil for a signed-in viewer, whose feeds GitHub serves (AGENTS.md, "Demo Mode").
+    // The demo's whole list for a mode, as its latest snapshot holds it; nil for a viewer who connected GitHub, whose feeds GitHub serves (AGENTS.md, "Demo Mode").
     func fetchDemoFeedPullRequests(in feed: PullRequestFeed) async throws -> [PullRequest]? {
         guard case .demoFeed(let demoFeed) = source else { return nil }
         let snapshot = try await demoFeed.snapshot()

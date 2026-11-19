@@ -1,6 +1,6 @@
 import Foundation
 
-// Who the feed is for: a signed-in teammate, or a demo visitor, who reads the demo feed and is asked to sign in for anything that writes.
+// Who the feed is for: a teammate who connected GitHub, or a demo visitor, signed in to Revyl without a connected GitHub account, who reads the demo feed and is asked to connect GitHub for anything that writes.
 enum FeedViewer {
     case teammate(SignedInTeammate)
     case demoVisitor(DemoVisitor)

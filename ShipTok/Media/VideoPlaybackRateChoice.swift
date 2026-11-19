@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-// The speed every video plays at. A signed-in viewer's choice is saved on the device; a demo visit's lasts only as long as the visit (AGENTS.md, "Demo Mode").
+// The speed every video plays at. The choice of a viewer who connected GitHub is saved on the device; a demo visit's lasts only as long as the visit (AGENTS.md, "Demo Mode").
 @MainActor
 @Observable
 final class VideoPlaybackRateChoice {

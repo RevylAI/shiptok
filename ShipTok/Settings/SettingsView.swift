@@ -7,7 +7,7 @@ struct SettingsView: View {
     let hiddenPeopleStore: HiddenPeopleStore
     let accountAPI: GitHubAccountAPI
     let chosenRepositoryFullName: String
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
     let onChooseRepository: @MainActor (String) async -> Void
     @Environment(\.shipTokAnalytics) private var analytics
 
@@ -21,7 +21,7 @@ struct SettingsView: View {
                             Text("@\(viewer.githubLogin)")
                                 .font(.headline)
                                 .foregroundStyle(RevylBrandColor.textPrimary)
-                            Text("Signed in with Revyl, using your GitHub account")
+                            Text("Signed in to Revyl, with your GitHub account connected")
                                 .font(.caption)
                                 .foregroundStyle(RevylBrandColor.textMuted)
                         }

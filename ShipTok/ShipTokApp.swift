@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct ShipTokApp: App {
-    @State private var signInSession = GitHubSignInSession()
+    @State private var signInSession = ShipTokSignInSession()
 
     init() {
         PullRequestMediaDiskCache.removeLongUnusedFilesInBackground()

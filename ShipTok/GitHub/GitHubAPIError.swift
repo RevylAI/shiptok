@@ -24,7 +24,7 @@ enum GitHubAPIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .accessTokenRejected:
-            "GitHub no longer accepts this sign-in. Sign in with Revyl again."
+            "GitHub no longer accepts your GitHub sign-in. Connect GitHub again."
         case .feedRepositoryNotVisible(let repositoryFullName):
             "Revyl's GitHub App no longer reaches \(repositoryFullName) for you. Choose another repository."
         case .rateLimited:
@@ -42,7 +42,7 @@ enum GitHubAPIError: LocalizedError {
         case .featureUnreadable(let number):
             "#\(number) isn't a feature video ShipTok can read."
         case .signInRequired:
-            "Sign in with Revyl to do that."
+            "Connect GitHub to do that."
         }
     }
 }

@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct RootView: View {
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -9,10 +10,11 @@ struct RootView: View {
             switch signInSession.phase {
             case .restoring:
                 ProgressView().controlSize(.large)
-            case .signedOut(let message):
-                SignInView(signInSession: signInSession, message: message)
+            case .signedOut(let firstScreenVisit):
+                FirstScreenView(signInSession: signInSession, firstScreenVisit: firstScreenVisit)
+                    .id(firstScreenVisit.visitID)
             case .exploringDemo(let demoVisitor, _):
-                // The demo has one repository and no account to lose access with, so it never chooses another or loses this one.
+                // The demo has one public repository, so it never chooses another or loses this one.
                 FeedView(
                     viewer: .demoVisitor(demoVisitor),
                     repositoryFullName: demoVisitor.repositoryFullName,
@@ -21,23 +23,32 @@ struct RootView: View {
                     onFeedRepositoryLost: { _ in }
                 )
                 .id(demoVisitor.visitID)
+            case .connectingGitHub(let message):
+                ConnectGitHubView(signInSession: signInSession, message: message)
             case .signedIn(let teammate):
                 SignedInView(teammate: teammate, signInSession: signInSession)
                     .id(teammate.user.githubUserID)
             }
         }
-        .task { await signInSession.restoreSavedSession() }
+        .task {
+            await signInSession.restoreSavedSession()
+            await signInSession.verifyRevylSignIn()
+        }
+        .onChange(of: scenePhase) { _, newScenePhase in
+            guard newScenePhase == .active else { return }
+            Task { await signInSession.verifyRevylSignIn() }
+        }
     }
 }
 
 private struct SignedInView: View {
     let teammate: SignedInTeammate
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
     @AppStorage private var chosenRepositoryFullName: String?
     @State private var lostRepositoryMessage: String?
     @State private var showsAccount = false
 
-    init(teammate: SignedInTeammate, signInSession: GitHubSignInSession) {
+    init(teammate: SignedInTeammate, signInSession: ShipTokSignInSession) {
         self.teammate = teammate
         self.signInSession = signInSession
         _chosenRepositoryFullName = AppStorage(FeedRepositoryChoice.defaultsKey(githubUserID: teammate.user.githubUserID))

@@ -46,7 +46,7 @@ actor GitHubAccessTokenVault {
         let accessToken = try await validAccessToken()
         do {
             return try await request(accessToken)
-        } catch RevylShipTokAPIError.signInRejected {
+        } catch RevylShipTokAPIError.githubSignInRejected {
             return try await request(accessTokenReplacing(rejectedAccessToken: accessToken))
         }
     }
@@ -77,13 +77,13 @@ actor GitHubAccessTokenVault {
                     rotatedTokens: try await shipTokAPI.refreshGitHubAccessToken(refreshToken: refreshToken),
                     spentRefreshToken: refreshToken
                 )
-            } catch RevylShipTokAPIError.signInRejected {
+            } catch RevylShipTokAPIError.githubSignInRejected {
                 Self.logger.error("GitHub refused to refresh the sign-in")
                 throw GitHubAPIError.accessTokenRejected
             }
             unsavedRotation = rotation
         }
-        let saveOutcome = try GitHubSignInKeychainStore.saveRotatedTokens(rotation.rotatedTokens, rotatedFromRefreshToken: rotation.spentRefreshToken)
+        let saveOutcome = try ShipTokSignInKeychainStore.saveRotatedGitHubTokens(rotation.rotatedTokens, rotatedFromRefreshToken: rotation.spentRefreshToken)
         unsavedRotation = nil
         switch saveOutcome {
         case .saved:
