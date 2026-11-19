@@ -3,16 +3,16 @@ import Foundation
 import OSLog
 
 struct SavedMergedPullRequestFeed: Codable, Sendable {
-    static let currentFormatVersion = 5
+    static let currentFormatVersion = 6
     let formatVersion: Int
     let viewerGitHubLogin: String
     let repositoryFullName: String
     let everyUpdateAppliedBefore: Date
-    let pullRequests: [MergedPullRequest]
+    let pullRequests: [PullRequest]
 }
 
 // The feed and the moment every update before it was applied, saved on the device so a launch opens on it at once and asks GitHub only for what changed since (AGENTS.md, "Feed Caching").
-actor MergedPullRequestFeedCache {
+actor PullRequestFeedCache {
     static let savedFeedsDirectoryURL = URL.cachesDirectory.appending(path: "merged-pull-request-feeds", directoryHint: .isDirectory)
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
     private var newestSavedFeedGeneration = 0

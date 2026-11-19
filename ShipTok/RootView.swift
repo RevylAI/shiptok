@@ -13,7 +13,7 @@ struct RootView: View {
                 SignInView(signInSession: signInSession, message: message)
             case .exploringDemo(let demoVisitor, _):
                 // The demo has one repository and no account to lose access with, so it never chooses another or loses this one.
-                MergedPullRequestFeedView(
+                FeedView(
                     viewer: .demoVisitor(demoVisitor),
                     repositoryFullName: demoVisitor.repositoryFullName,
                     signInSession: signInSession,
@@ -45,7 +45,7 @@ private struct SignedInView: View {
 
     var body: some View {
         if let chosenRepositoryFullName {
-            MergedPullRequestFeedView(
+            FeedView(
                 viewer: .teammate(teammate),
                 repositoryFullName: chosenRepositoryFullName,
                 signInSession: signInSession,

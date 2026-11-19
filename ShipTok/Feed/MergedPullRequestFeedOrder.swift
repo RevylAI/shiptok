@@ -18,12 +18,12 @@ enum MergedPullRequestFeedGroup: Int, Sendable {
     }
 }
 
-extension MergedPullRequest {
+extension PullRequest {
     static let shipTokLabelName = "shiptok"
 
     // The feed is what merged in the window, plus every pull request labeled shiptok whose hero is a ShipTok video, so the demo videos never age out (AGENTS.md, "Feed Order").
     func belongsInFeed(mergedWindowStartDate: Date) -> Bool {
-        guard let feedGroup else { return false }
+        guard let feedGroup, let mergedAt else { return false }
         if mergedAt >= mergedWindowStartDate { return true }
         return feedGroup.isShipTokVideo && labels.contains { $0.name.caseInsensitiveCompare(Self.shipTokLabelName) == .orderedSame }
     }
@@ -33,14 +33,14 @@ extension MergedPullRequest {
         mediaItems.first.map(MergedPullRequestFeedGroup.init(firstMediaItem:))
     }
 
-    func comesBeforeInFeed(_ otherPullRequest: MergedPullRequest) -> Bool {
+    func comesBeforeInFeed(_ otherPullRequest: PullRequest) -> Bool {
         let feedGroupRank = feedGroup?.rawValue ?? Int.max
         let otherFeedGroupRank = otherPullRequest.feedGroup?.rawValue ?? Int.max
         if feedGroupRank != otherFeedGroupRank {
             return feedGroupRank < otherFeedGroupRank
         }
         if mergedAt != otherPullRequest.mergedAt {
-            return mergedAt > otherPullRequest.mergedAt
+            return (mergedAt ?? .distantPast) > (otherPullRequest.mergedAt ?? .distantPast)
         }
         return number > otherPullRequest.number
     }

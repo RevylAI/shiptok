@@ -7,7 +7,7 @@ enum GitHubAPIError: LocalizedError {
     case requestFailed(operationName: String, statusCode: Int)
     case graphQLErrors(operationName: String, messages: [String])
     case responseUnreadable(operationName: String)
-    case pullRequestNotMerged(number: Int)
+    case pullRequestNeitherOpenNorMerged(number: Int)
     case weeklyEditionUnreadable(number: Int)
     case signInRequired
 
@@ -15,7 +15,7 @@ enum GitHubAPIError: LocalizedError {
         switch self {
         case .accessTokenRejected, .feedRepositoryNotVisible:
             true
-        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNotMerged, .weeklyEditionUnreadable, .signInRequired:
+        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNeitherOpenNorMerged, .weeklyEditionUnreadable, .signInRequired:
             false
         }
     }
@@ -34,8 +34,8 @@ enum GitHubAPIError: LocalizedError {
             "GitHub refused \(operationName): \(messages.joined(separator: " "))"
         case .responseUnreadable(let operationName):
             "GitHub's answer to \(operationName) couldn't be read."
-        case .pullRequestNotMerged(let number):
-            "#\(number) isn't merged."
+        case .pullRequestNeitherOpenNorMerged(let number):
+            "#\(number) is closed without being merged, or isn't in this repository."
         case .weeklyEditionUnreadable(let number):
             "#\(number) isn't a weekly video ShipTok can read."
         case .signInRequired:

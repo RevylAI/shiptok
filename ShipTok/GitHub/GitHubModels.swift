@@ -91,13 +91,17 @@ extension PullRequestComment {
     }
 }
 
-struct MergedPullRequest: Identifiable, Hashable, Sendable, Codable {
+// An open or merged pull request; one closed without merging is never shown (docs/shiptok-format.md).
+struct PullRequest: Identifiable, Hashable, Sendable, Codable {
     let id: String
     let number: Int
     let title: String
     let url: URL
     let author: GitHubActor?
-    let mergedAt: Date
+    let isDraft: Bool
+    let updatedAt: Date
+    // Nil while the pull request is open.
+    let mergedAt: Date?
     let descriptionMarkdown: String
     let additions: Int
     let deletions: Int
@@ -141,5 +145,5 @@ extension GitHubCommentThread {
     }
 }
 
-extension MergedPullRequest: GitHubCommentThread {}
+extension PullRequest: GitHubCommentThread {}
 extension WeeklyEdition: GitHubCommentThread {}

@@ -27,7 +27,7 @@ final class VibeOutbox {
     private let analytics: ShipTokAnalytics
     // A demo visitor has none, and casts no vibe.
     private let viewerGitHubLogin: String?
-    private let feedStore: MergedPullRequestFeedStore
+    private let feedStore: PullRequestFeedStore
     private let weeklyEditionsStore: WeeklyEditionsStore
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
@@ -35,7 +35,7 @@ final class VibeOutbox {
         githubAPIClient: GitHubAPIClient,
         analytics: ShipTokAnalytics,
         viewerGitHubLogin: String?,
-        feedStore: MergedPullRequestFeedStore,
+        feedStore: PullRequestFeedStore,
         weeklyEditionsStore: WeeklyEditionsStore,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
     ) {
@@ -212,7 +212,7 @@ final class VibeOutbox {
         do {
             switch target.kind {
             case .pullRequest:
-                let fetchedPullRequest = try await githubAPIClient.fetchMergedPullRequest(number: target.number)
+                let fetchedPullRequest = try await githubAPIClient.fetchPullRequest(number: target.number)
                 feedStore.applyFetchedPullRequest(try await removingViewerEarlierVibeComments(from: fetchedPullRequest, keeping: postedVibeComment))
             case .weeklyEdition:
                 let fetchedWeeklyEdition = try await githubAPIClient.fetchWeeklyEdition(number: target.number)

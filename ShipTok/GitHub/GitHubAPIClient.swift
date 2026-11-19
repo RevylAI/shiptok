@@ -78,17 +78,17 @@ final class GitHubAPIClient: Sendable {
         updatedSince earliestUpdateDate: Date?,
         mergedFrom earliestMergeDate: Date?,
         mergedThrough latestMergeDate: Date
-    ) async throws -> AsyncThrowingStream<[MergedPullRequest], Error> {
+    ) async throws -> AsyncThrowingStream<[PullRequest], Error> {
         if case .demoFeed(let demoFeed) = source {
             // The demo feed carries no update dates, so it answers with every pull request in the merge range, and applying an unchanged one again changes nothing.
-            var mergedPullRequests: [MergedPullRequest] = []
+            var mergedPullRequests: [PullRequest] = []
             for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
                 guard let mergedAt = pullRequestNode.mergedAt,
                       earliestMergeDate.map({ mergedAt >= $0 }) ?? true,
                       mergedAt <= latestMergeDate,
                       labelName.map({ Self.pullRequestNode(pullRequestNode, isLabeled: $0) }) ?? true
                 else { continue }
-                mergedPullRequests.append(try await mergedPullRequest(from: pullRequestNode, mergedAt: mergedAt))
+                mergedPullRequests.append(try await pullRequest(from: pullRequestNode))
             }
             return AsyncThrowingStream { continuation in
                 continuation.yield(mergedPullRequests)
@@ -101,7 +101,7 @@ final class GitHubAPIClient: Sendable {
             mergedFrom: earliestMergeDate,
             mergedThrough: latestMergeDate
         )
-        return AsyncThrowingStream<[MergedPullRequest], Error> { continuation in
+        return AsyncThrowingStream<[PullRequest], Error> { continuation in
             let searchTask = Task {
                 do {
                     try await withThrowingTaskGroup(of: Void.self) { taskGroup in
@@ -123,17 +123,17 @@ final class GitHubAPIClient: Sendable {
     }
 
     // One cheap search, so a launch with nothing saved opens on the labeled pull requests before it reads the window (AGENTS.md, "Feed Order").
-    func fetchMergedPullRequests(labeled labelName: String) async throws -> [MergedPullRequest] {
+    func fetchMergedPullRequests(labeled labelName: String) async throws -> [PullRequest] {
         if case .demoFeed(let demoFeed) = source {
-            var mergedPullRequests: [MergedPullRequest] = []
+            var mergedPullRequests: [PullRequest] = []
             for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
-                guard let mergedAt = pullRequestNode.mergedAt, Self.pullRequestNode(pullRequestNode, isLabeled: labelName) else { continue }
-                mergedPullRequests.append(try await mergedPullRequest(from: pullRequestNode, mergedAt: mergedAt))
+                guard pullRequestNode.mergedAt != nil, Self.pullRequestNode(pullRequestNode, isLabeled: labelName) else { continue }
+                mergedPullRequests.append(try await pullRequest(from: pullRequestNode))
             }
             return mergedPullRequests
         }
         let searchQuery = "\(mergedPullRequestSearchQualifiers) label:\(labelName) sort:updated-desc"
-        var mergedPullRequests: [MergedPullRequest] = []
+        var mergedPullRequests: [PullRequest] = []
         var pageCursor: String?
         repeat {
             let page = try await fetchMergedPullRequestSearchPage(matchingSearchQuery: searchQuery, after: pageCursor)
@@ -182,7 +182,7 @@ final class GitHubAPIClient: Sendable {
 
     private func yieldMergedPullRequestPages(
         matchingSearchQuery searchQuery: String,
-        to continuation: AsyncThrowingStream<[MergedPullRequest], Error>.Continuation
+        to continuation: AsyncThrowingStream<[PullRequest], Error>.Continuation
     ) async throws {
         var pageCursor: String?
         repeat {
@@ -195,38 +195,38 @@ final class GitHubAPIClient: Sendable {
     private func fetchMergedPullRequestSearchPage(
         matchingSearchQuery searchQuery: String,
         after pageCursor: String?
-    ) async throws -> (mergedPullRequests: [MergedPullRequest], nextPageCursor: String?) {
+    ) async throws -> (mergedPullRequests: [PullRequest], nextPageCursor: String?) {
         var variables: [String: any Sendable] = ["searchQuery": searchQuery]
         if let pageCursor {
             variables["after"] = pageCursor
         }
         let page: MergedPullRequestSearchPageData = try await sendGraphQLQuery(GitHubGraphQLDocument.mergedPullRequestsMatchingSearchQuery, variables: variables)
-        var mergedPullRequests: [MergedPullRequest] = []
+        var mergedPullRequests: [PullRequest] = []
         for pullRequestNode in page.search.nodes.compactMap({ $0 }) {
-            guard let mergedAt = pullRequestNode.mergedAt else { continue }
-            mergedPullRequests.append(try await mergedPullRequest(from: pullRequestNode, mergedAt: mergedAt))
+            guard pullRequestNode.mergedAt != nil else { continue }
+            mergedPullRequests.append(try await pullRequest(from: pullRequestNode))
         }
         return (mergedPullRequests, page.search.pageInfo.hasNextPage ? page.search.pageInfo.endCursor : nil)
     }
 
-    func fetchMergedPullRequest(number: Int) async throws -> MergedPullRequest {
+    func fetchPullRequest(number: Int) async throws -> PullRequest {
         if case .demoFeed(let demoFeed) = source {
             guard let pullRequestNode = try await demoFeed.snapshot().mergedPullRequests.first(where: { $0.number == number }),
-                  let mergedAt = pullRequestNode.mergedAt
+                  pullRequestNode.mergedAt != nil
             else {
-                throw GitHubAPIError.pullRequestNotMerged(number: number)
+                throw GitHubAPIError.pullRequestNeitherOpenNorMerged(number: number)
             }
-            return try await mergedPullRequest(from: pullRequestNode, mergedAt: mergedAt)
+            return try await pullRequest(from: pullRequestNode)
         }
-        let response: MergedPullRequestByNumberData = try await sendGraphQLQuery(GitHubGraphQLDocument.mergedPullRequestByNumberQuery, variables: [
+        let response: PullRequestByNumberData = try await sendGraphQLQuery(GitHubGraphQLDocument.pullRequestByNumberQuery, variables: [
             "owner": repositoryOwnerLogin,
             "name": repositoryName,
             "number": number,
         ])
-        guard let pullRequestNode = response.feedRepository?.pullRequest, let mergedAt = pullRequestNode.mergedAt else {
-            throw GitHubAPIError.pullRequestNotMerged(number: number)
+        guard let pullRequestNode = response.feedRepository?.pullRequest, !Self.isClosedWithoutMerging(pullRequestNode) else {
+            throw GitHubAPIError.pullRequestNeitherOpenNorMerged(number: number)
         }
-        return try await mergedPullRequest(from: pullRequestNode, mergedAt: mergedAt)
+        return try await pullRequest(from: pullRequestNode)
     }
 
     // Every published weekly edition, newest week first: the closed issues carrying the weekly label, read through the issues API, never search,
@@ -367,22 +367,29 @@ final class GitHubAPIClient: Sendable {
         (pullRequestNode.labels?.nodes ?? []).contains { $0?.name.caseInsensitiveCompare(labelName) == .orderedSame }
     }
 
-    private func mergedPullRequest(from pullRequestNode: PullRequestNode, mergedAt: Date) async throws -> MergedPullRequest {
+    // A pull request closed without merging is neither open nor merged, so ShipTok never shows it (docs/shiptok-format.md).
+    private static func isClosedWithoutMerging(_ pullRequestNode: PullRequestNode) -> Bool {
+        pullRequestNode.mergedAt == nil && pullRequestNode.state == "CLOSED"
+    }
+
+    private func pullRequest(from pullRequestNode: PullRequestNode) async throws -> PullRequest {
         let commentsWithBodyHTML = try await everyComment(ofSubjectID: pullRequestNode.id, firstPage: pullRequestNode.comments)
         let author = pullRequestNode.author.map(GitHubActor.init(node:))
         let labels = try (pullRequestNode.labels?.nodes ?? []).compactMap { $0 }.map { labelNode in
             guard let rgbHex = UInt32(labelNode.color, radix: 16) else {
-                throw GitHubAPIError.responseUnreadable(operationName: "ShipTokMergedPullRequestFields")
+                throw GitHubAPIError.responseUnreadable(operationName: "ShipTokPullRequestFields")
             }
             return GitHubLabel(name: labelNode.name, rgbHex: rgbHex)
         }
-        return MergedPullRequest(
+        return PullRequest(
             id: pullRequestNode.id,
             number: pullRequestNode.number,
             title: pullRequestNode.title,
             url: pullRequestNode.url,
             author: author,
-            mergedAt: mergedAt,
+            isDraft: pullRequestNode.isDraft ?? false,
+            updatedAt: pullRequestNode.updatedAt ?? pullRequestNode.createdAt,
+            mergedAt: pullRequestNode.mergedAt,
             descriptionMarkdown: pullRequestNode.body,
             additions: pullRequestNode.additions,
             deletions: pullRequestNode.deletions,

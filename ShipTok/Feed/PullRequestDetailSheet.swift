@@ -1,7 +1,7 @@
 import SwiftUI
 
-struct MergedPullRequestDetailSheet: View {
-    let pullRequest: MergedPullRequest
+struct PullRequestDetailSheet: View {
+    let pullRequest: PullRequest
     let repositoryFullName: String
     let vibeTally: PullRequestVibeTally
     let moderation: GitHubPostedContentModeration
@@ -21,7 +21,13 @@ struct MergedPullRequestDetailSheet: View {
                             Text(verbatim: "@\(pullRequest.author?.login ?? "ghost")")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(RevylBrandColor.textPrimary)
-                            Text("Merged \(pullRequest.mergedAt.formatted(date: .abbreviated, time: .shortened))")
+                            Group {
+                                if let mergedAt = pullRequest.mergedAt {
+                                    Text("Merged \(mergedAt.formatted(date: .abbreviated, time: .shortened))")
+                                } else {
+                                    Text("\(pullRequest.isDraft ? "Draft" : "Open") · Updated \(pullRequest.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                }
+                            }
                                 .font(.caption)
                                 .foregroundStyle(RevylBrandColor.textMuted)
                         }

@@ -14,12 +14,15 @@ enum GitHubGraphQLDocument {
         }
         """
 
-    private static let mergedPullRequestFieldsFragment = """
-        fragment ShipTokMergedPullRequestFields on PullRequest {
+    private static let pullRequestFieldsFragment = """
+        fragment ShipTokPullRequestFields on PullRequest {
           id
           number
           title
           url
+          state
+          isDraft
+          updatedAt
           mergedAt
           createdAt
           lastEditedAt
@@ -42,18 +45,18 @@ enum GitHubGraphQLDocument {
         query MergedPullRequestsMatchingSearch($searchQuery: String!, $after: String) {
           search(query: $searchQuery, type: ISSUE, first: 25, after: $after) {
             pageInfo { hasNextPage endCursor }
-            nodes { ... on PullRequest { ...ShipTokMergedPullRequestFields } }
+            nodes { ... on PullRequest { ...ShipTokPullRequestFields } }
           }
         }
-        """ + "\n" + mergedPullRequestFieldsFragment + "\n" + issueCommentFieldsFragment
+        """ + "\n" + pullRequestFieldsFragment + "\n" + issueCommentFieldsFragment
 
-    static let mergedPullRequestByNumberQuery = """
-        query MergedPullRequestByNumber($owner: String!, $name: String!, $number: Int!) {
+    static let pullRequestByNumberQuery = """
+        query PullRequestByNumber($owner: String!, $name: String!, $number: Int!) {
           feedRepository: repository(owner: $owner, name: $name) {
-            pullRequest(number: $number) { ...ShipTokMergedPullRequestFields }
+            pullRequest(number: $number) { ...ShipTokPullRequestFields }
           }
         }
-        """ + "\n" + mergedPullRequestFieldsFragment + "\n" + issueCommentFieldsFragment
+        """ + "\n" + pullRequestFieldsFragment + "\n" + issueCommentFieldsFragment
 
     static let commentsPageQuery = """
         query CommentsPage($subjectID: ID!, $after: String!) {

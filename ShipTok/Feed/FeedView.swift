@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct MergedPullRequestFeedView: View {
+struct FeedView: View {
     private enum FeedContext: Hashable {
         case pullRequests
         case weeklyEditions
@@ -8,7 +8,7 @@ struct MergedPullRequestFeedView: View {
     }
 
     private enum FeedPage: Identifiable {
-        case pullRequest(MergedPullRequest)
+        case pullRequest(PullRequest)
         case weeklyEdition(WeeklyEdition)
         case feedEnd
 
@@ -50,7 +50,7 @@ struct MergedPullRequestFeedView: View {
     let signInSession: GitHubSignInSession
     let onChooseRepository: @MainActor (String) -> Void
     private let githubAPIClient: GitHubAPIClient
-    @State private var feedStore: MergedPullRequestFeedStore
+    @State private var feedStore: PullRequestFeedStore
     @State private var weeklyEditionsStore: WeeklyEditionsStore
     @State private var vibeOutbox: VibeOutbox
     // A demo visitor has no inbox or saved settings.
@@ -73,9 +73,9 @@ struct MergedPullRequestFeedView: View {
     @State private var cardEntranceScale: CGFloat = 1
     @State private var likeBurstTriggers: [String: Int] = [:]
     @State private var vibeAwaitingFeedback: VibeAwaitingFeedback?
-    @State private var commentsSheetPullRequest: MergedPullRequest?
+    @State private var commentsSheetPullRequest: PullRequest?
     @State private var commentsSheetWeeklyEdition: WeeklyEdition?
-    @State private var detailSheetPullRequest: MergedPullRequest?
+    @State private var detailSheetPullRequest: PullRequest?
     @State private var mediaDeckPullRequestID: PresentedPullRequestID?
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
     @State private var selectedTab: AppTab = .feed
@@ -123,7 +123,7 @@ struct MergedPullRequestFeedView: View {
                 signInSession.handleRejectedGitHubAccess(githubAPIError, endingSignInID: teammate.signInID)
             }
         }
-        let feedStore = MergedPullRequestFeedStore(
+        let feedStore = PullRequestFeedStore(
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
             viewerGitHubLogin: viewer.githubLogin,
@@ -171,7 +171,7 @@ struct MergedPullRequestFeedView: View {
     }
 
     // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
-    private var visiblePullRequests: [MergedPullRequest] {
+    private var visiblePullRequests: [PullRequest] {
         feedStore.pullRequests.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
 
@@ -179,7 +179,7 @@ struct MergedPullRequestFeedView: View {
         weeklyEditionsStore.weeklyEditions.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
 
-    private var visibleOpenWeekPullRequests: [MergedPullRequest] {
+    private var visibleOpenWeekPullRequests: [PullRequest] {
         feedStore.openWeekPullRequests.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
 
@@ -326,7 +326,7 @@ struct MergedPullRequestFeedView: View {
                 analytics: viewer.analytics,
                 analyticsSubject: VibeTarget(pullRequest: pullRequest).analyticsSubject,
                 fetchLatestThread: { [githubAPIClient = githubAPIClient] number in
-                    try await githubAPIClient.fetchMergedPullRequest(number: number)
+                    try await githubAPIClient.fetchPullRequest(number: number)
                 },
                 onThreadChanged: { changedPullRequest in feedStore.applyFetchedPullRequest(changedPullRequest) }
             )
@@ -1167,7 +1167,7 @@ struct MergedPullRequestFeedView: View {
 }
 
 private struct MediaDeckCoverContent: View {
-    let feedStore: MergedPullRequestFeedStore
+    let feedStore: PullRequestFeedStore
     let viewer: FeedViewer
     let signInSession: GitHubSignInSession
     let pullRequestID: String
@@ -1176,7 +1176,7 @@ private struct MediaDeckCoverContent: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
-    private var visiblePullRequest: MergedPullRequest? {
+    private var visiblePullRequest: PullRequest? {
         feedStore.pullRequest(withID: pullRequestID)?.withoutHiddenPeople(viewer.hiddenPeopleStore)
     }
 
@@ -1215,12 +1215,12 @@ private struct MediaDeckCoverContent: View {
 }
 
 private struct DetailSheetContent: View {
-    let feedStore: MergedPullRequestFeedStore
+    let feedStore: PullRequestFeedStore
     let vibeOutbox: VibeOutbox
     let viewer: FeedViewer
     let signInSession: GitHubSignInSession
     let repositoryFullName: String
-    let presentedPullRequest: MergedPullRequest
+    let presentedPullRequest: PullRequest
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
     @State private var demoSignInPromptAction: DemoSignInPromptAction?
     @Environment(\.openURL) private var openURL
@@ -1229,7 +1229,7 @@ private struct DetailSheetContent: View {
     var body: some View {
         let storedPullRequest = feedStore.pullRequest(withID: presentedPullRequest.id) ?? presentedPullRequest
         let pullRequest = storedPullRequest.withoutHiddenPeople(viewer.hiddenPeopleStore) ?? storedPullRequest
-        MergedPullRequestDetailSheet(
+        PullRequestDetailSheet(
             pullRequest: pullRequest,
             repositoryFullName: repositoryFullName,
             vibeTally: pullRequest.vibeTally(

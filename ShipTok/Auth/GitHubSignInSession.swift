@@ -254,7 +254,7 @@ final class GitHubSignInSession {
 
     // The deletion finishes only once the app's own caches are gone. Anything else under Caches is iOS's, which may refuse its removal, so it goes best effort.
     private static func deleteCachedFiles() throws {
-        var appCacheDirectoryURLs = [MergedPullRequestFeedCache.savedFeedsDirectoryURL, PullRequestMediaDiskCache.rootDirectoryURL]
+        var appCacheDirectoryURLs = [PullRequestFeedCache.savedFeedsDirectoryURL, PullRequestMediaDiskCache.rootDirectoryURL]
         // URLCache.shared, which avatars load through, keeps its disk store here.
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             appCacheDirectoryURLs.append(.cachesDirectory.appending(path: bundleIdentifier, directoryHint: .isDirectory))

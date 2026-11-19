@@ -4,7 +4,7 @@ import OSLog
 
 @Observable
 @MainActor
-final class MergedPullRequestFeedStore {
+final class PullRequestFeedStore {
     private static let liveRefreshIntervalSeconds = 10
     private static let feedWindowSeconds: TimeInterval = 14 * 24 * 60 * 60
     private static let mediaURLRenewalAgeSeconds: TimeInterval = 120
@@ -14,14 +14,14 @@ final class MergedPullRequestFeedStore {
     private static let concurrentOpenWeekFetchCount = 6
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "feed")
 
-    private(set) var pullRequests: [MergedPullRequest] = []
+    private(set) var pullRequests: [PullRequest] = []
     private(set) var isFeedWindowLoaded = false
     private(set) var feedLoadFailureMessage: String?
     private(set) var isPullToRefreshRunning = false
     private(set) var unseenNewerPullRequestIDs: Set<String> = []
     var transientErrorMessage: String?
     // The pull requests of the weekly edition whose deck is open, in its video's order (AGENTS.md, "Weekly Mode").
-    private(set) var openWeekPullRequests: [MergedPullRequest] = []
+    private(set) var openWeekPullRequests: [PullRequest] = []
     private(set) var isOpenWeekLoaded = false
     private(set) var openWeekLoadFailureMessage: String?
 
@@ -45,7 +45,7 @@ final class MergedPullRequestFeedStore {
     private let analytics: ShipTokAnalytics
     // A demo visitor has none, and their feed isn't saved (AGENTS.md, "Demo Mode").
     private let viewerGitHubLogin: String?
-    private let feedCache = MergedPullRequestFeedCache()
+    private let feedCache = PullRequestFeedCache()
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
     init(
@@ -65,7 +65,7 @@ final class MergedPullRequestFeedStore {
         mediaLoadFailureRecovery.unloadableMediaItemIDs
     }
 
-    func pullRequest(withID pullRequestID: String) -> MergedPullRequest? {
+    func pullRequest(withID pullRequestID: String) -> PullRequest? {
         pullRequests.first { $0.id == pullRequestID } ?? openWeekPullRequests.first { $0.id == pullRequestID }
     }
 
@@ -114,16 +114,16 @@ final class MergedPullRequestFeedStore {
 
     private func loadOpenWeek(pullRequestNumbers: [Int]) async {
         let loadStartedAt = Date.now
-        var fetchResultByNumber: [Int: Result<MergedPullRequest, any Error>] = [:]
+        var fetchResultByNumber: [Int: Result<PullRequest, any Error>] = [:]
         var resolvedNumberCount = 0
         var lastFetchError: (any Error)?
-        await withTaskGroup(of: (number: Int, fetchResult: Result<MergedPullRequest, any Error>).self) { taskGroup in
+        await withTaskGroup(of: (number: Int, fetchResult: Result<PullRequest, any Error>).self) { taskGroup in
             var unrequestedNumbers = ArraySlice(pullRequestNumbers)
             func requestNextPullRequest() {
                 guard let number = unrequestedNumbers.popFirst() else { return }
                 taskGroup.addTask { [githubAPIClient] in
                     do {
-                        return (number, .success(try await githubAPIClient.fetchMergedPullRequest(number: number)))
+                        return (number, .success(try await githubAPIClient.fetchPullRequest(number: number)))
                     } catch {
                         return (number, .failure(error))
                     }
@@ -193,7 +193,7 @@ final class MergedPullRequestFeedStore {
         do {
             let windowStartDate = loadStartedAt.addingTimeInterval(-Self.feedWindowSeconds)
             if pullRequests.isEmpty {
-                let labeledPullRequests = try await githubAPIClient.fetchMergedPullRequests(labeled: MergedPullRequest.shipTokLabelName)
+                let labeledPullRequests = try await githubAPIClient.fetchMergedPullRequests(labeled: PullRequest.shipTokLabelName)
                 insertFoundPullRequests(labeledPullRequests, mergedWindowStartDate: windowStartDate, fetchedAt: loadStartedAt)
                 Self.logger.info("Opened on \(self.pullRequests.count, privacy: .public) labeled pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
             }
@@ -228,9 +228,10 @@ final class MergedPullRequestFeedStore {
             repositoryFullName: githubAPIClient.repositoryFullName,
             everyUpdateAppliedBefore: nextUpdateSearchStartDate,
             pullRequests: pullRequests.map { pullRequest in
-                MergedPullRequest(
+                PullRequest(
                     id: pullRequest.id, number: pullRequest.number, title: pullRequest.title, url: pullRequest.url,
-                    author: pullRequest.author, mergedAt: pullRequest.mergedAt, descriptionMarkdown: "",
+                    author: pullRequest.author, isDraft: pullRequest.isDraft, updatedAt: pullRequest.updatedAt,
+                    mergedAt: pullRequest.mergedAt, descriptionMarkdown: "",
                     additions: pullRequest.additions, deletions: pullRequest.deletions, changedFiles: pullRequest.changedFiles,
                     labels: pullRequest.labels, reactions: pullRequest.reactions, comments: [], mediaItems: pullRequest.mediaItems
                 )
@@ -278,7 +279,7 @@ final class MergedPullRequestFeedStore {
         pullRequests.firstIndex { unseenNewerPullRequestIDs.contains($0.id) }
     }
 
-    func heroMediaItem(of pullRequest: MergedPullRequest) -> PullRequestMediaItem? {
+    func heroMediaItem(of pullRequest: PullRequest) -> PullRequestMediaItem? {
         pullRequest.mediaItems.first { !unloadableMediaItemIDs.contains($0.id) } ?? pullRequest.mediaItems.first
     }
 
@@ -298,7 +299,7 @@ final class MergedPullRequestFeedStore {
     }
 
     // A read made elsewhere has no known start, so it leaves failed media loads for the store's own reads to settle.
-    func applyFetchedPullRequest(_ fetchedPullRequest: MergedPullRequest) {
+    func applyFetchedPullRequest(_ fetchedPullRequest: PullRequest) {
         apply(fetchedPullRequest, fetchedAt: .now, forcesMediaURLRenewal: false, settlesMediaLoadFailures: false)
     }
 
@@ -355,7 +356,7 @@ final class MergedPullRequestFeedStore {
     }
 
     // A pull request found after the feed opened sorts only into the cards after the one in focus and the one after it, since both are already rendered (AGENTS.md, "Feed Order").
-    private func insertFoundPullRequests(_ foundPullRequests: [MergedPullRequest], mergedWindowStartDate: Date, fetchedAt: Date) {
+    private func insertFoundPullRequests(_ foundPullRequests: [PullRequest], mergedWindowStartDate: Date, fetchedAt: Date) {
         var knownPullRequestIDs = Set(pullRequests.map(\.id))
         for foundPullRequest in foundPullRequests {
             guard foundPullRequest.belongsInFeed(mergedWindowStartDate: mergedWindowStartDate),
@@ -367,11 +368,11 @@ final class MergedPullRequestFeedStore {
         }
     }
 
-    private func feedOrderInsertionIndex(of pullRequest: MergedPullRequest, searchingFrom startIndex: Int) -> Int {
+    private func feedOrderInsertionIndex(of pullRequest: PullRequest, searchingFrom startIndex: Int) -> Int {
         pullRequests[startIndex...].firstIndex { pullRequest.comesBeforeInFeed($0) } ?? pullRequests.count
     }
 
-    private func insertIntoFeedOrderFlaggingUnseen(_ pullRequest: MergedPullRequest) {
+    private func insertIntoFeedOrderFlaggingUnseen(_ pullRequest: PullRequest) {
         let feedOrderIndex = feedOrderInsertionIndex(of: pullRequest, searchingFrom: 0)
         if hasFocusedPage, feedOrderIndex <= focusedPageIndex {
             pullRequests.insert(pullRequest, at: feedOrderIndex)
@@ -392,24 +393,24 @@ final class MergedPullRequestFeedStore {
         pullRequests.firstIndex { $0.id == pullRequestID }
     }
 
-    private func hasLoadableMedia(_ pullRequest: MergedPullRequest) -> Bool {
+    private func hasLoadableMedia(_ pullRequest: PullRequest) -> Bool {
         pullRequest.mediaItems.contains { !unloadableMediaItemIDs.contains($0.id) }
     }
 
     // A pull request none of whose media loads leaves the feed while the viewer is still above it (AGENTS.md, "Feed Order").
-    private func removeIfNoMediaLoadsAheadOfViewer(_ pullRequest: MergedPullRequest) {
+    private func removeIfNoMediaLoadsAheadOfViewer(_ pullRequest: PullRequest) {
         guard !hasLoadableMedia(pullRequest), let pullRequestIndex = index(ofPullRequestID: pullRequest.id), pullRequestIndex > focusedPageIndex else { return }
         pullRequests.remove(at: pullRequestIndex)
         unseenNewerPullRequestIDs.remove(pullRequest.id)
     }
 
     // A card from before the window stays only while labeled, and removing the label takes it out of both refresh searches, so each refresh reads again the one read or tried longest ago, which drops it once it no longer belongs. Counting tries keeps a card that can't be read from taking every turn (AGENTS.md, "Feed Order").
-    private var pastWindowPullRequestDueForRecheck: MergedPullRequest? {
+    private var pastWindowPullRequestDueForRecheck: PullRequest? {
         let windowStartDate = feedWindowStartDate
-        let lastReadOrRecheckDate = { (pullRequest: MergedPullRequest) in
+        let lastReadOrRecheckDate = { (pullRequest: PullRequest) in
             max(self.mediaFetchedAtByPullRequestID[pullRequest.id] ?? .distantPast, self.pastWindowRecheckDateByPullRequestID[pullRequest.id] ?? .distantPast)
         }
-        let pastWindowPullRequests = pullRequests.filter { $0.id != focusedPullRequestID && $0.mergedAt < windowStartDate }
+        let pastWindowPullRequests = pullRequests.filter { $0.id != focusedPullRequestID && ($0.mergedAt ?? .distantPast) < windowStartDate }
         guard let longestUncheckedPullRequest = pastWindowPullRequests.min(by: { lastReadOrRecheckDate($0) < lastReadOrRecheckDate($1) }),
               Date.now.timeIntervalSince(lastReadOrRecheckDate(longestUncheckedPullRequest)) > Self.pastWindowRecheckAgeSeconds
         else { return nil }
@@ -444,7 +445,7 @@ final class MergedPullRequestFeedStore {
                     mergedThrough: refreshStartedAt
                 ),
                 try await githubAPIClient.searchMergedPullRequests(
-                    labeled: MergedPullRequest.shipTokLabelName,
+                    labeled: PullRequest.shipTokLabelName,
                     updatedSince: earliestUpdateDate,
                     mergedFrom: nil,
                     mergedThrough: windowStartDate.addingTimeInterval(-1)
@@ -453,7 +454,7 @@ final class MergedPullRequestFeedStore {
             var updatedPullRequestCount = 0
             for updatedPullRequestSearch in updatedPullRequestSearches {
                 for try await updatedPullRequestPage in updatedPullRequestSearch {
-                    for updatedPullRequest in updatedPullRequestPage.sorted(by: { $0.mergedAt < $1.mergedAt }) {
+                    for updatedPullRequest in updatedPullRequestPage.sorted(by: { ($0.mergedAt ?? .distantPast) < ($1.mergedAt ?? .distantPast) }) {
                         apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
                     }
                     updatedPullRequestCount += updatedPullRequestPage.count
@@ -499,12 +500,12 @@ final class MergedPullRequestFeedStore {
     private func fetchAndApplyPullRequest(number: Int, forcesMediaURLRenewal: Bool) async {
         let fetchStartedAt = Date.now
         do {
-            let fetchedPullRequest = try await githubAPIClient.fetchMergedPullRequest(number: number)
+            let fetchedPullRequest = try await githubAPIClient.fetchPullRequest(number: number)
             apply(fetchedPullRequest, fetchedAt: fetchStartedAt, forcesMediaURLRenewal: forcesMediaURLRenewal)
-        } catch GitHubAPIError.pullRequestNotMerged {
+        } catch GitHubAPIError.pullRequestNeitherOpenNorMerged {
             pullRequests.removeAll { $0.number == number && $0.id != focusedPullRequestID }
             unseenNewerPullRequestIDs.formIntersection(pullRequests.map(\.id))
-            Self.logger.info("#\(number, privacy: .public) is no longer a merged pull request here, so its card leaves the feed")
+            Self.logger.info("#\(number, privacy: .public) is closed without merging or gone, so its card leaves the feed")
         } catch {
             if error.isTaskCancellation { return }
             if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
@@ -516,7 +517,7 @@ final class MergedPullRequestFeedStore {
     }
 
     // The focused card keeps its signed media URLs so a playing video isn't reloaded; a load failure renews them.
-    private func apply(_ fetchedPullRequest: MergedPullRequest, fetchedAt: Date, forcesMediaURLRenewal: Bool, settlesMediaLoadFailures: Bool = true) {
+    private func apply(_ fetchedPullRequest: PullRequest, fetchedAt: Date, forcesMediaURLRenewal: Bool, settlesMediaLoadFailures: Bool = true) {
         let renewedMediaItemIDs = settlesMediaLoadFailures && mediaLoadFailureRecovery.hasPendingLoadFailure
             ? mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPullRequest.mediaItems, readStartedAt: fetchedAt)
             : []
@@ -579,7 +580,7 @@ final class MergedPullRequestFeedStore {
         }
     }
 
-    private func setViewerReaction(_ reaction: GitHubReaction, isReacting: Bool, on pullRequest: MergedPullRequest) async {
+    private func setViewerReaction(_ reaction: GitHubReaction, isReacting: Bool, on pullRequest: PullRequest) async {
         let pullRequestID = pullRequest.id
         let attempt = analytics.requestMutation(.reaction, change: isReacting ? .add : .remove,
             subject: ShipTokAnalyticsSubject(kind: .pullRequest, nodeID: pullRequestID, number: pullRequest.number),
@@ -621,7 +622,7 @@ final class MergedPullRequestFeedStore {
     }
 
     // A pull request can be both in the feed and in the open week, and every change shows on both cards.
-    private func updateOpenWeekCopy(ofPullRequestID pullRequestID: String, _ update: (inout MergedPullRequest) -> Void) {
+    private func updateOpenWeekCopy(ofPullRequestID pullRequestID: String, _ update: (inout PullRequest) -> Void) {
         guard let openWeekIndex = openWeekPullRequests.firstIndex(where: { $0.id == pullRequestID }) else { return }
         update(&openWeekPullRequests[openWeekIndex])
     }

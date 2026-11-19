@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum FeedCardPost {
-    case pullRequest(MergedPullRequest)
+    case pullRequest(PullRequest)
     case weeklyEdition(WeeklyEdition)
 
     var thread: any GitHubCommentThread {
@@ -93,7 +93,7 @@ struct FeedCardView: View {
     private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
-    private nonisolated static let cardCoordinateSpaceName = "mergedPullRequestCard"
+    private nonisolated static let cardCoordinateSpaceName = "feedCard"
 
     // The box rides the keyboard over the card, so the caption would show half-covered around it; only the dimmed hero stays.
     private var showsOnlyHeroBehindVibeFeedbackComposer: Bool {
@@ -370,7 +370,7 @@ struct FeedCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func pullRequestCaption(_ pullRequest: MergedPullRequest) -> some View {
+    private func pullRequestCaption(_ pullRequest: PullRequest) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button(action: onTapCaption) {
@@ -399,7 +399,11 @@ struct FeedCardView: View {
                     HStack(spacing: 4) {
                         Text(verbatim: "#\(pullRequest.number)")
                         Text("·")
-                        Text("merged \(pullRequest.mergedAt.formatted(.relative(presentation: .named)))")
+                        if let mergedAt = pullRequest.mergedAt {
+                            Text("merged \(mergedAt.formatted(.relative(presentation: .named)))")
+                        } else {
+                            Text("\(pullRequest.isDraft ? "Draft · " : "")updated \(pullRequest.updatedAt.formatted(.relative(presentation: .named)))")
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(RevylBrandColor.textBody)
