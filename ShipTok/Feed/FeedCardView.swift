@@ -3,11 +3,13 @@ import SwiftUI
 enum FeedCardPost {
     case pullRequest(PullRequest)
     case weeklyEdition(WeeklyEdition)
+    case feature(Feature)
 
     var thread: any GitHubCommentThread {
         switch self {
         case .pullRequest(let pullRequest): pullRequest
         case .weeklyEdition(let weeklyEdition): weeklyEdition
+        case .feature(let feature): feature
         }
     }
 
@@ -15,6 +17,7 @@ enum FeedCardPost {
         switch self {
         case .pullRequest(let pullRequest): VibeTarget(pullRequest: pullRequest)
         case .weeklyEdition(let weeklyEdition): VibeTarget(weeklyEdition: weeklyEdition)
+        case .feature(let feature): VibeTarget(feature: feature)
         }
     }
 
@@ -31,7 +34,7 @@ struct FeedCardVibes {
     let onRemoveViewerVibe: () -> Void
 }
 
-// One feed page laid out like Instagram Reels: a pull request, or a week's video in weekly mode. Its layout follows AGENTS.md, "Card Layout".
+// One feed page laid out like Instagram Reels: a pull request, a week's video in Weekly or a feature's video in Features. Its layout follows AGENTS.md, "Card Layout".
 struct FeedCardView: View {
     private struct CardFrames: Equatable {
         let card: CGRect
@@ -313,22 +316,37 @@ struct FeedCardView: View {
         case .pullRequest(let pullRequest):
             pullRequestCaption(pullRequest)
         case .weeklyEdition(let weeklyEdition):
-            weeklyEditionCaption(weeklyEdition)
+            publishedIssueCaption(
+                chipText: "ShipTok weekly",
+                dateText: weeklyEdition.weekDatesText,
+                title: weeklyEdition.title,
+                hook: weeklyEdition.hook,
+                accessibilityHint: "Opens this week's pull requests"
+            )
+        case .feature(let feature):
+            publishedIssueCaption(
+                chipText: "ShipTok feature",
+                dateText: "shipped \(feature.closedAt.formatted(.relative(presentation: .named)))",
+                title: feature.title,
+                hook: feature.hook,
+                accessibilityHint: "Opens the pull requests behind this feature"
+            )
         }
     }
 
-    private func weeklyEditionCaption(_ weeklyEdition: WeeklyEdition) -> some View {
+    // A week or a feature names itself with a chip, a date, its title and its hook, and every part of the caption opens its pull requests.
+    private func publishedIssueCaption(chipText: String, dateText: String, title: String, hook: String, accessibilityHint: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button(action: onTapCaption) {
                     HStack(spacing: 8) {
-                        Text(verbatim: "ShipTok weekly")
+                        Text(verbatim: chipText)
                             .font(.caption2.weight(.heavy))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 9)
                             .padding(.vertical, 5)
                             .background(Capsule().fill(RevylBrandColor.brandGradient))
-                        Text(verbatim: weeklyEdition.weekDatesText)
+                        Text(verbatim: dateText)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(RevylBrandColor.textPrimary)
                             .lineLimit(1)
@@ -336,19 +354,19 @@ struct FeedCardView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.swipeYielding)
-                .accessibilityHint("Opens this week's pull requests")
+                .accessibilityHint(accessibilityHint)
                 viewerVibeBadge
             }
             .animation(.snappy, value: vibes.tally.viewerVibe)
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(weeklyEdition.title)
+                    Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(RevylBrandColor.textPrimary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(weeklyEdition.hook)
+                    Text(hook)
                         .font(.caption)
                         .foregroundStyle(RevylBrandColor.textBody)
                         .lineLimit(2)
@@ -359,7 +377,7 @@ struct FeedCardView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.swipeYielding)
-            .accessibilityHint("Opens this week's pull requests")
+            .accessibilityHint(accessibilityHint)
         }
         .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
         .onGeometryChange(for: CGFloat.self) { captionGeometry in
@@ -544,22 +562,24 @@ struct FeedCardView: View {
                     PullRequestMediaDeckButton(mediaItems: pullRequest.mediaItems, action: onOpenDeck)
                 }
             case .weeklyEdition(let weeklyEdition):
-                Button(action: onOpenDeck) {
-                    railItem(
-                        systemImageName: "rectangle.stack",
-                        tint: RevylBrandColor.textPrimary,
-                        count: weeklyEdition.pullRequestNumbers.count
-                    )
-                }
-                .buttonStyle(.swipeYielding)
-                .accessibilityLabel("This week's pull requests")
-                .accessibilityValue(weeklyEdition.pullRequestNumbers.count == 1 ? "1 pull request" : "\(weeklyEdition.pullRequestNumbers.count) pull requests")
+                pullRequestDeckButton(pullRequestCount: weeklyEdition.pullRequestNumbers.count, accessibilityLabel: "This week's pull requests")
+            case .feature(let feature):
+                pullRequestDeckButton(pullRequestCount: feature.pullRequestNumbers.count, accessibilityLabel: "The pull requests behind this feature")
             }
             if !moderation.reportableContents.isEmpty {
                 moderationMenu
             }
         }
         .frame(width: Self.railWidth)
+    }
+
+    private func pullRequestDeckButton(pullRequestCount: Int, accessibilityLabel: String) -> some View {
+        Button(action: onOpenDeck) {
+            railItem(systemImageName: "rectangle.stack", tint: RevylBrandColor.textPrimary, count: pullRequestCount)
+        }
+        .buttonStyle(.swipeYielding)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(pullRequestCount == 1 ? "1 pull request" : "\(pullRequestCount) pull requests")
     }
 
     private var moderationMenu: some View {

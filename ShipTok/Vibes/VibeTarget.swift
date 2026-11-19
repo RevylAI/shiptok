@@ -1,10 +1,11 @@
 import Foundation
 
-// What a vibe goes on: a pull request, or a weekly edition's issue, which takes vibes the same way (AGENTS.md, "Vibes").
+// What a vibe goes on: a pull request, or a weekly edition's or feature's issue, which takes vibes the same way (AGENTS.md, "Vibes").
 struct VibeTarget: Hashable {
     enum Kind: Hashable {
         case pullRequest
         case weeklyEdition
+        case feature
     }
 
     let kind: Kind
@@ -14,7 +15,12 @@ struct VibeTarget: Hashable {
     let reference: String
 
     var analyticsSubject: ShipTokAnalyticsSubject {
-        ShipTokAnalyticsSubject(kind: kind == .pullRequest ? .pullRequest : .weeklyEdition, nodeID: threadID, number: number)
+        let analyticsSubjectKind: ShipTokAnalyticsSubject.Kind = switch kind {
+        case .pullRequest: .pullRequest
+        case .weeklyEdition: .weeklyEdition
+        case .feature: .feature
+        }
+        return ShipTokAnalyticsSubject(kind: analyticsSubjectKind, nodeID: threadID, number: number)
     }
 
     init(pullRequest: PullRequest) {
@@ -31,5 +37,13 @@ struct VibeTarget: Hashable {
         number = weeklyEdition.number
         title = weeklyEdition.title
         reference = weeklyEdition.reference
+    }
+
+    init(feature: Feature) {
+        kind = .feature
+        threadID = feature.id
+        number = feature.number
+        title = feature.title
+        reference = feature.reference
     }
 }

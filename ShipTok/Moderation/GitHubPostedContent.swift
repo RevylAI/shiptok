@@ -1,6 +1,6 @@
 import Foundation
 
-// A description, top-level comment or reaction someone posted on a pull request or week. The viewer can report a description or comment through GitHub's own report form, since GitHub hosts it and acts on reports, or hide its poster (AGENTS.md, "Report And Hide").
+// A description, top-level comment or reaction someone posted on a pull request, week or feature. The viewer can report a description or comment through GitHub's own report form, since GitHub hosts it and acts on reports, or hide its poster (AGENTS.md, "Report And Hide").
 struct GitHubPostedContent: Hashable, Identifiable, Sendable {
     enum Kind: String, Hashable, Sendable {
         case description
@@ -10,7 +10,7 @@ struct GitHubPostedContent: Hashable, Identifiable, Sendable {
 
     let kind: Kind
     let postedBy: GitHubActor
-    // A reaction's is the pull request or week it reacts to.
+    // A reaction's is the pull request, week or feature it reacts to.
     let githubURL: URL
     // Nil in the inbox, whose query doesn't read the pull request's node id.
     let postedOn: ShipTokAnalyticsSubject?

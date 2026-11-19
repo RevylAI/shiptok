@@ -29,6 +29,7 @@ final class VibeOutbox {
     private let viewerGitHubLogin: String?
     private let feedStore: PullRequestFeedStore
     private let weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>
+    private let featuresStore: PublishedIssuesStore<Feature>
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
     init(
@@ -37,6 +38,7 @@ final class VibeOutbox {
         viewerGitHubLogin: String?,
         feedStore: PullRequestFeedStore,
         weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>,
+        featuresStore: PublishedIssuesStore<Feature>,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
     ) {
         self.githubAPIClient = githubAPIClient
@@ -44,6 +46,7 @@ final class VibeOutbox {
         self.viewerGitHubLogin = viewerGitHubLogin
         self.feedStore = feedStore
         self.weeklyEditionsStore = weeklyEditionsStore
+        self.featuresStore = featuresStore
         self.handleRejectedGitHubAccess = handleRejectedGitHubAccess
     }
 
@@ -206,7 +209,7 @@ final class VibeOutbox {
         }
     }
 
-    // A person has one vibe per pull request or week, so a new vibe comment replaces their earlier ones (AGENTS.md, "Vibes").
+    // A person has one vibe per pull request, week or feature, so a new vibe comment replaces their earlier ones (AGENTS.md, "Vibes").
     private func deleteViewerEarlierVibeComments(replacedBy postedVibeComment: PullRequestComment, of queuedVibe: QueuedVibe) async {
         let target = queuedVibe.target
         do {
@@ -217,6 +220,9 @@ final class VibeOutbox {
             case .weeklyEdition:
                 let fetchedWeeklyEdition = try await githubAPIClient.fetchWeeklyEdition(number: target.number)
                 weeklyEditionsStore.applyFetchedPublishedIssue(try await removingViewerEarlierVibeComments(from: fetchedWeeklyEdition, keeping: postedVibeComment))
+            case .feature:
+                let fetchedFeature = try await githubAPIClient.fetchFeature(number: target.number)
+                featuresStore.applyFetchedPublishedIssue(try await removingViewerEarlierVibeComments(from: fetchedFeature, keeping: postedVibeComment))
             }
         } catch {
             Self.logger.error("Replacing earlier vibes on #\(target.number, privacy: .public) failed after the new vibe posted")
@@ -269,6 +275,7 @@ final class VibeOutbox {
         switch target.kind {
         case .pullRequest: feedStore.pullRequest(withID: target.threadID)?.comments ?? []
         case .weeklyEdition: weeklyEditionsStore.publishedIssue(withID: target.threadID)?.comments ?? []
+        case .feature: featuresStore.publishedIssue(withID: target.threadID)?.comments ?? []
         }
     }
 
@@ -276,6 +283,7 @@ final class VibeOutbox {
         switch target.kind {
         case .pullRequest: feedStore.appendComment(comment, toPullRequestID: target.threadID)
         case .weeklyEdition: weeklyEditionsStore.appendComment(comment, toPublishedIssueID: target.threadID)
+        case .feature: featuresStore.appendComment(comment, toPublishedIssueID: target.threadID)
         }
     }
 
@@ -283,6 +291,7 @@ final class VibeOutbox {
         switch target.kind {
         case .pullRequest: feedStore.removeViewerDeletedComments(withIDs: commentIDs, fromPullRequestID: target.threadID)
         case .weeklyEdition: weeklyEditionsStore.removeViewerDeletedComments(withIDs: commentIDs, fromPublishedIssueID: target.threadID)
+        case .feature: featuresStore.removeViewerDeletedComments(withIDs: commentIDs, fromPublishedIssueID: target.threadID)
         }
     }
 
@@ -290,6 +299,7 @@ final class VibeOutbox {
         switch target.kind {
         case .pullRequest: feedStore.transientErrorMessage = message
         case .weeklyEdition: weeklyEditionsStore.transientErrorMessage = message
+        case .feature: featuresStore.transientErrorMessage = message
         }
     }
 

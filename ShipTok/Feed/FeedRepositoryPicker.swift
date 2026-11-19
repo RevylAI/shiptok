@@ -70,7 +70,7 @@ struct FeedRepositoryPickerView: View {
                             }
                         }
                     } footer: {
-                        Text("Every repository where an organization installed Revyl's GitHub App and you have access. The feed, weekly videos and inbox follow your choice.")
+                        Text("Every repository where an organization installed Revyl's GitHub App and you have access. The feed, weekly and feature videos and inbox follow your choice.")
                     }
                 }
             } else {

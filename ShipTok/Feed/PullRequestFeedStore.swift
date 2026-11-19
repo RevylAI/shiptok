@@ -265,6 +265,8 @@ final class PullRequestFeedStore {
     @ObservationIgnored private var openDeckLoadTask: Task<Void, Never>?
     // The open deck's pull request numbers, how many of them are in or left out so far, and the last read that failed, so a load the deck left off screen carries on where it stopped (AGENTS.md, "Weekly Mode").
     @ObservationIgnored private var openDeckPullRequestNumbers: [Int] = []
+    // A feature's deck shows its pull requests with or without media of their own; a week's leaves out those without (AGENTS.md, "Features Mode").
+    @ObservationIgnored private var openDeckShowsPullRequestsWithoutMedia = false
     @ObservationIgnored private var openDeckResolvedNumberCount = 0
     @ObservationIgnored private var openDeckLastFetchErrorMessage: String?
     @ObservationIgnored private var focusedOpenDeckPullRequestID: String?
@@ -339,11 +341,12 @@ final class PullRequestFeedStore {
     }
 
     // A deck's pull requests show in its video's order as each leading one arrives, so a page never moves under the viewer. A card names its pull requests by number, so they're read by number.
-    func openDeck(pullRequestNumbers: [Int]) {
+    func openDeck(pullRequestNumbers: [Int], showsPullRequestsWithoutMedia: Bool) {
         openDeckLoadTask?.cancel()
         openDeckLoadTask = nil
         var seenPullRequestNumbers: Set<Int> = []
         openDeckPullRequestNumbers = pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
+        openDeckShowsPullRequestsWithoutMedia = showsPullRequestsWithoutMedia
         openDeckResolvedNumberCount = 0
         openDeckLastFetchErrorMessage = nil
         openDeckPullRequests = []
@@ -360,6 +363,7 @@ final class PullRequestFeedStore {
         openDeckLoadTask?.cancel()
         openDeckLoadTask = nil
         openDeckPullRequestNumbers = []
+        openDeckShowsPullRequestsWithoutMedia = false
         openDeckResolvedNumberCount = 0
         openDeckLastFetchErrorMessage = nil
         openDeckPullRequests = []
@@ -446,7 +450,7 @@ final class PullRequestFeedStore {
                     openDeckResolvedNumberCount += 1
                     switch resolvedFetchResult {
                     case .success(let fetchedPullRequest):
-                        guard !fetchedPullRequest.mediaItems.isEmpty, !isEveryMediaItemGivenUp(fetchedPullRequest) else {
+                        guard openDeckShowsPullRequestsWithoutMedia || !fetchedPullRequest.mediaItems.isEmpty, !isEveryMediaItemGivenUp(fetchedPullRequest) else {
                             Self.logger.info("#\(resolvedNumber, privacy: .public) has no media that loads, so its deck leaves it out")
                             continue
                         }
@@ -563,7 +567,7 @@ final class PullRequestFeedStore {
         startShownModeWork { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
-    // Older pages, the open deck's load and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly's list, or Inbox or Settings over the feed (AGENTS.md, "Feed Order" and "Weekly Mode").
+    // Older pages, the open deck's load and the reads around the focused card belong to what's on screen, so they stop whenever it changes. Nil is Weekly's or Features' list, or Inbox or Settings over the feed (AGENTS.md, "Feed Order" and "Weekly Mode").
     func changeOnScreenPullRequests(to newOnScreenPullRequests: OnScreenPullRequests?) {
         if let previouslyShownFeed = shownFeed, newOnScreenPullRequests != .feed(previouslyShownFeed) {
             updateLoadedFeed(previouslyShownFeed) { loadedFeed in loadedFeed.leaveScreen(isShown: { visibleCopy(of: $0) != nil }) }
@@ -944,7 +948,7 @@ final class PullRequestFeedStore {
             : []
         removeIfEveryMediaItemGivenUp(fetchedPullRequest)
         if let openDeckIndex = openDeckPullRequests.firstIndex(where: { $0.id == fetchedPullRequest.id }) {
-            if !fetchedPullRequest.mediaItems.isEmpty, !isEveryMediaItemGivenUp(fetchedPullRequest) {
+            if openDeckShowsPullRequestsWithoutMedia || !fetchedPullRequest.mediaItems.isEmpty, !isEveryMediaItemGivenUp(fetchedPullRequest) {
                 let existingPullRequest = openDeckPullRequests[openDeckIndex]
                 var updatedPullRequest = keepingLocalWrites(of: existingPullRequest, in: fetchedPullRequest)
                 if fetchedPullRequest.id == focusedOpenDeckPullRequestID && !forcesMediaURLRenewal {

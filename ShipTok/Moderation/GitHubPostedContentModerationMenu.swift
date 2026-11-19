@@ -29,6 +29,7 @@ struct GitHubPostedContentModerationMenu<MenuLabel: View>: View {
         case (.comment, _): "Comment by @\(postedContent.postedBy.login)"
         case (.reaction, _): "Reaction by @\(postedContent.postedBy.login)"
         case (.description, .weeklyEdition): "Weekly video by @\(postedContent.postedBy.login)"
+        case (.description, .feature): "Feature video by @\(postedContent.postedBy.login)"
         case (.description, _): "Pull request by @\(postedContent.postedBy.login)"
         }
     }

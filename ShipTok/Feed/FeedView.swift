@@ -4,18 +4,21 @@ struct FeedView: View {
     private enum FeedContext: Hashable {
         case pullRequests(PullRequestFeed)
         case weeklyEditions
-        case openWeek
+        case features
+        case openDeck
     }
 
     private enum FeedPage: Identifiable {
         case pullRequest(PullRequest)
         case weeklyEdition(WeeklyEdition)
+        case feature(Feature)
         case feedEnd
 
         var id: String {
             switch self {
             case .pullRequest(let pullRequest): pullRequest.id
             case .weeklyEdition(let weeklyEdition): weeklyEdition.id
+            case .feature(let feature): feature.id
             case .feedEnd: "feed-end"
             }
         }
@@ -24,6 +27,7 @@ struct FeedView: View {
             switch self {
             case .pullRequest(let pullRequest): VibeTarget(pullRequest: pullRequest)
             case .weeklyEdition(let weeklyEdition): VibeTarget(weeklyEdition: weeklyEdition)
+            case .feature(let feature): VibeTarget(feature: feature)
             case .feedEnd: nil
             }
         }
@@ -52,6 +56,7 @@ struct FeedView: View {
     private let githubAPIClient: GitHubAPIClient
     @State private var feedStore: PullRequestFeedStore
     @State private var weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>
+    @State private var featuresStore: PublishedIssuesStore<Feature>
     @State private var vibeOutbox: VibeOutbox
     // A demo visitor has no inbox or saved settings.
     @State private var inboxStore: DeveloperInboxStore?
@@ -61,11 +66,12 @@ struct FeedView: View {
     @State private var demoVisitFeedMode: FeedMode = .merged
     @State private var demoVisitShowsOnlyPullRequestsWithVideos = true
     @State private var playbackRateChoice: VideoPlaybackRateChoice
-    @State private var openWeeklyEdition: WeeklyEdition?
+    @State private var openDeckSource: PullRequestDeckSource?
     @State private var openPullRequestsPageIndex = 0
     @State private var mergedPullRequestsPageIndex = 0
     @State private var weeklyEditionsPageIndex = 0
-    @State private var openWeekPageIndex = 0
+    @State private var featuresPageIndex = 0
+    @State private var openDeckPageIndex = 0
     @State private var verticalDragOffset: CGFloat = 0
     @State private var horizontalDragOffset: CGFloat = 0
     @State private var activeDeckDrag: DeckDrag?
@@ -77,6 +83,7 @@ struct FeedView: View {
     @State private var vibeAwaitingFeedback: VibeAwaitingFeedback?
     @State private var commentsSheetPullRequest: PullRequest?
     @State private var commentsSheetWeeklyEdition: WeeklyEdition?
+    @State private var commentsSheetFeature: Feature?
     @State private var detailSheetPullRequest: PullRequest?
     @State private var mediaDeckPullRequestID: PresentedPullRequestID?
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
@@ -141,13 +148,20 @@ struct FeedView: View {
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         )
         _feedStore = State(initialValue: feedStore)
+        let featuresStore = PublishedIssuesStore<Feature>(
+            githubAPIClient: githubAPIClient,
+            analytics: viewer.analytics,
+            handleRejectedGitHubAccess: handleRejectedGitHubAccess
+        )
         _weeklyEditionsStore = State(initialValue: weeklyEditionsStore)
+        _featuresStore = State(initialValue: featuresStore)
         _vibeOutbox = State(initialValue: VibeOutbox(
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
             viewerGitHubLogin: viewer.githubLogin,
             feedStore: feedStore,
             weeklyEditionsStore: weeklyEditionsStore,
+            featuresStore: featuresStore,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         ))
         _inboxStore = State(initialValue: viewer.teammate.map { teammate in
@@ -177,7 +191,8 @@ struct FeedView: View {
         switch feedMode {
         case .open: .pullRequests(.open)
         case .merged: .pullRequests(.merged)
-        case .weekly: openWeeklyEdition == nil ? .weeklyEditions : .openWeek
+        case .weekly: openDeckSource?.feedMode == .weekly ? .openDeck : .weeklyEditions
+        case .features: openDeckSource?.feedMode == .features ? .openDeck : .features
         }
     }
 
@@ -189,8 +204,8 @@ struct FeedView: View {
     private var onScreenPullRequests: OnScreenPullRequests? {
         switch onScreenFeedContext {
         case .pullRequests(let feed): .feed(feed)
-        case .openWeek: .openDeck
-        case .weeklyEditions, nil: nil
+        case .openDeck: .openDeck
+        case .weeklyEditions, .features, nil: nil
         }
     }
 
@@ -204,28 +219,35 @@ struct FeedView: View {
         weeklyEditionsStore.publishedIssues.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
     }
 
+    private var visibleFeatures: [Feature] {
+        featuresStore.publishedIssues.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
+    }
+
     private var feedPages: [FeedPage] {
         switch feedContext {
         case .pullRequests(let feed): feedStore.visiblePullRequests(in: feed).map(FeedPage.pullRequest) + [.feedEnd]
         case .weeklyEditions: visibleWeeklyEditions.map(FeedPage.weeklyEdition) + [.feedEnd]
-        case .openWeek: feedStore.visibleOpenDeckPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
+        case .features: visibleFeatures.map(FeedPage.feature) + [.feedEnd]
+        case .openDeck: feedStore.visibleOpenDeckPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
         }
     }
 
-    // Each context keeps its own place, so switching modes or closing a week returns to the card the viewer left.
+    // Each context keeps its own place, so switching modes or closing a deck returns to the card the viewer left.
     private var currentPageIndex: Int {
         get {
             switch feedContext {
             case .pullRequests(let feed): pageIndex(in: feed)
             case .weeklyEditions: weeklyEditionsPageIndex
-            case .openWeek: openWeekPageIndex
+            case .features: featuresPageIndex
+            case .openDeck: openDeckPageIndex
             }
         }
         nonmutating set {
             switch feedContext {
             case .pullRequests(let feed): setPageIndex(newValue, in: feed)
             case .weeklyEditions: weeklyEditionsPageIndex = newValue
-            case .openWeek: openWeekPageIndex = newValue
+            case .features: featuresPageIndex = newValue
+            case .openDeck: openDeckPageIndex = newValue
             }
         }
     }
@@ -238,7 +260,8 @@ struct FeedView: View {
         switch feedContext {
         case .pullRequests(let feed): feedStore.loadedFeed(feed).isPullToRefreshRunning
         case .weeklyEditions: weeklyEditionsStore.isPullToRefreshRunning
-        case .openWeek: feedStore.isOpenDeckPullToRefreshRunning
+        case .features: featuresStore.isPullToRefreshRunning
+        case .openDeck: feedStore.isOpenDeckPullToRefreshRunning
         }
     }
 
@@ -251,7 +274,7 @@ struct FeedView: View {
     }
 
     private var isHeroOccludedForAnalytics: Bool {
-        commentsSheetPullRequest != nil || commentsSheetWeeklyEdition != nil
+        commentsSheetPullRequest != nil || commentsSheetWeeklyEdition != nil || commentsSheetFeature != nil
     }
 
     // Read from the keyboard's effect on the safe area rather than show and hide notifications, which can arrive unpaired when an iPhone Duo rotates.
@@ -364,6 +387,21 @@ struct FeedView: View {
                 onThreadChanged: { changedWeeklyEdition in weeklyEditionsStore.applyFetchedPublishedIssue(changedWeeklyEdition) }
             )
         }
+        .sheet(item: $commentsSheetFeature) { feature in
+            PullRequestCommentsSheet(
+                thread: feature,
+                viewer: viewer.teammate?.user,
+                signInSession: signInSession,
+                hiddenPeopleStore: viewer.hiddenPeopleStore,
+                githubAPIClient: githubAPIClient,
+                analytics: viewer.analytics,
+                analyticsSubject: VibeTarget(feature: feature).analyticsSubject,
+                fetchLatestThread: { [githubAPIClient = githubAPIClient] number in
+                    try await githubAPIClient.fetchFeature(number: number)
+                },
+                onThreadChanged: { changedFeature in featuresStore.applyFetchedPublishedIssue(changedFeature) }
+            )
+        }
         .sheet(item: $detailSheetPullRequest) { pullRequest in
             DetailSheetContent(
                 feedStore: feedStore,
@@ -408,15 +446,15 @@ struct FeedView: View {
             keepPullRequestsPageInPlace(in: .merged, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
         }
         .onChange(of: feedStore.visibleOpenDeckPullRequests.map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
-            let previouslyShownPullRequestID = previousPullRequestIDs.indices.contains(openWeekPageIndex) ? previousPullRequestIDs[openWeekPageIndex] : nil
-            if let previouslyShownPullRequestID, let movedPageIndex = currentPullRequestIDs.firstIndex(of: previouslyShownPullRequestID), movedPageIndex != openWeekPageIndex {
-                openWeekPageIndex = movedPageIndex
+            let previouslyShownPullRequestID = previousPullRequestIDs.indices.contains(openDeckPageIndex) ? previousPullRequestIDs[openDeckPageIndex] : nil
+            if let previouslyShownPullRequestID, let movedPageIndex = currentPullRequestIDs.firstIndex(of: previouslyShownPullRequestID), movedPageIndex != openDeckPageIndex {
+                openDeckPageIndex = movedPageIndex
                 return
             }
             // The page stayed but its card changed: the first card arrived, or the one under the viewer left, so the store's focus follows while the deck is on screen, never landing on a mode's card at the same index.
-            let shownPullRequestID = currentPullRequestIDs.indices.contains(openWeekPageIndex) ? currentPullRequestIDs[openWeekPageIndex] : nil
-            if shownPullRequestID != previouslyShownPullRequestID, onScreenFeedContext == .openWeek {
-                focusPage(at: openWeekPageIndex)
+            let shownPullRequestID = currentPullRequestIDs.indices.contains(openDeckPageIndex) ? currentPullRequestIDs[openDeckPageIndex] : nil
+            if shownPullRequestID != previouslyShownPullRequestID, onScreenFeedContext == .openDeck {
+                focusPage(at: openDeckPageIndex)
             }
         }
         .onChange(of: visibleWeeklyEditions.map(\.id)) { previousWeeklyEditionIDs, currentWeeklyEditionIDs in
@@ -424,6 +462,12 @@ struct FeedView: View {
                   let movedPageIndex = currentWeeklyEditionIDs.firstIndex(of: previousWeeklyEditionIDs[weeklyEditionsPageIndex])
             else { return }
             weeklyEditionsPageIndex = movedPageIndex
+        }
+        .onChange(of: visibleFeatures.map(\.id)) { previousFeatureIDs, currentFeatureIDs in
+            guard previousFeatureIDs.indices.contains(featuresPageIndex),
+                  let movedPageIndex = currentFeatureIDs.firstIndex(of: previousFeatureIDs[featuresPageIndex])
+            else { return }
+            featuresPageIndex = movedPageIndex
         }
         .onChange(of: showsOnlyPullRequestsWithVideos, initial: true) { _, newShowsOnlyPullRequestsWithVideos in
             feedStore.showsOnlyPullRequestsWithVideos = newShowsOnlyPullRequestsWithVideos
@@ -547,8 +591,8 @@ struct FeedView: View {
         return VStack(alignment: .leading, spacing: Self.newerPullRequestsButtonGapBelowFeedModeSwitch) {
             FeedModeSwitch(
                 feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
-                openWeekDatesText: feedContext == .openWeek ? openWeeklyEdition?.weekDatesText : nil,
-                onCloseWeek: closeWeek
+                shownDeckSource: feedContext == .openDeck ? openDeckSource : nil,
+                onCloseDeck: closeDeck
             )
             .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
             newerPullRequestsButton
@@ -567,8 +611,10 @@ struct FeedView: View {
             pullRequestsFeedContent(in: feed, pageSize: pageSize, pageChromeInsets: pageChromeInsets)
         case .weeklyEditions:
             weeklyEditionsFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
-        case .openWeek:
-            openWeekFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+        case .features:
+            featuresFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+        case .openDeck:
+            openDeckFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
         }
     }
 
@@ -596,26 +642,50 @@ struct FeedView: View {
     }
 
     @ViewBuilder
-    private func openWeekFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
-        if !feedStore.openDeckPullRequests.isEmpty {
+    private func featuresFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+        if !featuresStore.publishedIssues.isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
-        } else if let openWeekLoadFailureMessage = feedStore.openDeckLoadFailureMessage, let openWeeklyEdition {
+        } else if let loadFailureMessage = featuresStore.loadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
-                title: Text("Couldn't load this week's pull requests"),
-                message: Text(verbatim: openWeekLoadFailureMessage),
+                title: Text("Couldn't load the feature videos"),
+                message: Text(verbatim: loadFailureMessage),
                 actionTitle: Text("Try again"),
-                action: { feedStore.openDeck(pullRequestNumbers: openWeeklyEdition.pullRequestNumbers) }
+                action: { Task { await featuresStore.refresh() } }
+            )
+        } else if !featuresStore.isLoaded {
+            FeedLoadingView(message: "Finding the feature videos…")
+        } else {
+            RevylContentUnavailableView(
+                systemImageName: "sparkles.rectangle.stack",
+                title: Text("No feature videos yet"),
+                message: Text("Each feature's video is a closed issue labeled \(FeatureFormat.labelName) in \(githubAPIClient.repositoryFullName). None is posted yet.")
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func openDeckFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+        let isWeekDeck = openDeckSource?.feedMode == .weekly
+        if !feedStore.openDeckPullRequests.isEmpty {
+            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+        } else if let openDeckLoadFailureMessage = feedStore.openDeckLoadFailureMessage, let openDeckSource {
+            RevylContentUnavailableView(
+                systemImageName: "exclamationmark.triangle",
+                title: Text(isWeekDeck ? "Couldn't load this week's pull requests" : "Couldn't load this feature's pull requests"),
+                message: Text(verbatim: openDeckLoadFailureMessage),
+                actionTitle: Text("Try again"),
+                action: { openDeck(of: openDeckSource) }
             )
         } else if !feedStore.isOpenDeckLoaded {
-            FeedLoadingView(message: "Loading the week's pull requests…")
+            FeedLoadingView(message: isWeekDeck ? "Loading the week's pull requests…" : "Loading the feature's pull requests…")
         } else {
             RevylContentUnavailableView(
                 systemImageName: "rectangle.stack",
-                title: Text("None of this week's pull requests could be read"),
+                title: Text(isWeekDeck ? "None of this week's pull requests could be read" : "None of this feature's pull requests could be read"),
                 message: Text("They may be private to you, or closed without being merged."),
-                actionTitle: Text("Back to weekly videos"),
-                action: closeWeek
+                actionTitle: Text(isWeekDeck ? "Back to weekly videos" : "Back to feature videos"),
+                action: closeDeck
             )
         }
     }
@@ -741,10 +811,27 @@ struct FeedView: View {
                 likeUnlessAlreadyLiked: { Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(publishedIssueID: weeklyEdition.id) } },
                 toggleReaction: { reaction in Task { await weeklyEditionsStore.toggleReaction(reaction, publishedIssueID: weeklyEdition.id) } },
                 openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.publishedIssue(withID: weeklyEdition.id) ?? weeklyEdition },
-                openDeck: { openWeek(weeklyEdition) },
-                tapCaption: { openWeek(weeklyEdition) },
+                openDeck: { openDeck(of: .weeklyEdition(weeklyEdition)) },
+                tapCaption: { openDeck(of: .weeklyEdition(weeklyEdition)) },
                 recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
                     Task { await weeklyEditionsStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, wasRefusedToViewer: wasRefusedToViewer) }
+                }
+            )
+        case .feature(let feature):
+            feedCard(
+                .feature(feature),
+                heroMediaItem: featuresStore.heroMediaItem(of: feature),
+                unloadableMediaItemIDs: featuresStore.unloadableMediaItemIDs,
+                isCurrentPage: isCurrentPage,
+                deckSize: deckSize,
+                pageChromeInsets: pageChromeInsets,
+                likeUnlessAlreadyLiked: { Task { await featuresStore.likeUnlessAlreadyLiked(publishedIssueID: feature.id) } },
+                toggleReaction: { reaction in Task { await featuresStore.toggleReaction(reaction, publishedIssueID: feature.id) } },
+                openComments: { commentsSheetFeature = featuresStore.publishedIssue(withID: feature.id) ?? feature },
+                openDeck: { openDeck(of: .feature(feature)) },
+                tapCaption: { openDeck(of: .feature(feature)) },
+                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
+                    Task { await featuresStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, wasRefusedToViewer: wasRefusedToViewer) }
                 }
             )
         case .feedEnd:
@@ -867,18 +954,37 @@ struct FeedView: View {
                 message: Text("A new one lands after each week ends, Monday to Sunday.")
             )
             .background(RevylBrandColor.canvas)
-        case .openWeek:
-            if feedStore.isOpenDeckLoaded {
+        case .features:
+            RevylContentUnavailableView(
+                systemImageName: "checkmark.seal.fill",
+                title: Text("That's every feature video"),
+                message: Text("A new one lands when its issue closes.")
+            )
+            .background(RevylBrandColor.canvas)
+        case .openDeck:
+            switch (feedStore.isOpenDeckLoaded, openDeckSource) {
+            case (true, .weeklyEdition(let weeklyEdition)):
                 RevylContentUnavailableView(
                     systemImageName: "checkmark.seal.fill",
-                    title: Text("That's the week of \(openWeeklyEdition?.weekDatesText ?? "")"),
+                    title: Text("That's the week of \(weeklyEdition.weekDatesText)"),
                     message: Text("You've seen every pull request in this week's video."),
                     actionTitle: Text("Back to weekly videos"),
-                    action: closeWeek
+                    action: closeDeck
                 )
                 .background(RevylBrandColor.canvas)
-            } else {
-                FeedLoadingView(message: "Loading the rest of the week…")
+            case (true, .feature(let feature)):
+                RevylContentUnavailableView(
+                    systemImageName: "checkmark.seal.fill",
+                    title: Text("That's “\(feature.title)”"),
+                    message: Text("You've seen every pull request behind this feature."),
+                    actionTitle: Text("Back to feature videos"),
+                    action: closeDeck
+                )
+                .background(RevylBrandColor.canvas)
+            case (true, nil):
+                EmptyView()
+            case (false, _):
+                FeedLoadingView(message: openDeckSource?.feedMode == .weekly ? "Loading the rest of the week…" : "Loading the rest of the feature…")
                     .background(RevylBrandColor.canvas)
             }
         }
@@ -918,6 +1024,13 @@ struct FeedView: View {
                     onDismiss: { weeklyEditionsStore.transientErrorMessage = nil }
                 )
             }
+            if let featuresTransientErrorMessage = featuresStore.transientErrorMessage {
+                FeedToastView(
+                    message: featuresTransientErrorMessage,
+                    tint: RevylBrandColor.warning,
+                    onDismiss: { featuresStore.transientErrorMessage = nil }
+                )
+            }
         }
         .frame(maxWidth: Self.toastMaximumWidth)
         .padding(.leading, 16)
@@ -927,6 +1040,7 @@ struct FeedView: View {
         .animation(.snappy, value: vibeOutbox.failedVibe?.id)
         .animation(.snappy, value: feedStore.transientErrorMessage)
         .animation(.snappy, value: weeklyEditionsStore.transientErrorMessage)
+        .animation(.snappy, value: featuresStore.transientErrorMessage)
     }
 
     private var vibeFeedbackComposer: some View {
@@ -1012,6 +1126,7 @@ struct FeedView: View {
         let (heroMediaItem, unloadableMediaItemIDs): (PullRequestMediaItem?, Set<String>) = switch page {
         case .pullRequest(let pullRequest): (feedStore.heroMediaItem(of: pullRequest), feedStore.unloadableMediaItemIDs)
         case .weeklyEdition(let weeklyEdition): (weeklyEditionsStore.heroMediaItem(of: weeklyEdition), weeklyEditionsStore.unloadableMediaItemIDs)
+        case .feature(let feature): (featuresStore.heroMediaItem(of: feature), featuresStore.unloadableMediaItemIDs)
         case .feedEnd: (nil, [])
         }
         guard let heroMediaItem else { return false }
@@ -1082,7 +1197,8 @@ struct FeedView: View {
         switch feedContext {
         case .pullRequests(let feed): Task { await feedStore.refreshFromPull(in: feed) }
         case .weeklyEditions: Task { await weeklyEditionsStore.refreshFromPull() }
-        case .openWeek: Task { await feedStore.refreshOpenDeckFromPull() }
+        case .features: Task { await featuresStore.refreshFromPull() }
+        case .openDeck: Task { await feedStore.refreshOpenDeckFromPull() }
         }
     }
 
@@ -1094,9 +1210,11 @@ struct FeedView: View {
             focusPullRequestsPage(in: feed, at: pageIndex)
         case .weeklyEditions:
             Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
-        case .openWeek:
-            let visibleOpenWeekPullRequests = feedStore.visibleOpenDeckPullRequests
-            feedStore.focusOpenDeckPage(showingPullRequestID: visibleOpenWeekPullRequests.indices.contains(pageIndex) ? visibleOpenWeekPullRequests[pageIndex].id : nil)
+        case .features:
+            Task { await featuresStore.refreshIfMediaURLsAreStale() }
+        case .openDeck:
+            let visibleOpenDeckPullRequests = feedStore.visibleOpenDeckPullRequests
+            feedStore.focusOpenDeckPage(showingPullRequestID: visibleOpenDeckPullRequests.indices.contains(pageIndex) ? visibleOpenDeckPullRequests[pageIndex].id : nil)
         }
     }
 
@@ -1135,18 +1253,20 @@ struct FeedView: View {
         switch feedContext {
         case .pullRequests(let feed): await feedStore.refreshNewestData(in: feed)
         case .weeklyEditions: await weeklyEditionsStore.refresh()
-        case .openWeek: await feedStore.refreshFocusedOpenDeckPullRequest()
+        case .features: await featuresStore.refresh()
+        case .openDeck: await feedStore.refreshFocusedOpenDeckPullRequest()
         }
     }
 
-    private func openWeek(_ weeklyEdition: WeeklyEdition) {
-        openWeekPageIndex = 0
-        openWeeklyEdition = weeklyEdition
-        feedStore.openDeck(pullRequestNumbers: weeklyEdition.pullRequestNumbers)
+    // The store holds one deck, so opening a feature's deck closes an open week's and the other way round, and the mode behind the closed one shows its list (AGENTS.md, "Features Mode").
+    private func openDeck(of deckSource: PullRequestDeckSource) {
+        openDeckPageIndex = 0
+        openDeckSource = deckSource
+        feedStore.openDeck(pullRequestNumbers: deckSource.pullRequestNumbers, showsPullRequestsWithoutMedia: deckSource.showsPullRequestsWithoutMedia)
     }
 
-    private func closeWeek() {
-        withAnimation(.spring(duration: 0.3)) { openWeeklyEdition = nil }
+    private func closeDeck() {
+        withAnimation(.spring(duration: 0.3)) { openDeckSource = nil }
         feedStore.closeDeck()
     }
 
@@ -1247,7 +1367,7 @@ struct FeedView: View {
         showPage(withID: undoneVibe.target.threadID)
     }
 
-    // Only a page of the context on screen comes back; a vibe from another mode or week stays where it was cast.
+    // Only a page of the context on screen comes back; a vibe from another mode or deck stays where it was cast.
     private func showPage(withID pageID: String) {
         guard let pageIndex = feedPages.firstIndex(where: { $0.id == pageID }) else { return }
         withAnimation(.spring(duration: 0.35)) { currentPageIndex = pageIndex }

@@ -47,11 +47,11 @@ struct DemoSettingsView: View {
                 } header: {
                     Text("Feed")
                 } footer: {
-                    Text("Open and Merged show only pull requests that lead with a video. Turn it off to see ones with only screenshots or GIFs too. Weekly videos always show. Your choice lasts for the rest of this visit.")
+                    Text("Open and Merged show only pull requests that lead with a video. Turn it off to see ones with only screenshots or GIFs too. Weekly, Features and the pull requests they open always show. Your choice lasts for the rest of this visit.")
                 }
                 HiddenPeopleSection(
                     hiddenPeopleStore: demoVisitor.hiddenPeopleStore,
-                    footerText: "Their pull requests, weekly videos, comments, vibes and media don't show for the rest of this visit. They aren't told, and nothing changes on GitHub."
+                    footerText: "Their pull requests, weekly and feature videos, comments, vibes and media don't show for the rest of this visit. They aren't told, and nothing changes on GitHub."
                 )
                 GesturesSection()
                 PrivacyAndSupportSection()

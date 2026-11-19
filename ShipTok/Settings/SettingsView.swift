@@ -50,7 +50,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Feed")
                 } footer: {
-                    Text("Open and Merged show only pull requests that lead with a video. Turn it off to see ones with only screenshots or GIFs too. Weekly videos always show.")
+                    Text("Open and Merged show only pull requests that lead with a video. Turn it off to see ones with only screenshots or GIFs too. Weekly, Features and the pull requests they open always show.")
                 }
                 Section {
                     Toggle("Ask for feedback on good vibes", isOn: feedbackBoxBinding(for: .good))
@@ -68,7 +68,7 @@ struct SettingsView: View {
                 }
                 HiddenPeopleSection(
                     hiddenPeopleStore: hiddenPeopleStore,
-                    footerText: "Their pull requests, weekly videos, comments, vibes and media don't show in ShipTok on this iPhone. They aren't told, and nothing changes on GitHub."
+                    footerText: "Their pull requests, weekly and feature videos, comments, vibes and media don't show in ShipTok on this iPhone. They aren't told, and nothing changes on GitHub."
                 )
                 GesturesSection()
                 AccountActionsSections(signInSession: signInSession)

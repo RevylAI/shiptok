@@ -12,7 +12,7 @@ extension View {
             Button("Hide @\(contentToHide.postedBy.login)", role: .destructive) { onHide(contentToHide) }
             Button("Cancel", role: .cancel) {}
         } message: { contentToHide in
-            Text("Their pull requests, weekly videos, comments, vibes and media won't show in ShipTok on this iPhone. @\(contentToHide.postedBy.login) isn't told and nothing changes on GitHub. Unhide them anytime in Settings.")
+            Text("Their pull requests, weekly and feature videos, comments, vibes and media won't show in ShipTok on this iPhone. @\(contentToHide.postedBy.login) isn't told and nothing changes on GitHub. Unhide them anytime in Settings.")
         }
     }
 }
