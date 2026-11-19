@@ -101,18 +101,28 @@ final class GitHubAPIClient: Sendable {
         }
     }
 
+    // The demo's whole list for a mode, as its latest snapshot holds it; nil for a signed-in viewer, whose feeds GitHub serves (AGENTS.md, "Demo Mode").
+    func fetchDemoFeedPullRequests(in feed: PullRequestFeed) async throws -> [PullRequest]? {
+        guard case .demoFeed(let demoFeed) = source else { return nil }
+        let snapshot = try await demoFeed.snapshot()
+        let pullRequestNodes = switch feed {
+        case .open: snapshot.openPullRequests
+        case .merged: snapshot.mergedPullRequests
+        }
+        var pullRequests: [PullRequest] = []
+        for pullRequestNode in pullRequestNodes where !Self.isClosedWithoutMerging(pullRequestNode) {
+            pullRequests.append(try await pullRequest(from: pullRequestNode))
+        }
+        return pullRequests
+    }
+
     // The newest merge-date window ending before a date that holds at most about 50 merged pull requests, the widest that does, read whole. Its start is where the next window ends, and nil once nothing older is left (AGENTS.md, "Feed Order").
     // GitHub reads merge dates in whole seconds, so the window ends on a whole second and its start, the merged feed's cursor, is one too, the same value searched, compared and saved.
     func fetchMergedPullRequestWindow(mergedBefore windowEndDate: Date) async throws -> MergedPullRequestWindow {
         let windowEndSecond = Date(timeIntervalSince1970: windowEndDate.timeIntervalSince1970.rounded(.down))
         let latestMergeDate = windowEndSecond.addingTimeInterval(-1)
-        if case .demoFeed(let demoFeed) = source {
-            var mergedPullRequests: [PullRequest] = []
-            for pullRequestNode in try await demoFeed.snapshot().mergedPullRequests {
-                guard let mergedAt = pullRequestNode.mergedAt, mergedAt <= latestMergeDate else { continue }
-                mergedPullRequests.append(try await pullRequest(from: pullRequestNode))
-            }
-            return MergedPullRequestWindow(pullRequests: mergedPullRequests, startDate: nil)
+        if let demoMergedPullRequests = try await fetchDemoFeedPullRequests(in: .merged) {
+            return MergedPullRequestWindow(pullRequests: demoMergedPullRequests.filter { ($0.mergedAt ?? .distantFuture) <= latestMergeDate }, startDate: nil)
         }
         let candidateStartDates: [Date?] = Self.mergedPullRequestWindowCandidateSpansHours.map { windowEndSecond.addingTimeInterval(-$0 * 60 * 60) } + [nil]
         let candidateSearchQueries = candidateStartDates.map { candidateStartDate in
@@ -212,12 +222,8 @@ final class GitHubAPIClient: Sendable {
 
     // A page of open pull requests, newest update first, through the repository's pull request list rather than search (AGENTS.md, "Feed Order").
     func fetchOpenPullRequestsPage(after pageCursor: String?) async throws -> OpenPullRequestsPage {
-        if case .demoFeed(let demoFeed) = source {
-            var openPullRequests: [PullRequest] = []
-            for pullRequestNode in try await demoFeed.snapshot().openPullRequests where !Self.isClosedWithoutMerging(pullRequestNode) {
-                openPullRequests.append(try await pullRequest(from: pullRequestNode))
-            }
-            return OpenPullRequestsPage(pullRequests: openPullRequests.sorted { $0.comesBefore($1, in: .open) }, nextPageCursor: nil)
+        if let demoOpenPullRequests = try await fetchDemoFeedPullRequests(in: .open) {
+            return OpenPullRequestsPage(pullRequests: demoOpenPullRequests.sorted { $0.comesBefore($1, in: .open) }, nextPageCursor: nil)
         }
         var variables: [String: any Sendable] = ["owner": repositoryOwnerLogin, "name": repositoryName]
         if let pageCursor {
@@ -239,15 +245,6 @@ final class GitHubAPIClient: Sendable {
 
     // Which pull requests in these states were updated since a date, and when, newest update first. Only that, so a refresh reads in full only what changed since it last read it (AGENTS.md, "Feed Order").
     func fetchPullRequestUpdates(since earliestUpdateDate: Date, inStates pullRequestStates: [GitHubPullRequestState]) async throws -> [PullRequestUpdate] {
-        if case .demoFeed(let demoFeed) = source {
-            // The demo feed may carry no update dates, so it answers with every pull request in those states.
-            let snapshot = try await demoFeed.snapshot()
-            let openPullRequestNodes = pullRequestStates.contains(.open) ? snapshot.openPullRequests : []
-            let mergedPullRequestNodes = pullRequestStates.contains(.merged) ? snapshot.mergedPullRequests : []
-            return (openPullRequestNodes + mergedPullRequestNodes).map { pullRequestNode in
-                PullRequestUpdate(id: pullRequestNode.id, updatedAt: pullRequestNode.updatedAt ?? pullRequestNode.createdAt, mergedAt: pullRequestNode.mergedAt)
-            }
-        }
         var pullRequestUpdates: [PullRequestUpdate] = []
         var pageCursor: String?
         repeat {
@@ -274,16 +271,6 @@ final class GitHubAPIClient: Sendable {
 
     // Open and merged pull requests read by id, a few at a time; one closed without merging or gone is left out.
     func fetchPullRequests(ids pullRequestIDs: [String]) async throws -> [PullRequest] {
-        if case .demoFeed(let demoFeed) = source {
-            let snapshot = try await demoFeed.snapshot()
-            let requestedPullRequestIDs = Set(pullRequestIDs)
-            var pullRequests: [PullRequest] = []
-            for pullRequestNode in snapshot.openPullRequests + snapshot.mergedPullRequests
-            where requestedPullRequestIDs.contains(pullRequestNode.id) && !Self.isClosedWithoutMerging(pullRequestNode) {
-                pullRequests.append(try await pullRequest(from: pullRequestNode))
-            }
-            return pullRequests
-        }
         var pullRequests: [PullRequest] = []
         for batchStartIndex in stride(from: 0, to: pullRequestIDs.count, by: Self.pullRequestsByIDBatchCount) {
             let pullRequestIDBatch = Array(pullRequestIDs[batchStartIndex..<min(batchStartIndex + Self.pullRequestsByIDBatchCount, pullRequestIDs.count)])

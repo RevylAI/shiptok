@@ -706,11 +706,15 @@ final class PullRequestFeedStore {
         let earliestUpdateDate = everyUpdateAppliedBefore.addingTimeInterval(-Self.updateSearchOverlapSeconds)
         do {
             let updatedPullRequestCount: Int
-            switch feed {
-            case .open:
-                updatedPullRequestCount = try await applyOpenPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
-            case .merged:
-                updatedPullRequestCount = try await applyMergedPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
+            if let demoPullRequests = try await githubAPIClient.fetchDemoFeedPullRequests(in: feed) {
+                updatedPullRequestCount = applyDemoFeedSnapshot(demoPullRequests, to: feed, fetchedAt: refreshStartedAt)
+            } else {
+                switch feed {
+                case .open:
+                    updatedPullRequestCount = try await applyOpenPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
+                case .merged:
+                    updatedPullRequestCount = try await applyMergedPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
+                }
             }
             try Task.checkCancellation()
             Self.logger.debug("Read \(updatedPullRequestCount, privacy: .public) \(feed.rawValue, privacy: .public) pull requests updated since \(everyUpdateAppliedBefore.formatted(.iso8601), privacy: .public) in \(Self.millisecondsElapsed(since: refreshStartedAt), privacy: .public) ms")
@@ -751,6 +755,16 @@ final class PullRequestFeedStore {
             apply(updatedPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
         }
         return closedOrMergedPullRequestIDs.count + updatedOpenPullRequests.count
+    }
+
+    // The demo is a snapshot of each mode's newest pull requests, so a refresh makes the mode's list match it: a card the snapshot no longer holds leaves, the one under the viewer's finger once they move on, and every card it holds is applied with its fresh media links (AGENTS.md, "Demo Mode").
+    private func applyDemoFeedSnapshot(_ demoPullRequests: [PullRequest], to feed: PullRequestFeed, fetchedAt refreshStartedAt: Date) -> Int {
+        let demoPullRequestIDs = Set(demoPullRequests.map(\.id))
+        updateLoadedFeed(feed) { $0.removePullRequests { !demoPullRequestIDs.contains($0.id) } }
+        for demoPullRequest in demoPullRequests.sorted(by: { !$0.comesBefore($1, in: feed) }) {
+            apply(demoPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
+        }
+        return demoPullRequests.count
     }
 
     private func appendOlderPullRequests(_ olderPullRequests: [PullRequest], to feed: PullRequestFeed, fetchedAt: Date) -> Int {
