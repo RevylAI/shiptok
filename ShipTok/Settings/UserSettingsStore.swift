@@ -29,12 +29,13 @@ extension UserSettings {
 @Observable
 @MainActor
 final class UserSettingsStore {
-    private(set) var userSettings = UserSettings.defaults
     private(set) var refreshFailureMessage: String?
     var saveFailureMessage: String?
-    // What Revyl's backend last confirmed, so a failed save puts a setting back to what's saved, not to what showed before a toggle whose own save may have failed too.
-    private var lastConfirmedUserSettings = UserSettings.defaults
-    private var localChangeGeneration = 0
+    // What Revyl's backend last confirmed, by a read or a save. The settings shown are these with each setting's newest change still saving on top, so a read never shows an old value over a toggle, and a failed save puts the setting back to what's saved (AGENTS.md, "Feed Order").
+    private var confirmedUserSettings = UserSettings.defaults
+    private var pendingChangeBySetting: [WritableKeyPath<UserSettings, Bool>: PendingSettingChange] = [:]
+    private var latestChangeRevision = 0
+    private var confirmedSaveCount = 0
     private var latestSave: Task<Void, Error>?
     private let accessTokenVault: GitHubAccessTokenVault
     private let shipTokAPI = RevylShipTokAPI()
@@ -43,20 +44,28 @@ final class UserSettingsStore {
         self.accessTokenVault = accessTokenVault
     }
 
+    var userSettings: UserSettings {
+        var shownUserSettings = confirmedUserSettings
+        for (setting, pendingChange) in pendingChangeBySetting {
+            shownUserSettings[keyPath: setting] = pendingChange.value
+        }
+        return shownUserSettings
+    }
+
     func showsFeedbackBox(for vibe: PullRequestVibe) -> Bool {
         userSettings[keyPath: Self.feedbackBoxSetting(for: vibe)]
     }
 
+    // A read that a save overtook holds settings older than that save, so it's dropped.
     func refresh() async {
-        let localChangeGenerationAtFetchStart = localChangeGeneration
+        let confirmedSaveCountAtFetchStart = confirmedSaveCount
         do {
             let savedUserSettings = try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
                 try await shipTokAPI.fetchUserSettings(gitHubAccessToken: accessToken)
             }
             refreshFailureMessage = nil
-            guard localChangeGeneration == localChangeGenerationAtFetchStart else { return }
-            userSettings = savedUserSettings
-            lastConfirmedUserSettings = savedUserSettings
+            guard confirmedSaveCount == confirmedSaveCountAtFetchStart else { return }
+            confirmedUserSettings = savedUserSettings
         } catch {
             if Task.isCancelled { return }
             refreshFailureMessage = error.localizedDescription
@@ -73,9 +82,9 @@ final class UserSettingsStore {
 
     private func setSetting(_ setting: WritableKeyPath<UserSettings, Bool>, to newValue: Bool) async {
         guard newValue != userSettings[keyPath: setting] else { return }
-        localChangeGeneration += 1
-        userSettings[keyPath: setting] = newValue
-        defer { localChangeGeneration += 1 }
+        latestChangeRevision += 1
+        let changeRevision = latestChangeRevision
+        pendingChangeBySetting[setting] = PendingSettingChange(revision: changeRevision, value: newValue)
         // Saves replace every setting, so they run one at a time and each sends the settings as they stand when its turn comes; a quick second toggle can't be overwritten by the first one's older copy.
         let previousSave = latestSave
         let save = Task {
@@ -84,17 +93,23 @@ final class UserSettingsStore {
             _ = try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
                 try await shipTokAPI.replaceUserSettings(userSettingsToSave, gitHubAccessToken: accessToken)
             }
-            lastConfirmedUserSettings = userSettingsToSave
+            confirmedUserSettings = userSettingsToSave
+            confirmedSaveCount += 1
         }
         latestSave = save
-        do {
-            try await save.value
-        } catch {
-            if userSettings[keyPath: setting] == newValue {
-                userSettings[keyPath: setting] = lastConfirmedUserSettings[keyPath: setting]
-            }
+        let saveResult = await save.result
+        // Only the setting's newest change settles it, so an older tap's failure never undoes a newer one.
+        if pendingChangeBySetting[setting]?.revision == changeRevision {
+            pendingChangeBySetting[setting] = nil
+        }
+        if case .failure(let error) = saveResult {
             saveFailureMessage = "The setting is back to its saved value. \(error.localizedDescription)"
         }
+    }
+
+    private struct PendingSettingChange {
+        let revision: Int
+        let value: Bool
     }
 
     private static func feedbackBoxSetting(for vibe: PullRequestVibe) -> WritableKeyPath<UserSettings, Bool> {
