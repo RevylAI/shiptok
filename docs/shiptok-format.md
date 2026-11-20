@@ -58,7 +58,7 @@ A blockquote whose first line is GitHub's alert syntax, `[!NOTE]`, `[!TIP]`, `[!
 
 ## Vibes
 
-A swipe posts a top-level comment as the person who swiped:
+A vibe is a top-level comment on a pull request, or on a week's or a feature's issue, posted as the person who cast it with a swipe or the rail's vibes button. Its body reads:
 
 ```markdown
 <!-- shiptok:vibe good -->
@@ -67,7 +67,12 @@ A swipe posts a top-level comment as the person who swiped:
 <optional feedback, typed or transcribed>
 ```
 
-Bad vibes use `<!-- shiptok:vibe bad -->` and `**Bad vibes**`. A comment is a vibe when its first line, with spaces and tabs at either end trimmed, is exactly the marker. The app counts each person's newest vibe comment on a pull request or week, never a bot's. A new vibe replaces the person's earlier vibe comments there, and undoing a vibe deletes its comment.
+Bad vibes use `<!-- shiptok:vibe bad -->` and `**Bad vibes** via ShipTok`. With no feedback, the body ends after the second line.
+
+- A comment is a vibe when its first line, with spaces and tabs at either end trimmed, is exactly one of the two markers, whoever posted it. Its feedback is the rest of the body, less blank lines before it and a first line starting with `**`.
+- On each pull request, week or feature, the app counts each person's newest vibe comment, by when it was created, and never a bot's.
+- A new vibe the app posts replaces the person's earlier vibe comments there by deleting them once it has posted, and undoing a vibe deletes its comment.
+- The comments sheet shows a vibe comment with the person's vibe and its feedback, and its header counts vibes apart from comments; the comment count on the rail leaves vibes out.
 
 ## Weekly editions
 
