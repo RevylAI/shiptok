@@ -76,7 +76,7 @@ A weekly edition is a closed issue in the chosen repository labeled `shiptok-wee
 
 - The first non-empty line is the marker, exactly as shown apart from spaces around it, and its date is a Monday: the start of a week that runs Monday to Sunday in Pacific time.
 - The first line starting with `## ` is the title, and the next non-empty line, which can't start with `#`, is the hook.
-- Every line reading `<n>. #<number>` names a pull request for the week's deck, in the video's order, and there are 1 to 30 of them. A pull request named twice shows once.
+- Every line that is exactly `<n>. #<number>`, apart from spaces around it, names a pull request for the week's deck, in the video's order: the item number, a dot, one space, then `#` and the pull request's number, with nothing else on the line. An edition needs 1 to 30 of these lines to show, and a pull request named twice shows once.
 - The issue's own title isn't read; a title like `ShipTok weekly · Nov 9–15` is a convention.
 - The media can be in the description or any top-level comment, and needs no tag: videos, images and GIFs all count, and the card shows them in the same order as a pull request's. An edition with no media doesn't show.
 
@@ -100,8 +100,8 @@ A feature is a closed issue in the chosen repository labeled `shiptok-feature`: 
 ```
 
 - The first non-empty line is the marker, exactly as shown apart from spaces around it. It carries no date, since a feature dates from when its issue closed.
-- The first line starting with `## ` is the title, and the next non-empty line, which can't start with `#`, is the hook. The card shows at most two lines of each, and the app checks neither length.
-- Every line reading `<n>. #<number>` names a pull request for the feature's deck, in the video's order, and there are 1 to 30 of them. A pull request named twice shows once.
+- The first line starting with `## ` is the title, at most 70 characters with no trailing period. The next non-empty line, which can't start with `#`, is the hook, on one line of at most 120 characters. The app checks neither length nor the period, and the card shows at most two lines of each.
+- Every line that is exactly `<n>. #<number>`, apart from spaces around it, names a pull request for the feature's deck, in the video's order: the item number, a dot, one space, then `#` and the pull request's number, with nothing else on the line. A line in another form, such as `1.#12`, `1. #12 (API)` or `- #12`, names none. A feature needs 1 to 30 of these lines to show, and a pull request named twice shows once.
 - The issue's own title isn't read, so name it for people browsing GitHub, usually after the feature. Other labels can stay on the issue.
 - The media can be in the description or any top-level comment, and needs no tag: videos, images and GIFs all count, and the card shows them in the same order as a pull request's. A feature with no media doesn't show.
 
