@@ -1,0 +1,69 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 3da3ed86-7bd5-405b-9016-ec9f77dd91d9
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-20T21:05:33Z"
+    checksum: c2b1af6fabc3b0a618b3d4c190d826a52b1093f9bfc0a7c0ba9cdcddf30f559d
+test:
+    metadata:
+        name: shiptok-videos-only-setting
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: validation
+          step_description: Settings shows a Feed section with the Repository RevylAI/kyle-expo and a 'Videos only' toggle, with a note that Open and Merged show only pull requests that lead with a video
+        - type: extraction
+          step_description: Whether the 'Videos only' toggle is on or off, as 'on' or 'off'
+          variable_name: videos-only-at-start
+        - type: instructions
+          step_description: If the 'Videos only' toggle is off, tap it once so it's on. If it's already on, don't tap anything.
+        - type: validation
+          step_description: The 'Videos only' toggle is on
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
+        - type: validation
+          step_description: '''Merged'' is the selected tab, and the card shows a pull request whose line under its title reads ''#<number> · merged <when>'', not #127 ''ShipTok fixture: merged PR with only a screenshot'''
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: instructions
+          step_description: Tap the 'Videos only' toggle
+        - type: validation
+          step_description: The 'Videos only' toggle is off
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
+        - type: instructions
+          step_description: If the card for
+        - type: validation
+          step_description: '''Merged'' is the selected tab, and the card shows #127 ''ShipTok fixture: merged PR with only a screenshot'' with a screenshot of the shop grid rather than a video, and ''#127 · merged <when>'' under its title'
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: instructions
+          step_description: Tap the 'Videos only' toggle
+        - type: validation
+          step_description: The 'Videos only' toggle is on
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
+        - type: validation
+          step_description: '''Merged'' is the selected tab, and the card shows a pull request other than #127 ''ShipTok fixture: merged PR with only a screenshot'''
+        - type: instructions
+          step_description: Swipe down on the middle of the card
+        - type: validation
+          step_description: The card still shows a pull request other than
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: instructions
+          step_description: The 'Videos only' toggle was '{{videos-only-at-start}}' when this test started. If that was 'off', tap the toggle once so it's off again; if it was 'on', don't tap anything.
+        - type: validation
+          step_description: The 'Videos only' toggle is {{videos-only-at-start}}, as it was when this test started
