@@ -126,6 +126,12 @@ struct FeedCardView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .coordinateSpace(.named(Self.cardCoordinateSpaceName))
+            // A sideways swipe is the only visible way to cast a vibe, so every element on the card offers both to VoiceOver (AGENTS.md, "Vibes").
+            .accessibilityActions {
+                ForEach(PullRequestVibe.allCases, id: \.self) { vibe in
+                    Button(vibe.displayName) { vibes.onCast(vibe) }
+                }
+            }
             .background(RevylBrandColor.canvas)
             .overlay {
                 if isBehindVibeFeedbackComposer {
@@ -421,7 +427,6 @@ struct FeedCardView: View {
             } action: { reactButtonFrame in
                 reactButtonFrameInCard = reactButtonFrame
             }
-            vibesMenu
             if isHeroLoadableVideo {
                 Button { HeroVideoMuteChoice.shared.isMuted.toggle() } label: {
                     railItem(
@@ -485,31 +490,6 @@ struct FeedCardView: View {
         }
         .accessibilityLabel("More")
         .accessibilityHint("Report on GitHub or hide a person")
-    }
-
-    private var vibesMenu: some View {
-        let viewerVibe = vibes.tally.viewerVibe
-        return Menu {
-            ForEach(PullRequestVibe.allCases, id: \.self) { vibe in
-                Button { vibes.onCast(vibe) } label: {
-                    Label(vibe.displayName, systemImage: vibe.systemImageName)
-                }
-            }
-            if let viewerVibe {
-                Button(role: .destructive, action: vibes.onRemoveViewerVibe) {
-                    Label("Remove your \(viewerVibe.displayName.lowercased())", systemImage: "trash")
-                }
-            }
-        } label: {
-            railItem(
-                systemImageName: viewerVibe.map { "\($0.systemImageName).fill" } ?? "sparkles",
-                tint: viewerVibe?.tintColor ?? RevylBrandColor.textPrimary,
-                count: nil
-            )
-        }
-        .menuOrder(.fixed)
-        .accessibilityLabel("Vibes")
-        .accessibilityValue(viewerVibe?.displayName ?? "")
     }
 
     private var reactionPicker: some View {

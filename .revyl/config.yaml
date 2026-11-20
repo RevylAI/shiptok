@@ -34,8 +34,8 @@ pr_review:
       read-only demo of the public repository RevylAI/shiptok-demo. Swipe up for
       the next pull request and down for the previous one; a sideways swipe
       casts a vibe, a double-tap likes, and one tap pauses or resumes a video.
-      The right rail holds like, comments, react, vibes, mute, playback speed,
-      the media deck and More; the PRs / Weekly tabs sit at the top of the feed.
+      The right rail holds like, comments, react, mute, playback speed, the
+      media deck and More; the PRs / Weekly tabs sit at the top of the feed.
       On the unfolded iPhone Duo a tab bar holds the feed, the inbox and
       Settings; on other phones and the folded Duo there is no tab bar, the
       inbox (a tray) and Settings (a gear) sit at the top right or at the top of

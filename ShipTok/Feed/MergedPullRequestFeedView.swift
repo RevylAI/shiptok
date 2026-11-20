@@ -1057,7 +1057,7 @@ struct MergedPullRequestFeedView: View {
         feedStore.closeWeek()
     }
 
-    // A vibe from the rail leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
+    // A vibe from VoiceOver's actions leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
     private func flingCard(of vibeTarget: VibeTarget, castingVibe vibe: PullRequestVibe, deckWidth: CGFloat) {
         guard !promptsSignIn(for: .vibe) else {
             withAnimation(.spring(duration: 0.3)) { horizontalDragOffset = 0 }
