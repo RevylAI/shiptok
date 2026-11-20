@@ -44,6 +44,18 @@ A video is at most 100 MB (104,857,600 bytes), the limit of a Revyl-hosted uploa
 
 Tags only reorder, so every other media item stays in the deck, untagged media included. Hiding a person leaves out their media and applies the same order to what's left.
 
+## Pull request descriptions
+
+A pull request's description shows in its detail sheet, which every mode opens, and on the summary that takes the place of media for a pull request with no media in a feature's deck. Both read the raw markdown and leave out its HTML comments and the blocks bots append between markers of their own:
+
+- `<!-- CURSOR_SUMMARY -->` to `<!-- /CURSOR_SUMMARY -->`: Cursor Bugbot's summary.
+- `<!-- codesmith:footer -->` to `<!-- /codesmith:footer -->`: codesmith's footer.
+- `<!-- capy-badge:start -->` to `<!-- capy-badge:end -->`: Capy's Open in Capy badge.
+
+Everything from a start marker to the first end marker after it is left out, both markers included. A start marker with no end marker after it leaves the text in, and text outside such a pair is never taken for a bot's. Media still comes from the whole rendered description, these blocks included (What counts as media, above).
+
+A blockquote whose first line is GitHub's alert syntax, `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` in any case, shows as a note titled Note, Tip, Important, Warning or Caution, with the rest of the blockquote inside it. The note ends at the first line that doesn't start with `>`. Any other blockquote shows as plain text.
+
 ## Vibes
 
 A swipe posts a top-level comment as the person who swiped:

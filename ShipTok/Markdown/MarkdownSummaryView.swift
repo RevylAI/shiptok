@@ -7,13 +7,62 @@ enum MarkdownSummaryBlock {
     case numberedItem(ordinal: String, text: String)
     case codeBlock(String)
     case tableRow([String])
+    case alert(GitHubAlertType, [MarkdownSummaryBlock])
+}
+
+// The five alerts GitHub renders from a blockquote whose first line is "[!NOTE]" and the like (docs/shiptok-format.md, "Pull request descriptions").
+enum GitHubAlertType: String {
+    case note
+    case tip
+    case important
+    case warning
+    case caution
+
+    var title: String {
+        switch self {
+        case .note: "Note"
+        case .tip: "Tip"
+        case .important: "Important"
+        case .warning: "Warning"
+        case .caution: "Caution"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .note: "info.circle"
+        case .tip: "lightbulb"
+        case .important: "exclamationmark.bubble"
+        case .warning: "exclamationmark.triangle"
+        case .caution: "exclamationmark.octagon"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .note: RevylBrandColor.textPrimary
+        case .tip: RevylBrandColor.success
+        case .important: RevylBrandColor.brandText
+        case .warning: RevylBrandColor.warning
+        case .caution: RevylBrandColor.danger
+        }
+    }
 }
 
 enum MarkdownSummaryParser {
+    // Bots append these to a pull request's description between markers of their own. Only a block between a known pair is left out, never text a heuristic picks (docs/shiptok-format.md, "Pull request descriptions").
+    private static let botAppendedBlockMarkers: [(start: String, end: String)] = [
+        ("<!-- CURSOR_SUMMARY -->", "<!-- /CURSOR_SUMMARY -->"),
+        ("<!-- codesmith:footer -->", "<!-- /codesmith:footer -->"),
+        ("<!-- capy-badge:start -->", "<!-- capy-badge:end -->"),
+    ]
+
     static func blocks(from markdown: String) -> [MarkdownSummaryBlock] {
         var blocks: [MarkdownSummaryBlock] = []
         var paragraphLines: [String] = []
         var codeBlockLines: [String]?
+        var pendingAlert: (type: GitHubAlertType, lines: [String])?
+        var previousLine = ""
 
         func appendPendingParagraph() {
             guard !paragraphLines.isEmpty else { return }
@@ -21,11 +70,25 @@ enum MarkdownSummaryParser {
             paragraphLines.removeAll()
         }
 
-        let markdownWithoutHTMLComments = PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(markdown)
+        func appendPendingAlert() {
+            guard let finishedAlert = pendingAlert else { return }
+            blocks.append(.alert(finishedAlert.type, Self.blocks(from: finishedAlert.lines.joined(separator: "\n"))))
+            pendingAlert = nil
+        }
+
+        let markdownWithoutHTMLComments = PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(markdownWithoutBotAppendedBlocks(markdown))
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
         for rawLine in markdownWithoutHTMLComments.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
+            defer { previousLine = line }
+            if pendingAlert != nil {
+                if line.hasPrefix(">") {
+                    pendingAlert?.lines.append(quotedText(in: line))
+                    continue
+                }
+                appendPendingAlert()
+            }
             if line.hasPrefix("```") {
                 if let finishedCodeBlockLines = codeBlockLines {
                     if !finishedCodeBlockLines.isEmpty {
@@ -40,6 +103,11 @@ enum MarkdownSummaryParser {
             }
             if codeBlockLines != nil {
                 codeBlockLines?.append(rawLine)
+                continue
+            }
+            if !previousLine.hasPrefix(">"), let alertType = alertType(in: line) {
+                appendPendingParagraph()
+                pendingAlert = (alertType, [])
                 continue
             }
             let readableLine = readableText(in: line)
@@ -62,10 +130,33 @@ enum MarkdownSummaryParser {
             }
         }
         appendPendingParagraph()
+        appendPendingAlert()
         if let unfinishedCodeBlockLines = codeBlockLines, !unfinishedCodeBlockLines.isEmpty {
             blocks.append(.codeBlock(unfinishedCodeBlockLines.joined(separator: "\n")))
         }
         return blocks
+    }
+
+    // Everything from a known start marker to the first end marker after it goes, both markers included; a start marker with no end marker after it leaves the text in.
+    private static func markdownWithoutBotAppendedBlocks(_ markdown: String) -> String {
+        var remainingMarkdown = markdown
+        for marker in botAppendedBlockMarkers {
+            while let startMarkerRange = remainingMarkdown.range(of: marker.start),
+                  let endMarkerRange = remainingMarkdown.range(of: marker.end, range: startMarkerRange.upperBound..<remainingMarkdown.endIndex) {
+                remainingMarkdown.removeSubrange(startMarkerRange.lowerBound..<endMarkerRange.upperBound)
+            }
+        }
+        return remainingMarkdown
+    }
+
+    private static func alertType(in line: String) -> GitHubAlertType? {
+        guard let alertMatch = line.wholeMatch(of: #/>\s*\[!([A-Za-z]+)\]\s*/#) else { return nil }
+        return GitHubAlertType(rawValue: alertMatch.1.lowercased())
+    }
+
+    private static func quotedText(in line: String) -> String {
+        let textAfterMarker = line.dropFirst()
+        return String(textAfterMarker.hasPrefix(" ") ? textAfterMarker.dropFirst() : textAfterMarker)
     }
 
     private static func readableText(in line: String) -> String {
@@ -132,13 +223,16 @@ struct MarkdownSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(visibleBlocks.enumerated()), id: \.offset) { _, block in
-                blockView(block)
+                MarkdownSummaryBlockView(block: block)
             }
         }
     }
+}
 
-    @ViewBuilder
-    private func blockView(_ block: MarkdownSummaryBlock) -> some View {
+private struct MarkdownSummaryBlockView: View {
+    let block: MarkdownSummaryBlock
+
+    var body: some View {
         switch block {
         case .heading(let text):
             Text(inlineMarkdown(text))
@@ -171,6 +265,19 @@ struct MarkdownSummaryView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(RevylBrandColor.surfaceRaised))
+        case .alert(let alertType, let alertBlocks):
+            VStack(alignment: .leading, spacing: 6) {
+                Label(alertType.title, systemImage: alertType.systemImageName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(alertType.tint)
+                ForEach(Array(alertBlocks.enumerated()), id: \.offset) { _, alertBlock in
+                    MarkdownSummaryBlockView(block: alertBlock)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(RevylBrandColor.surfaceRaised))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(alertType.tint.opacity(0.6), lineWidth: 1))
         }
     }
 
