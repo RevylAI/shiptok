@@ -294,7 +294,7 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    private static func heroMediaFillsCard(mediaSize: CGSize?, cardSize: CGSize) -> Bool {
+    static func heroMediaFillsCard(mediaSize: CGSize?, cardSize: CGSize) -> Bool {
         guard let mediaSize, mediaSize.width > 0, mediaSize.height > 0, cardSize.width > 0, cardSize.height > 0 else { return false }
         let mediaAspectRatio = mediaSize.width / mediaSize.height
         let cardAspectRatio = cardSize.width / cardSize.height
