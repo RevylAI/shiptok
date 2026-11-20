@@ -197,8 +197,12 @@ private struct ZoomableMediaModifier: ViewModifier {
                 zoom = activePinch.startZoom.pinched(by: magnifyValue.magnification, around: activePinch.anchor, in: viewportSize)
             }
             .onEnded { magnifyValue in
-                guard let endedPinch = pinch, let mediaFrame = mediaFrame(in: viewportSize) else { return }
+                guard let endedPinch = pinch else { return }
                 pinch = nil
+                guard let mediaFrame = mediaFrame(in: viewportSize) else {
+                    zoom = .normalFit
+                    return
+                }
                 let settledZoom = endedPinch.startZoom.pinchEnded(by: magnifyValue.magnification, around: endedPinch.anchor, mediaFrame: mediaFrame, in: viewportSize)
                 withAnimation(MediaZoom.settleAnimation) { zoom = settledZoom }
                 if !endedPinch.startZoom.isZoomed, settledZoom.isZoomed { onZoomIn() }
