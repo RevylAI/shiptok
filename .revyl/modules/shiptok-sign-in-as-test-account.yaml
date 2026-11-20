@@ -61,7 +61,7 @@ blocks:
     condition: ShipTok shows its 'Repository' list of repositories to choose from
     then:
       - type: instructions
-        step_description: Tap RevylAI/kyle-expo in the list of repositories
+        step_description: Tap the row that reads 'RevylAI/kyle-expo', the first item in the list just below the 'Search repositories' field
       - type: manual
         step_type: wait
         step_description: "5"
