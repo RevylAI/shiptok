@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 551f5a8c-7698-49b8-8fac-8f4701a443c9
-    remote_version: 1
-    local_version: 1
-    last_synced_at: "2026-11-17T21:00:32Z"
-    checksum: 74cff1e807328f09d4c66d2b0f98be54b57b2f561db44e790771f5eb5b04cffb
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T03:07:26Z"
+    checksum: 836da7798a5f69c9f05c8166dfabd66c83b606f76dba1c4a4b470fdc8a420f0d
 test:
     metadata:
         name: shiptok-demo-media-deck

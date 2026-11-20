@@ -2,9 +2,9 @@
 
 _meta:
     remote_id: c38d47b3-cf05-47a4-acff-b0a0c01f9d8d
-    remote_version: 1
-    local_version: 1
-    last_synced_at: "2026-11-17T21:00:31Z"
+    remote_version: 2
+    local_version: 2
+    last_synced_at: "2026-11-20T03:07:25Z"
     checksum: 6624932a0fe081170b5e01c8f83470ff87c51344cd6b0eb32e6599fc0741143e
 test:
     metadata:
