@@ -19,6 +19,9 @@ final class PublishedIssuesStore<Issue: PublishedIssue> {
     private var fetchedAt: Date?
     private var mediaLoadFailureRecovery = MediaLoadFailureRecovery()
     private var reactionWriteCountByPublishedIssueID: [String: Int] = [:]
+    // Each local change to an issue takes a new generation, so a read that started before it keeps that issue's reactions and comments (AGENTS.md, "Published Issues").
+    private var localChangeGeneration = 0
+    private var localChangeGenerationByPublishedIssueID: [String: Int] = [:]
     private var viewerDeletedCommentIDs: Set<String> = []
     private let githubAPIClient: GitHubAPIClient
     private let reactionWriteQueue: ViewerReactionWriteQueue
@@ -66,11 +69,13 @@ final class PublishedIssuesStore<Issue: PublishedIssue> {
     }
 
     func applyFetchedPublishedIssue(_ fetchedPublishedIssue: Issue) {
+        recordLocalChange(toPublishedIssueID: fetchedPublishedIssue.id)
         guard let publishedIssueIndex = publishedIssues.firstIndex(where: { $0.id == fetchedPublishedIssue.id }) else { return }
         publishedIssues[publishedIssueIndex] = keepingLocalWrites(of: publishedIssues[publishedIssueIndex], in: fetchedPublishedIssue)
     }
 
     func appendComment(_ comment: PullRequestComment, toPublishedIssueID publishedIssueID: String) {
+        recordLocalChange(toPublishedIssueID: publishedIssueID)
         viewerDeletedCommentIDs.remove(comment.id)
         guard let publishedIssueIndex = publishedIssues.firstIndex(where: { $0.id == publishedIssueID }),
               !publishedIssues[publishedIssueIndex].comments.contains(where: { $0.id == comment.id })
@@ -79,6 +84,7 @@ final class PublishedIssuesStore<Issue: PublishedIssue> {
     }
 
     func removeViewerDeletedComments(withIDs commentIDs: Set<String>, fromPublishedIssueID publishedIssueID: String) {
+        recordLocalChange(toPublishedIssueID: publishedIssueID)
         viewerDeletedCommentIDs.formUnion(commentIDs)
         guard let publishedIssueIndex = publishedIssues.firstIndex(where: { $0.id == publishedIssueID }) else { return }
         publishedIssues[publishedIssueIndex].comments.removeAll { commentIDs.contains($0.id) }
@@ -107,11 +113,17 @@ final class PublishedIssuesStore<Issue: PublishedIssue> {
     }
 
     private func fetchAndApplyPublishedIssues(startedAt fetchStartedAt: Date, reportsFailure: Bool) async -> Bool {
+        let localChangeGenerationAtFetchStart = localChangeGeneration
         do {
             let fetchedPublishedIssues = try await Issue.fetchEveryPublishedIssue(from: githubAPIClient)
             publishedIssues = fetchedPublishedIssues.map { fetchedPublishedIssue in
                 guard let existingPublishedIssue = publishedIssue(withID: fetchedPublishedIssue.id) else { return fetchedPublishedIssue }
-                return keepingLocalWrites(of: existingPublishedIssue, in: fetchedPublishedIssue)
+                var updatedPublishedIssue = keepingLocalWrites(of: existingPublishedIssue, in: fetchedPublishedIssue)
+                if localChangeGenerationByPublishedIssueID[fetchedPublishedIssue.id, default: 0] > localChangeGenerationAtFetchStart {
+                    updatedPublishedIssue.reactions = existingPublishedIssue.reactions
+                    updatedPublishedIssue.comments = existingPublishedIssue.comments
+                }
+                return updatedPublishedIssue
             }
             if mediaLoadFailureRecovery.hasPendingLoadFailure {
                 mediaLoadFailureRecovery.settleLoadFailures(of: fetchedPublishedIssues.flatMap(\.mediaItems), readStartedAt: fetchStartedAt)
@@ -143,10 +155,12 @@ final class PublishedIssuesStore<Issue: PublishedIssue> {
             subject: ShipTokAnalyticsSubject(kind: Issue.analyticsSubjectKind, nodeID: publishedIssueID, number: publishedIssue.number),
             reaction: reaction)
         updateReactions(ofPublishedIssueID: publishedIssueID) { $0.setViewerHasReacted(isReacting, with: reaction) }
+        recordLocalChange(toPublishedIssueID: publishedIssueID)
         reactionWriteCountByPublishedIssueID[publishedIssueID, default: 0] += 1
         defer {
             let remainingWriteCount = reactionWriteCountByPublishedIssueID[publishedIssueID, default: 1] - 1
             reactionWriteCountByPublishedIssueID[publishedIssueID] = remainingWriteCount > 0 ? remainingWriteCount : nil
+            recordLocalChange(toPublishedIssueID: publishedIssueID)
         }
         switch await reactionWriteQueue.write(reaction, viewerHasReacted: isReacting, onSubjectID: publishedIssueID) {
         case .succeeded:
@@ -180,6 +194,11 @@ final class PublishedIssuesStore<Issue: PublishedIssue> {
         }
         updatedPublishedIssue.comments.removeAll { viewerDeletedCommentIDs.contains($0.id) }
         return updatedPublishedIssue
+    }
+
+    private func recordLocalChange(toPublishedIssueID publishedIssueID: String) {
+        localChangeGeneration += 1
+        localChangeGenerationByPublishedIssueID[publishedIssueID] = localChangeGeneration
     }
 
     private func updateReactions(ofPublishedIssueID publishedIssueID: String, _ update: (inout GitHubReactionSummary) -> Void) {

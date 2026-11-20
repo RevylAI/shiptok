@@ -36,10 +36,9 @@ enum PublishedIssueFormat {
         )
     }
 
+    // Only the exact form both formats define, "<n>. #<number>" with nothing else on the line, names a pull request (docs/shiptok-format.md).
     private static func pullRequestNumber(inListItem line: String) -> Int? {
-        guard let periodIndex = line.firstIndex(of: "."), Int(line[..<periodIndex]) != nil else { return nil }
-        let reference = line[line.index(after: periodIndex)...].trimmingCharacters(in: .whitespaces)
-        guard reference.hasPrefix("#"), let number = Int(reference.dropFirst()), number > 0 else { return nil }
+        guard let listItemMatch = line.wholeMatch(of: #/[0-9]+\. \#([0-9]+)/#), let number = Int(listItemMatch.1), number > 0 else { return nil }
         return number
     }
 }

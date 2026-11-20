@@ -452,6 +452,11 @@ struct FeedView: View {
                 openDeckPageIndex = movedPageIndex
                 return
             }
+            // A viewer on the end page goes to the first card added, since a pull request read again after a failure can join anywhere in the deck.
+            if previouslyShownPullRequestID == nil, let addedPageIndex = currentPullRequestIDs.firstIndex(where: { !previousPullRequestIDs.contains($0) }), addedPageIndex != openDeckPageIndex {
+                openDeckPageIndex = addedPageIndex
+                return
+            }
             // The page stayed but its card changed: the first card arrived, or the one under the viewer left, so the store's focus follows while the deck is on screen, never landing on a mode's card at the same index.
             let shownPullRequestID = currentPullRequestIDs.indices.contains(openDeckPageIndex) ? currentPullRequestIDs[openDeckPageIndex] : nil
             if shownPullRequestID != previouslyShownPullRequestID, onScreenFeedContext == .openDeck {
@@ -696,15 +701,15 @@ struct FeedView: View {
         let isWeekDeck = openDeckSource?.feedMode == .weekly
         if !feedStore.openDeckPullRequests.isEmpty {
             feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
-        } else if let openDeckLoadFailureMessage = feedStore.openDeckLoadFailureMessage, let openDeckSource {
+        } else if let openDeckReadFailureMessage = feedStore.openDeckReadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
                 title: Text(isWeekDeck ? "Couldn't load this week's pull requests" : "Couldn't load this feature's pull requests"),
-                message: Text(verbatim: openDeckLoadFailureMessage),
+                message: Text(verbatim: openDeckReadFailureMessage),
                 actionTitle: Text("Try again"),
-                action: { openDeck(of: openDeckSource) }
+                action: { feedStore.retryOpenDeckReads() }
             )
-        } else if !feedStore.isOpenDeckLoaded {
+        } else if !feedStore.openDeckPullRequestNumbersToRead.isEmpty {
             FeedLoadingView(message: isWeekDeck ? "Loading the week's pull requests…" : "Loading the feature's pull requests…")
         } else {
             RevylContentUnavailableView(
@@ -989,30 +994,46 @@ struct FeedView: View {
             )
             .background(RevylBrandColor.canvas)
         case .openDeck:
-            switch (feedStore.isOpenDeckLoaded, openDeckSource) {
-            case (true, .weeklyEdition(let weeklyEdition)):
+            // While a pull request the deck lists is still unread after a failed read, its end page offers to try again rather than saying the viewer saw them all (AGENTS.md, "Pull Request Decks").
+            let isWeekDeck = openDeckSource?.feedMode == .weekly
+            if let openDeckReadFailureMessage = feedStore.openDeckReadFailureMessage {
+                let unreadPullRequestCount = feedStore.openDeckPullRequestNumbersToRead.count
                 RevylContentUnavailableView(
-                    systemImageName: "checkmark.seal.fill",
-                    title: Text("That's the week of \(weeklyEdition.weekDatesText)"),
-                    message: Text("You've seen every pull request in this week's video."),
-                    actionTitle: Text("Back to weekly videos"),
-                    action: closeDeck
+                    systemImageName: "exclamationmark.triangle",
+                    title: Text(isWeekDeck
+                        ? "Couldn't load \(unreadPullRequestCount) of this week's pull requests"
+                        : "Couldn't load \(unreadPullRequestCount) of this feature's pull requests"),
+                    message: Text(verbatim: openDeckReadFailureMessage),
+                    actionTitle: Text("Try again"),
+                    action: { feedStore.retryOpenDeckReads() }
                 )
                 .background(RevylBrandColor.canvas)
-            case (true, .feature(let feature)):
-                RevylContentUnavailableView(
-                    systemImageName: "checkmark.seal.fill",
-                    title: Text("That's “\(feature.title)”"),
-                    message: Text("You've seen every pull request behind this feature."),
-                    actionTitle: Text("Back to feature videos"),
-                    action: closeDeck
-                )
-                .background(RevylBrandColor.canvas)
-            case (true, nil):
-                EmptyView()
-            case (false, _):
-                FeedLoadingView(message: openDeckSource?.feedMode == .weekly ? "Loading the rest of the week…" : "Loading the rest of the feature…")
+            } else if !feedStore.openDeckPullRequestNumbersToRead.isEmpty {
+                FeedLoadingView(message: isWeekDeck ? "Loading the rest of the week…" : "Loading the rest of the feature…")
                     .background(RevylBrandColor.canvas)
+            } else {
+                switch openDeckSource {
+                case .weeklyEdition(let weeklyEdition):
+                    RevylContentUnavailableView(
+                        systemImageName: "checkmark.seal.fill",
+                        title: Text("That's the week of \(weeklyEdition.weekDatesText)"),
+                        message: Text("You've seen every pull request in this week's video."),
+                        actionTitle: Text("Back to weekly videos"),
+                        action: closeDeck
+                    )
+                    .background(RevylBrandColor.canvas)
+                case .feature(let feature):
+                    RevylContentUnavailableView(
+                        systemImageName: "checkmark.seal.fill",
+                        title: Text("That's “\(feature.title)”"),
+                        message: Text("You've seen every pull request behind this feature."),
+                        actionTitle: Text("Back to feature videos"),
+                        action: closeDeck
+                    )
+                    .background(RevylBrandColor.canvas)
+                case nil:
+                    EmptyView()
+                }
             }
         }
     }
@@ -1281,7 +1302,7 @@ struct FeedView: View {
         case .pullRequests(let feed): await feedStore.refreshNewestData(in: feed)
         case .weeklyEditions: await weeklyEditionsStore.refresh()
         case .features: await featuresStore.refresh()
-        case .openDeck: await feedStore.refreshFocusedOpenDeckPullRequest()
+        case .openDeck: await feedStore.refreshOpenDeck()
         }
     }
 
