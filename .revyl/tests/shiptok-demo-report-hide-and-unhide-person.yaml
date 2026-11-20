@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 3d56fc93-64cc-458c-96c8-f21b62a92a53
-    remote_version: 1
-    local_version: 1
-    last_synced_at: "2026-11-17T21:00:34Z"
-    checksum: d458f45d24923f3e5f206a7bd56acda529a3e6a0a6169d080fd5da8eaff6267d
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T14:26:23Z"
+    checksum: 219bfe7acb429c5c8baa67a39445ead6b84f1e609ad2b261626ae85a2d29b11e
 test:
     metadata:
         name: shiptok-demo-report-hide-and-unhide-person
@@ -42,7 +42,7 @@ test:
         - type: validation
           step_description: No pull request by {{author-login}} shows in the feed
         - type: instructions
-          step_description: Tap the Settings tab, the person icon at the right of the tab bar at the bottom
+          step_description: Tap Settings, the gear icon at the top right of the feed
         - type: validation
           step_description: Settings lists @{{author-login}} under 'Hidden people' with an 'Unhide' button
         - type: instructions
@@ -50,6 +50,6 @@ test:
         - type: validation
           step_description: '''Hidden people'' says no one is hidden'
         - type: instructions
-          step_description: Tap the Feed tab, the house icon at the left of the tab bar
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
         - type: validation
           step_description: The feed shows pull request cards again, including one by {{author-login}}

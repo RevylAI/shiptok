@@ -71,6 +71,7 @@ struct FeedView: View {
     @State private var activeDeckDrag: DeckDrag?
     @State private var videoScrubFraction: CGFloat?
     @State private var systemOcclusionFrames: [CGRect] = []
+    @State private var isTabBarShown = true
     @State private var isPageTransitionRunning = false
     @State private var cardEntranceScale: CGFloat = 1
     @State private var likeBurstTriggers: [String: Int] = [:]
@@ -101,9 +102,7 @@ struct FeedView: View {
     private static let tabBarDipIntoBottomSafeArea: CGFloat = 12
     private static let tabPageScrollEndToTabBarSpacing: CGFloat = 12
     private static let minimumKeyboardOverlap: CGFloat = 1
-    private static let feedModeSwitchInsetInCard = CGSize(width: 16, height: 12)
-    private static let feedModeSwitchMinimumGapBelowSafeArea: CGFloat = 6
-    private static let newerPullRequestsButtonGapBelowFeedModeSwitch: CGFloat = 8
+    private static let newerPullRequestsButtonGapBelowTopRow: CGFloat = 8
 
     init(
         viewer: FeedViewer,
@@ -270,23 +269,34 @@ struct FeedView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Pages fill the screen under the status bar, tab bar and home indicator, and each lays its card out between the top of the status bar and the
-            // tab bar; the box rides the keyboard over the card, so the keyboard never relayouts it (AGENTS.md, "Card Layout").
+            // Pages fill the screen under the status bar, tab bar and home indicator, and FeedPageLayout places each card, its rail and the top row in
+            // it; the box rides the keyboard over the card, so the keyboard never relayouts it (AGENTS.md, "Card Layout").
             GeometryReader { safeAreaGeometry in
-                let pageChromeInsets = EdgeInsets(
-                    top: safeAreaGeometry.safeAreaInsets.top,
-                    leading: safeAreaGeometry.safeAreaInsets.leading,
-                    bottom: tabBarBottomGap + AppTabBar.height,
-                    trailing: safeAreaGeometry.safeAreaInsets.trailing
-                )
                 GeometryReader { pageGeometry in
-                    feedContent(pageSize: pageGeometry.size, pageChromeInsets: pageChromeInsets)
+                    let pageLayout = FeedPageLayout.arranged(
+                        pageSize: pageGeometry.size,
+                        safeAreaInsets: safeAreaGeometry.safeAreaInsets,
+                        floatingTabBarHeightWithBottomGap: tabBarBottomGap + AppTabBar.height,
+                        systemOcclusionFrames: systemOcclusionFrames
+                    )
+                    feedContent(pageSize: pageGeometry.size, pageLayout: pageLayout)
                         .overlay(alignment: .topLeading) {
-                            feedModeSwitchAndNewerPullRequestsButton(pageSize: pageGeometry.size, pageChromeInsets: pageChromeInsets)
+                            feedChrome(pageLayout: pageLayout)
+                        }
+                        .overlay(alignment: .top) {
+                            newerPullRequestsButton
+                                .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+                                .offset(
+                                    x: pageLayout.card.midX - pageGeometry.size.width / 2,
+                                    y: pageLayout.topRow.maxY + Self.newerPullRequestsButtonGapBelowTopRow
+                                )
                         }
                         // Read from this full-screen reader, which never moves with a dragged page, so the rail never jumps mid-swipe.
                         .onChange(of: Self.systemOcclusionFrames(in: pageGeometry), initial: true) { _, measuredSystemOcclusionFrames in
                             systemOcclusionFrames = measuredSystemOcclusionFrames
+                        }
+                        .onChange(of: pageLayout.isTabBarShown, initial: true) { _, isTabBarShownInPageLayout in
+                            isTabBarShown = isTabBarShownInPageLayout
                         }
                 }
                 .ignoresSafeArea(.container)
@@ -295,9 +305,10 @@ struct FeedView: View {
                 }
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            .accessibilityHidden(selectedTab != .feed)
             // Scroll content margins rather than safe-area padding, which a List inside the tabs' NavigationStack ignores, leaving its last rows under the pill.
             selectedTabPage
-                .contentMargins(.bottom, AppTabBar.height + tabBarBottomPadding + Self.tabPageScrollEndToTabBarSpacing, for: .scrollContent)
+                .contentMargins(.bottom, isTabBarShown ? AppTabBar.height + tabBarBottomPadding + Self.tabPageScrollEndToTabBarSpacing : 0, for: .scrollContent)
             VStack(spacing: 0) {
                 toastStack
                 vibeFeedbackComposer
@@ -306,12 +317,9 @@ struct FeedView: View {
                     } action: { measuredComposerHeight in
                         vibeFeedbackComposerHeight = measuredComposerHeight
                     }
-                if !isKeyboardShown {
+                if isTabBarShown && !isKeyboardShown {
                     AppTabBar(
-                        selectedTab: Binding(get: { selectedTab }, set: { newSelectedTab in
-                            if newSelectedTab == .inbox, promptsSignIn(for: .inbox) { return }
-                            selectedTab = newSelectedTab
-                        }),
+                        selectedTab: Binding(get: { selectedTab }, set: { selectTab($0) }),
                         unseenInboxItemCount: inboxStore?.unseenItemCount ?? 0,
                         viewerAvatarURL: viewer.teammate?.user.githubAvatarURL
                     )
@@ -507,7 +515,8 @@ struct FeedView: View {
                     onHide: { postedContent in
                         viewer.hiddenPeopleStore.hide(postedContent.postedBy)
                         viewer.analytics.capture(.personHidden(postedContent, control: .inboxRow))
-                    }
+                    },
+                    onShowFeed: onShowFeedFromTabPage
                 )
             }
         case .settings:
@@ -527,55 +536,74 @@ struct FeedView: View {
                             vibeOutbox.postAllQueuedVibesBeforeSuspension()
                             await feedStore.saveFeeds()?.value
                             onChooseRepository(repositoryFullName)
-                        }
+                        },
+                        onShowFeed: onShowFeedFromTabPage
                     )
                 }
             case .demoVisitor(let demoVisitor):
                 DemoSettingsView(
                     demoVisitor: demoVisitor,
                     signInSession: signInSession,
-                    showsOnlyPullRequestsWithVideos: $demoVisitShowsOnlyPullRequestsWithVideos
+                    showsOnlyPullRequestsWithVideos: $demoVisitShowsOnlyPullRequestsWithVideos,
+                    onShowFeed: onShowFeedFromTabPage
                 )
             }
         }
     }
 
-    // The switch sits over the card's top left, inside the format's top safe zone and never under the status bar, and the "new" pill sits just under it,
-    // clear of the switch's taps, so the pill never covers the switch however wide the switch grows (AGENTS.md, "Card Layout").
-    private func feedModeSwitchAndNewerPullRequestsButton(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
-        let cardFrame = FeedCardView.cardFrame(in: pageSize, pageChromeInsets: pageChromeInsets).card
-        return VStack(alignment: .leading, spacing: Self.newerPullRequestsButtonGapBelowFeedModeSwitch) {
+    private var onShowFeedFromTabPage: (() -> Void)? {
+        isTabBarShown ? nil : { selectedTab = .feed }
+    }
+
+    // The mode tabs in the top row, centered over the card wherever they fit, and inbox and settings where FeedPageLayout puts them when no tab bar shows
+    // (AGENTS.md, "Card Layout" and "Weekly Mode").
+    private func feedChrome(pageLayout: FeedPageLayout) -> some View {
+        let feedModeSwitchArea = pageLayout.feedModeSwitchArea
+        return ZStack(alignment: .topLeading) {
             FeedModeSwitch(
                 feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
                 openWeekDatesText: feedContext == .openWeek ? openWeeklyEdition?.weekDatesText : nil,
-                onCloseWeek: closeWeek
+                onCloseWeek: closeWeek,
+                preferredTabsCenterX: pageLayout.card.midX - feedModeSwitchArea.minX
             )
-            .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
-            newerPullRequestsButton
-                .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+            .frame(width: feedModeSwitchArea.width, height: feedModeSwitchArea.height)
+            .offset(x: feedModeSwitchArea.minX, y: feedModeSwitchArea.minY)
+            switch pageLayout.navigationPlacement {
+            case .floatingTabBar:
+                EmptyView()
+            case .topCornerButtons(let row):
+                feedNavigationButtons(style: .topCornerGlyphs)
+                    .frame(width: row.width, height: row.height, alignment: .trailing)
+                    .offset(x: row.minX, y: row.minY)
+            case .statusStripButtons(let column):
+                feedNavigationButtons(style: .statusStripGlyphs)
+                    .frame(width: column.width, height: column.height, alignment: .top)
+                    .offset(x: column.minX, y: column.minY)
+            }
         }
-        .offset(
-            x: cardFrame.minX + Self.feedModeSwitchInsetInCard.width,
-            y: max(cardFrame.minY + Self.feedModeSwitchInsetInCard.height, pageChromeInsets.top + Self.feedModeSwitchMinimumGapBelowSafeArea)
-        )
+        .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
+    }
+
+    private func feedNavigationButtons(style: FeedNavigationButtons.Style) -> some View {
+        FeedNavigationButtons(style: style, unseenInboxItemCount: inboxStore?.unseenItemCount ?? 0, onSelectTab: { selectTab($0) })
     }
 
     @ViewBuilder
-    private func feedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func feedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         switch feedContext {
         case .pullRequests(let feed):
-            pullRequestsFeedContent(in: feed, pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+            pullRequestsFeedContent(in: feed, pageSize: pageSize, pageLayout: pageLayout)
         case .weeklyEditions:
-            weeklyEditionsFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+            weeklyEditionsFeedContent(pageSize: pageSize, pageLayout: pageLayout)
         case .openWeek:
-            openWeekFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+            openWeekFeedContent(pageSize: pageSize, pageLayout: pageLayout)
         }
     }
 
     @ViewBuilder
-    private func weeklyEditionsFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func weeklyEditionsFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         if !weeklyEditionsStore.weeklyEditions.isEmpty {
-            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let loadFailureMessage = weeklyEditionsStore.loadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
@@ -596,9 +624,9 @@ struct FeedView: View {
     }
 
     @ViewBuilder
-    private func openWeekFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func openWeekFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         if !feedStore.openWeekPullRequests.isEmpty {
-            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let openWeekLoadFailureMessage = feedStore.openWeekLoadFailureMessage, let openWeeklyEdition {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
@@ -622,10 +650,10 @@ struct FeedView: View {
 
     // Until a card shows, the feed keeps reading older pages, so it's loading until GitHub has no more (AGENTS.md, "Feed Order").
     @ViewBuilder
-    private func pullRequestsFeedContent(in feed: PullRequestFeed, pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func pullRequestsFeedContent(in feed: PullRequestFeed, pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         let loadedFeed = feedStore.loadedFeed(feed)
         if !feedStore.visiblePullRequests(in: feed).isEmpty {
-            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let loadFailureMessage = loadedFeed.loadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
@@ -656,7 +684,7 @@ struct FeedView: View {
         }
     }
 
-    private func feedDeck(deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func feedDeck(deckSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         let pages = feedPages
         let currentIndex = clampedPageIndex
         let visiblePageEntries = (max(0, currentIndex - 1)...min(pages.count - 1, currentIndex + 1))
@@ -664,7 +692,7 @@ struct FeedView: View {
         return ZStack {
             ForEach(visiblePageEntries, id: \.page.id) { pageEntry in
                 let isCurrentPage = pageEntry.pageIndex == currentIndex
-                pageView(pageEntry.page, isCurrentPage: isCurrentPage, deckSize: deckSize, pageChromeInsets: pageChromeInsets)
+                pageView(pageEntry.page, isCurrentPage: isCurrentPage, deckSize: deckSize, pageLayout: pageLayout)
                     .frame(width: deckSize.width, height: deckSize.height)
                     .scaleEffect(isCurrentPage ? cardEntranceScale : 1)
                     .rotationEffect(.degrees(isCurrentPage ? Double(horizontalDragOffset / max(deckSize.width, 1)) * 12 : 0), anchor: .bottom)
@@ -678,10 +706,10 @@ struct FeedView: View {
         .clipped()
         .overlay(alignment: .top) {
             pullToRefreshIndicator(deckSize: deckSize)
-                .padding(.top, pageChromeInsets.top)
+                .padding(.top, pageLayout.topRow.maxY)
         }
         .contentShape(Rectangle())
-        .gesture(deckDragGesture(deckSize: deckSize, pageChromeInsets: pageChromeInsets))
+        .gesture(deckDragGesture(deckSize: deckSize, pageLayout: pageLayout))
     }
 
     @ViewBuilder
@@ -711,7 +739,7 @@ struct FeedView: View {
     }
 
     @ViewBuilder
-    private func pageView(_ page: FeedPage, isCurrentPage: Bool, deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func pageView(_ page: FeedPage, isCurrentPage: Bool, deckSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         switch page {
         case .pullRequest(let pullRequest):
             feedCard(
@@ -720,7 +748,7 @@ struct FeedView: View {
                 unloadableMediaItemIDs: feedStore.unloadableMediaItemIDs,
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
-                pageChromeInsets: pageChromeInsets,
+                pageLayout: pageLayout,
                 likeUnlessAlreadyLiked: { Task { await feedStore.likeUnlessAlreadyLiked(pullRequestID: pullRequest.id) } },
                 toggleReaction: { reaction in Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) } },
                 openComments: { commentsSheetPullRequest = feedStore.pullRequest(withID: pullRequest.id) ?? pullRequest },
@@ -737,7 +765,7 @@ struct FeedView: View {
                 unloadableMediaItemIDs: weeklyEditionsStore.unloadableMediaItemIDs,
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
-                pageChromeInsets: pageChromeInsets,
+                pageLayout: pageLayout,
                 likeUnlessAlreadyLiked: { Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(weeklyEditionID: weeklyEdition.id) } },
                 toggleReaction: { reaction in Task { await weeklyEditionsStore.toggleReaction(reaction, weeklyEditionID: weeklyEdition.id) } },
                 openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.weeklyEditions.first { $0.id == weeklyEdition.id } ?? weeklyEdition },
@@ -758,7 +786,7 @@ struct FeedView: View {
         unloadableMediaItemIDs: Set<String>,
         isCurrentPage: Bool,
         deckSize: CGSize,
-        pageChromeInsets: EdgeInsets,
+        pageLayout: FeedPageLayout,
         likeUnlessAlreadyLiked: @escaping () -> Void,
         toggleReaction: @escaping (GitHubReaction) -> Void,
         openComments: @escaping () -> Void,
@@ -774,8 +802,7 @@ struct FeedView: View {
             heroMediaItem: heroMediaItem,
             isHeroMediaUnloadable: heroMediaItem.map { unloadableMediaItemIDs.contains($0.id) } ?? false,
             analyticsSubject: analyticsSubject,
-            pageChromeInsets: pageChromeInsets,
-            systemOcclusionFrames: systemOcclusionFrames,
+            pageLayout: pageLayout,
             videoScrubFraction: isCurrentPage ? videoScrubFraction : nil,
             vibeFeedbackComposerHeight: vibeFeedbackComposerHeight,
             isBehindVibeFeedbackComposer: vibeAwaitingFeedback != nil,
@@ -965,16 +992,15 @@ struct FeedView: View {
     }
 
     // A sideways drag from the strip around a video's progress line scrubs it; from anywhere else it casts a vibe (AGENTS.md, "Swipe Gestures").
-    private func deckDragGesture(deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some Gesture {
+    private func deckDragGesture(deckSize: CGSize, pageLayout: FeedPageLayout) -> some Gesture {
         DragGesture(minimumDistance: 14)
             .onChanged { dragValue in
                 guard !isPageTransitionRunning else { return }
-                let cardFrame = FeedCardView.cardFrame(in: deckSize, pageChromeInsets: pageChromeInsets).card
                 if activeDeckDrag == nil {
                     if abs(dragValue.translation.width) <= abs(dragValue.translation.height) {
                         activeDeckDrag = .pageSwipe
                     } else if isHeroLoadableVideo(of: feedPages[clampedPageIndex]),
-                              FeedCardView.videoScrubZone(cardFrame: cardFrame).contains(dragValue.startLocation) {
+                              pageLayout.videoScrubZone.contains(dragValue.startLocation) {
                         activeDeckDrag = .videoScrub
                     } else {
                         activeDeckDrag = .vibeSwipe
@@ -987,7 +1013,7 @@ struct FeedView: View {
                 case .pageSwipe:
                     verticalDragOffset = resistedVerticalDragOffset(dragValue.translation.height)
                 case .videoScrub:
-                    videoScrubFraction = FeedCardView.videoScrubFraction(atX: dragValue.location.x, cardFrame: cardFrame)
+                    videoScrubFraction = pageLayout.videoScrubFraction(atX: dragValue.location.x)
                 case nil:
                     break
                 }
@@ -1150,7 +1176,7 @@ struct FeedView: View {
         feedStore.closeWeek()
     }
 
-    // A vibe from the rail leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
+    // A vibe from VoiceOver's actions leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
     private func flingCard(of vibeTarget: VibeTarget, castingVibe vibe: PullRequestVibe, deckWidth: CGFloat) {
         guard !promptsSignIn(for: .vibe) else {
             withAnimation(.spring(duration: 0.3)) { horizontalDragOffset = 0 }
@@ -1274,6 +1300,11 @@ struct FeedView: View {
             setPageIndex(min(previousPageIndex, currentPullRequestIDs.count), in: feed)
             if isShowingFeed { focusPullRequestsPage(in: feed, at: pageIndex(in: feed)) }
         }
+    }
+
+    private func selectTab(_ tab: AppTab) {
+        if tab == .inbox, promptsSignIn(for: .inbox) { return }
+        selectedTab = tab
     }
 
     private func openPullRequest(number: Int) {

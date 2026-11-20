@@ -21,11 +21,11 @@ test:
           step_description: Open the demo feed with Look around first
           module: shiptok-open-demo-feed
         - type: validation
-          step_description: '''Merged'' is selected in the Open / Merged / Weekly switch at the card''s top left, and the line under the pull request''s title reads ''#<number> · merged <when>'', with a number from 1 to 5'
+          step_description: '''Merged'' is the selected tab in the Open / Merged / Weekly tabs at the top of the feed, and the line under the pull request''s title reads ''#<number> · merged <when>'', with a number from 1 to 5'
         - type: instructions
-          step_description: Tap 'Open' in the switch at the card's top left
+          step_description: Tap 'Open' in the tabs at the top of the feed
         - type: validation
-          step_description: '''Open'' is selected in the switch, and the card shows pull request #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'' or #8 ''Find rare bugs when a shopper searches for Rare''; #7''s line under its title reads ''#7 · updated <when>'' and #8''s reads ''#8 · Draft · updated <when>'''
+          step_description: '''Open'' is the selected tab, and the card shows pull request #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'' or #8 ''Find rare bugs when a shopper searches for Rare''; #7''s line under its title reads ''#7 · updated <when>'' and #8''s reads ''#8 · Draft · updated <when>'''
         - type: extraction
           step_description: The pull request number after '#' in the line under the card's title, digits only
           variable_name: first-open-pull-request-number
@@ -38,6 +38,6 @@ test:
         - type: validation
           step_description: The page says 'That's every open PR' and 'You've seen every open pull request in this demo that leads with a video.'
         - type: instructions
-          step_description: Tap 'Merged' in the switch
+          step_description: Tap 'Merged' in the tabs at the top
         - type: validation
-          step_description: '''Merged'' is selected in the switch and the card shows a pull request whose line under its title reads ''#<number> · merged <when>'', with a number from 1 to 5'
+          step_description: '''Merged'' is the selected tab and the card shows a pull request whose line under its title reads ''#<number> · merged <when>'', with a number from 1 to 5'

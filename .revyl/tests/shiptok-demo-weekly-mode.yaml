@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 5f68bb0a-89f3-4312-90d8-b4e9ce338bd4
-    remote_version: 2
-    local_version: 2
-    last_synced_at: "2026-11-19T15:42:12Z"
-    checksum: fd3b01393f7346fa5308038fad2e19cfdd108ff4bcc791607328d1114810b6b4
+    remote_version: 5
+    local_version: 5
+    last_synced_at: "2026-11-20T14:26:18Z"
+    checksum: 6d824d79b0b7c51085827888986617f800fd799a1b82cced3831ae4a368356ed
 test:
     metadata:
         name: shiptok-demo-weekly-mode
@@ -21,18 +21,18 @@ test:
           step_description: Open the demo feed with Look around first
           module: shiptok-open-demo-feed
         - type: instructions
-          step_description: Tap 'Weekly' in the Open / Merged / Weekly switch at the card's top left
+          step_description: Tap 'Weekly' in the Open / Merged / Weekly tabs at the top of the feed
         - type: validation
-          step_description: '''Weekly'' is selected in the switch and the card shows a week: a ''ShipTok weekly'' chip with the week''s dates, a title and a short hook at its lower left'
+          step_description: '''Weekly'' is the selected tab, in bold white, and the card shows a week: a ''ShipTok weekly'' chip with the week''s dates, a title and a short hook at its lower left'
         - type: instructions
           step_description: Tap the week's title at the card's lower left
         - type: validation
-          step_description: The switch is replaced by a 'Week of' button with the week's dates and the card shows a pull request from that week
+          step_description: The tabs are replaced by a 'Week of' back button with the week's dates at the top left, and the card shows a pull request from that week
         - type: instructions
-          step_description: Tap the 'Week of' button at the card's top left
+          step_description: Tap the 'Week of' button at the top left
         - type: validation
-          step_description: The weekly card with its 'ShipTok weekly' chip shows again and 'Weekly' is selected in the switch
+          step_description: The weekly card with its 'ShipTok weekly' chip shows again and 'Weekly' is the selected tab again
         - type: instructions
-          step_description: Tap 'Merged' in the switch
+          step_description: Tap 'Merged' in the tabs at the top
         - type: validation
-          step_description: '''Merged'' is selected in the switch and the card shows a pull request with its author and title'
+          step_description: '''Merged'' is the selected tab and the card shows a pull request with its author and title'
