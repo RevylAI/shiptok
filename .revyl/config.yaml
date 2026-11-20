@@ -35,7 +35,11 @@ pr_review:
       ShipTok is a native SwiftUI iOS app: a vertical, Reels-style feed of the
       open and merged pull requests with media in one GitHub repository. Prove
       changes signed in as the GitHub test account revyl-shiptok-tests on the
-      repository RevylAI/kyle-expo. To sign in, run the steps of
+      repository RevylAI/kyle-expo. A session you start with revyl device start
+      runs this project's default session profile, signed-in, which opens
+      ShipTok already signed in as revyl-shiptok-tests on RevylAI/kyle-expo's
+      feed. Only if that start fails on the session profile, start the session
+      again with --session-profile none and sign in: run the steps of
       .revyl/modules/shiptok-sign-in-as-test-account.yaml in order on the device
       with revyl device instruction and revyl device validation, typing the
       username and password through the variable references that file uses,
@@ -68,7 +72,7 @@ pr_review:
       GitHub opens GitHub's report page in Safari; never submit it. Never tap
       Sign out or Delete my ShipTok data.
     always_verify:
-      - Signing in as revyl-shiptok-tests opens RevylAI/kyle-expo's feed on a pull request card
+      - ShipTok shows RevylAI/kyle-expo's feed on a pull request card, signed in as revyl-shiptok-tests
       - Settings shows @revyl-shiptok-tests and RevylAI/kyle-expo as the Repository
       - Every like, reaction, comment and vibe the proof posted to GitHub is undone before it finishes
   workflows:
