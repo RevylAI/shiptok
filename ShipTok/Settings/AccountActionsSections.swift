@@ -10,7 +10,7 @@ struct AccountActionsSections: View {
 
     private var isDeletingData: Bool { signInSession.isDeletingShipTokData }
     private var isDeletingRevylAccount: Bool { signInSession.isDeletingRevylAccount }
-    private var isEndingSignIn: Bool { isDeletingData || isDeletingRevylAccount || signInSession.isSigningOut }
+    private var isChangingSignIn: Bool { isDeletingData || isDeletingRevylAccount || signInSession.isSigningOut || signInSession.isConnectingGitHub }
 
     private var hasConnectedGitHub: Bool {
         guard case .signedIn = signInSession.phase else { return false }
@@ -37,7 +37,7 @@ struct AccountActionsSections: View {
                     }
                 }
             }
-            .disabled(isEndingSignIn)
+            .disabled(isChangingSignIn)
             .alert(
                 "Couldn't sign out",
                 isPresented: Binding(get: { signOutFailureMessage != nil }, set: { if !$0 { signOutFailureMessage = nil } })
@@ -62,7 +62,7 @@ struct AccountActionsSections: View {
                         }
                     }
                 }
-                .disabled(isEndingSignIn)
+                .disabled(isChangingSignIn)
                 .confirmationDialog("Delete your ShipTok data?", isPresented: $confirmsDataDeletion, titleVisibility: .visible) {
                     Button("Delete my ShipTok data", role: .destructive, action: deleteShipTokData)
                     Button("Cancel", role: .cancel) {}
@@ -93,7 +93,7 @@ struct AccountActionsSections: View {
                     }
                 }
             }
-            .disabled(isEndingSignIn)
+            .disabled(isChangingSignIn)
             .confirmationDialog("Delete your Revyl account?", isPresented: $confirmsRevylAccountDeletion, titleVisibility: .visible) {
                 Button("Delete my Revyl account", role: .destructive, action: deleteRevylAccount)
                 Button("Cancel", role: .cancel) {}

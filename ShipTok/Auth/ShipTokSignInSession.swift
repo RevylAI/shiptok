@@ -219,7 +219,7 @@ final class ShipTokSignInSession {
 
     // Connects GitHub for a person signed in to Revyl: the GitHub sign-in this iPhone holds while GitHub still takes it, else GitHub's own sign-in, and once Revyl connects it the person lands in their own feed. A failed connection keeps them where they were, saying why.
     func connectGitHub(using webAuthenticationSession: WebAuthenticationSession) async {
-        guard let revylAPIKey, !isConnectingGitHub, !isDeletingRevylAccount else { return }
+        guard let revylAPIKey, !isConnectingGitHub, !isSigningOut, !isDeletingRevylAccount else { return }
         switch phase {
         case .exploringDemo, .connectingGitHub: break
         case .restoring, .signedOut, .signedIn: return
@@ -337,7 +337,7 @@ final class ShipTokSignInSession {
 
     // Revyl deletes the account with its keys, its GitHub connection and that GitHub account's ShipTok settings; then the GitHub token this iPhone holds is revoked as Delete my ShipTok data revokes it, and the iPhone forgets everything ShipTok kept. Revyl's part can't run twice, since it revokes the key, so what's left is saved as soon as Revyl confirms, with or without a GitHub sign-in on this iPhone, and a failed revocation tells the person where to revoke it on GitHub (AGENTS.md, "Revyl Sign-In").
     func deleteRevylAccount() async throws {
-        guard let revylAPIKey, !isDeletingRevylAccount, !isDeletingShipTokData, !isSigningOut else { return }
+        guard let revylAPIKey, !isDeletingRevylAccount, !isDeletingShipTokData, !isSigningOut, !isConnectingGitHub else { return }
         let teammate: SignedInTeammate?
         switch phase {
         case .signedIn(let signedInTeammate):
@@ -387,9 +387,9 @@ final class ShipTokSignInSession {
         }
     }
 
-    // Signing out ends both parts of the sign-in. A sign-in the Keychain still holds would come back on the next launch, so nothing ends until the Keychain lets both go, and nobody can sign out while a deletion runs. The feed's reads and saves stop and drain before it ends, so nothing is saved for it afterwards.
+    // Signing out ends both parts of the sign-in. A sign-in the Keychain still holds would come back on the next launch, so nothing ends until the Keychain lets both go, and nobody can sign out while a deletion or a GitHub connection runs, since a connection saves the GitHub sign-in and sends the Revyl key after it. The feed's reads and saves stop and drain before it ends, so nothing is saved for it afterwards.
     func signOut() async throws {
-        guard let revylAPIKey, !isDeletingShipTokData, !isDeletingRevylAccount, !isSigningOut else { return }
+        guard let revylAPIKey, !isDeletingShipTokData, !isDeletingRevylAccount, !isSigningOut, !isConnectingGitHub else { return }
         if case .signedIn(let teammate) = phase, teammate.feedWork.hasStopped { return }
         isSigningOut = true
         defer { isSigningOut = false }
