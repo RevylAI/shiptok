@@ -10,10 +10,12 @@ struct PullRequestHeroMediaView: View {
     let pauseToggleTrigger: Int
     let isFastPlaybackHeld: Bool
     let videoScrubFraction: CGFloat?
+    let zoom: MediaZoom
     let progressLineInsets: EdgeInsets
     let wholeMediaInsets: EdgeInsets
     let captionBackdrop: FeedCaptionBackdrop
     let onLoadFailure: (_ wasRefusedToViewer: Bool) -> Void
+    let onMediaSizeRead: (CGSize) -> Void
 
     var body: some View {
         PullRequestMediaItemView(
@@ -27,10 +29,12 @@ struct PullRequestHeroMediaView: View {
             pauseToggleTrigger: pauseToggleTrigger,
             isFastPlaybackHeld: isFastPlaybackHeld,
             videoScrubFraction: videoScrubFraction,
+            heroZoom: zoom,
             heroProgressLineInsets: progressLineInsets,
             wholeHeroMediaInsets: wholeMediaInsets,
             heroCaptionBackdrop: captionBackdrop,
-            onLoadFailure: onLoadFailure
+            onLoadFailure: onLoadFailure,
+            onNaturalSizeRead: onMediaSizeRead
         )
         .id(mediaItem.id)
     }

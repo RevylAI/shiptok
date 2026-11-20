@@ -48,6 +48,7 @@ struct FeedCardView: View {
     let analyticsSubject: ShipTokAnalyticsSubject
     let pageLayout: FeedPageLayout
     let videoScrubFraction: CGFloat?
+    let heroZoom: MediaZoom
     let vibeFeedbackComposerHeight: CGFloat
     let isBehindVibeFeedbackComposer: Bool
     let isKeyboardShown: Bool
@@ -66,6 +67,7 @@ struct FeedCardView: View {
     let onOpenDeck: () -> Void
     let onTapCaption: () -> Void
     let onHeroMediaLoadFailure: (PullRequestMediaItem, _ wasRefusedToViewer: Bool) -> Void
+    let onHeroMediaSizeRead: (PullRequestMediaItem, CGSize) -> Void
     let onTapWhileBehindVibeFeedbackComposer: () -> Void
     @State private var isReactionPickerPresented = false
     @State private var isViewerVibeRemovalConfirmationPresented = false
@@ -104,8 +106,9 @@ struct FeedCardView: View {
         isHeroFastPlaybackHeld || videoScrubFraction != nil
     }
 
+    // A zoomed hero is for reading what's in the media, so the caption and its backdrop step out of the way.
     private var isCardTextHidden: Bool {
-        isReactionPickerPresented || showsOnlyHeroBehindVibeFeedbackComposer || isHeroPlaybackGestureActive
+        isReactionPickerPresented || showsOnlyHeroBehindVibeFeedbackComposer || isHeroPlaybackGestureActive || heroZoom.isZoomed
     }
 
     // The hero keeps one place in the view tree whatever the page layout, so a playing video never restarts when the window changes shape.
@@ -132,6 +135,7 @@ struct FeedCardView: View {
                 caption
                     .frame(width: arrangedFrames.caption.width, height: arrangedFrames.caption.height, alignment: .bottomLeading)
                     .opacity(isCardTextHidden ? 0 : 1)
+                    .animation(.easeOut(duration: 0.15), value: heroZoom.isZoomed)
                     .offset(x: arrangedFrames.caption.minX, y: arrangedFrames.caption.minY)
                 if !isBehindVibeFeedbackComposer {
                     actionRail
@@ -219,10 +223,12 @@ struct FeedCardView: View {
                 pauseToggleTrigger: heroPauseToggleTrigger,
                 isFastPlaybackHeld: isHeroFastPlaybackHeld,
                 videoScrubFraction: videoScrubFraction,
+                zoom: heroZoom,
                 progressLineInsets: pageLayout.heroProgressLineInsets,
                 wholeMediaInsets: pageLayout.wholeHeroMediaInsets,
                 captionBackdrop: captionBackdrop,
-                onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem, $0) }
+                onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem, $0) },
+                onMediaSizeRead: { onHeroMediaSizeRead(heroMediaItem, $0) }
             )
             .id(heroMediaItem.id)
         } else {
@@ -261,7 +267,7 @@ struct FeedCardView: View {
             height: backdropHeight,
             tintFullLocation: fadeEndLocation,
             blurMaskStops: blurMaskStops,
-            isHidden: isHeroPlaybackGestureActive
+            isHidden: isHeroPlaybackGestureActive || heroZoom.isZoomed
         )
     }
 
@@ -604,7 +610,7 @@ struct FeedCardView: View {
             }
             switch post {
             case .pullRequest(let pullRequest):
-                // The deck is where a still or GIF zooms (AGENTS.md, "Card Layout").
+                // A lone still or GIF opens in the deck too, where it always shows whole (AGENTS.md, "Card Layout").
                 if pullRequest.mediaItems.count > 1 || heroMediaItem?.kind == .image || heroMediaItem?.kind == .animatedImage {
                     PullRequestMediaDeckButton(mediaItems: pullRequest.mediaItems, action: onOpenDeck)
                 }
@@ -704,6 +710,7 @@ struct FeedCaptionBackdrop: View {
         }
         .frame(height: height)
         .opacity(isHidden ? 0 : 1)
+        .animation(.easeOut(duration: 0.15), value: isHidden)
         .allowsHitTesting(false)
     }
 }

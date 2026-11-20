@@ -37,6 +37,17 @@ struct FeedView: View {
         case pageSwipe
         case vibeSwipe
         case videoScrub
+        // While the hero is zoomed, one finger pans it instead of swiping (AGENTS.md, "Swipe Gestures").
+        case heroPan(MediaZoomPan)
+        // A drag that a pinch overlaps belongs to the pinch until its finger lifts, so a pinch never swipes.
+        case heroPinch
+    }
+
+    // A zoom never outlives the card and media it was made on.
+    private struct HeroZoomSubject: Equatable {
+        let feedContext: FeedContext
+        let pageID: String
+        let heroMediaItemID: String?
     }
 
     private struct VibeAwaitingFeedback: Identifiable, Equatable {
@@ -72,6 +83,9 @@ struct FeedView: View {
     @State private var horizontalDragOffset: CGFloat = 0
     @State private var activeDeckDrag: DeckDrag?
     @State private var videoScrubFraction: CGFloat?
+    @State private var heroZoom = MediaZoom.normalFit
+    @State private var heroPinch: MediaZoom.Pinch?
+    @State private var heroMediaSizes: [String: CGSize] = [:]
     @State private var systemOcclusionFrames: [CGRect] = []
     @State private var isTabBarShown = true
     @State private var isPageTransitionRunning = false
@@ -251,6 +265,11 @@ struct FeedView: View {
         detailSheetPullRequest != nil || mediaDeckPullRequestID != nil || selectedTab != .feed
     }
 
+    private var heroZoomSubject: HeroZoomSubject {
+        let currentPage = feedPages[clampedPageIndex]
+        return HeroZoomSubject(feedContext: feedContext, pageID: currentPage.id, heroMediaItemID: loadableHeroMediaItem(of: currentPage)?.id)
+    }
+
     private var isHeroOccludedForAnalytics: Bool {
         commentsSheetPullRequest != nil || commentsSheetWeeklyEdition != nil || commentsSheetFeature != nil
     }
@@ -414,6 +433,10 @@ struct FeedView: View {
         }
         .onChange(of: feedContext) {
             postVibeAwaitingFeedback()
+        }
+        .onChange(of: heroZoomSubject) {
+            heroZoom = .normalFit
+            heroPinch = nil
         }
         .onChange(of: onScreenFeedContext) {
             feedStore.changeOnScreenPullRequests(to: onScreenPullRequests)
@@ -745,6 +768,13 @@ struct FeedView: View {
         }
         .contentShape(Rectangle())
         .gesture(deckDragGesture(deckSize: deckSize, pageLayout: pageLayout))
+        .simultaneousGesture(heroPinchGesture(pageLayout: pageLayout))
+        .onChange(of: pageLayout) { previousPageLayout, resizedPageLayout in
+            guard let previousHeroMediaFrame = heroZoomMediaFrame(pageLayout: previousPageLayout),
+                  let resizedHeroMediaFrame = heroZoomMediaFrame(pageLayout: resizedPageLayout)
+            else { return }
+            heroZoom = heroZoom.refitted(from: previousHeroMediaFrame, in: previousPageLayout.card.size, to: resizedHeroMediaFrame, in: resizedPageLayout.card.size)
+        }
     }
 
     @ViewBuilder
@@ -861,6 +891,7 @@ struct FeedView: View {
             analyticsSubject: analyticsSubject,
             pageLayout: pageLayout,
             videoScrubFraction: isCurrentPage ? videoScrubFraction : nil,
+            heroZoom: isCurrentPage ? heroZoom : .normalFit,
             vibeFeedbackComposerHeight: vibeFeedbackComposerHeight,
             isBehindVibeFeedbackComposer: vibeAwaitingFeedback != nil,
             isKeyboardShown: isKeyboardShown,
@@ -882,6 +913,10 @@ struct FeedView: View {
             horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
             likeBurstTrigger: likeBurstTriggers[thread.id, default: 0],
             onDoubleTap: {
+                if heroZoom.isZoomed {
+                    withAnimation(MediaZoom.settleAnimation) { heroZoom = .normalFit }
+                    return
+                }
                 showLikeBurst(onPostID: thread.id)
                 viewer.analytics.capture(.likeSelected(analyticsSubject, control: .doubleTap, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
                 likeUnlessAlreadyLiked()
@@ -899,6 +934,11 @@ struct FeedView: View {
             onOpenDeck: openDeck,
             onTapCaption: tapCaption,
             onHeroMediaLoadFailure: recoverFromHeroMediaLoadFailure,
+            onHeroMediaSizeRead: { heroMediaItem, heroMediaSize in
+                if heroMediaSizes[heroMediaItem.id] != heroMediaSize {
+                    heroMediaSizes[heroMediaItem.id] = heroMediaSize
+                }
+            },
             onTapWhileBehindVibeFeedbackComposer: dismissKeyboard
         )
     }
@@ -1090,14 +1130,19 @@ struct FeedView: View {
         DragGesture(minimumDistance: 14)
             .onChanged { dragValue in
                 guard !isPageTransitionRunning else { return }
+                if heroPinch != nil {
+                    activeDeckDrag = .heroPinch
+                }
                 if activeDeckDrag == nil {
-                    if abs(dragValue.translation.width) <= abs(dragValue.translation.height) {
-                        activeDeckDrag = .pageSwipe
-                    } else if isHeroLoadableVideo(of: feedPages[clampedPageIndex]),
-                              pageLayout.videoScrubZone.contains(dragValue.startLocation) {
+                    let isSideways = abs(dragValue.translation.width) > abs(dragValue.translation.height)
+                    if isSideways, isHeroLoadableVideo(of: feedPages[clampedPageIndex]), pageLayout.videoScrubZone.contains(dragValue.startLocation) {
                         activeDeckDrag = .videoScrub
-                    } else {
+                    } else if heroZoom.isZoomed {
+                        activeDeckDrag = .heroPan(MediaZoomPan(startZoom: heroZoom, startTranslation: dragValue.translation))
+                    } else if isSideways {
                         activeDeckDrag = .vibeSwipe
+                    } else {
+                        activeDeckDrag = .pageSwipe
                     }
                 }
                 switch activeDeckDrag {
@@ -1108,7 +1153,10 @@ struct FeedView: View {
                     verticalDragOffset = resistedVerticalDragOffset(dragValue.translation.height)
                 case .videoScrub:
                     videoScrubFraction = pageLayout.videoScrubFraction(atX: dragValue.location.x)
-                case nil:
+                case .heroPan(let heroPan):
+                    guard let heroMediaFrame = heroZoomMediaFrame(pageLayout: pageLayout) else { return }
+                    heroZoom = heroPan.startZoom.panned(by: heroPan.translation(from: dragValue.translation), mediaFrame: heroMediaFrame, in: pageLayout.card.size)
+                case .heroPinch, nil:
                     break
                 }
             }
@@ -1122,21 +1170,95 @@ struct FeedView: View {
                     finishVerticalDrag(dragValue, deckSize: deckSize)
                 case .vibeSwipe:
                     finishHorizontalDrag(dragValue, deckSize: deckSize)
-                case .videoScrub, nil:
+                case .heroPan(let heroPan):
+                    guard let heroMediaFrame = heroZoomMediaFrame(pageLayout: pageLayout) else { return }
+                    withAnimation(MediaZoom.settleAnimation) {
+                        heroZoom = heroPan.startZoom.panEnded(by: heroPan.translation(from: dragValue.predictedEndTranslation), mediaFrame: heroMediaFrame, in: pageLayout.card.size)
+                    }
+                case .videoScrub, .heroPinch, nil:
                     break
                 }
             }
     }
 
-    private func isHeroLoadableVideo(of page: FeedPage) -> Bool {
+    // A pinch on the card zooms its hero around where the fingers met, and whatever the feed's drag had started gives way to it (AGENTS.md, "Swipe Gestures").
+    private func heroPinchGesture(pageLayout: FeedPageLayout) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { magnifyValue in
+                guard !isPageTransitionRunning, heroZoomMediaFrame(pageLayout: pageLayout) != nil else { return }
+                let activeHeroPinch = heroPinch ?? MediaZoom.Pinch(
+                    startZoom: heroZoom,
+                    anchor: CGPoint(x: magnifyValue.startLocation.x - pageLayout.card.minX, y: magnifyValue.startLocation.y - pageLayout.card.minY)
+                )
+                if heroPinch == nil, activeDeckDrag != nil {
+                    activeDeckDrag = .heroPinch
+                    videoScrubFraction = nil
+                    withAnimation(.spring(duration: 0.3)) {
+                        verticalDragOffset = 0
+                        horizontalDragOffset = 0
+                    }
+                }
+                heroPinch = activeHeroPinch
+                heroZoom = activeHeroPinch.startZoom.pinched(by: magnifyValue.magnification, around: activeHeroPinch.anchor, in: pageLayout.card.size)
+            }
+            .onEnded { magnifyValue in
+                guard let endedHeroPinch = heroPinch else { return }
+                heroPinch = nil
+                guard let heroMediaFrame = heroZoomMediaFrame(pageLayout: pageLayout) else {
+                    heroZoom = .normalFit
+                    return
+                }
+                let settledHeroZoom = endedHeroPinch.startZoom.pinchEnded(
+                    by: magnifyValue.magnification,
+                    around: endedHeroPinch.anchor,
+                    mediaFrame: heroMediaFrame,
+                    in: pageLayout.card.size
+                )
+                withAnimation(MediaZoom.settleAnimation) { heroZoom = settledHeroZoom }
+                if !endedHeroPinch.startZoom.isZoomed, settledHeroZoom.isZoomed {
+                    captureHeroZoomIn()
+                }
+            }
+    }
+
+    // Where the hero of the card in focus shows its media, once it has loaded far enough to know its size; a pinch zooms only that.
+    private func heroZoomMediaFrame(pageLayout: FeedPageLayout) -> CGRect? {
+        guard let heroMediaItem = loadableHeroMediaItem(of: feedPages[clampedPageIndex]),
+              let heroMediaSize = heroMediaSizes[heroMediaItem.id]
+        else { return nil }
+        return PullRequestMediaItemView.heroMediaFrame(mediaSize: heroMediaSize, cardSize: pageLayout.card.size, wholeMediaInsets: pageLayout.wholeHeroMediaInsets)
+    }
+
+    private func captureHeroZoomIn() {
+        let currentPage = feedPages[clampedPageIndex]
+        guard let heroMediaItem = loadableHeroMediaItem(of: currentPage), let analyticsSubject = currentPage.vibeTarget?.analyticsSubject else { return }
+        let mediaItems: [PullRequestMediaItem] = switch currentPage {
+        case .pullRequest(let pullRequest): pullRequest.mediaItems
+        case .weeklyEdition(let weeklyEdition): weeklyEdition.mediaItems
+        case .feature(let feature): feature.mediaItems
+        case .feedEnd: []
+        }
+        viewer.analytics.capture(.mediaZoomed(ShipTokAnalyticsMedia(
+            subject: analyticsSubject,
+            surface: .feed,
+            mediaItem: heroMediaItem,
+            mediaPosition: mediaItems.firstIndex { $0.id == heroMediaItem.id } ?? 0
+        )))
+    }
+
+    private func loadableHeroMediaItem(of page: FeedPage) -> PullRequestMediaItem? {
         let (heroMediaItem, unloadableMediaItemIDs): (PullRequestMediaItem?, Set<String>) = switch page {
         case .pullRequest(let pullRequest): (feedStore.heroMediaItem(of: pullRequest), feedStore.unloadableMediaItemIDs)
         case .weeklyEdition(let weeklyEdition): (weeklyEditionsStore.heroMediaItem(of: weeklyEdition), weeklyEditionsStore.unloadableMediaItemIDs)
         case .feature(let feature): (featuresStore.heroMediaItem(of: feature), featuresStore.unloadableMediaItemIDs)
         case .feedEnd: (nil, [])
         }
-        guard let heroMediaItem else { return false }
-        return heroMediaItem.kind == .video && !unloadableMediaItemIDs.contains(heroMediaItem.id)
+        guard let heroMediaItem, !unloadableMediaItemIDs.contains(heroMediaItem.id) else { return nil }
+        return heroMediaItem
+    }
+
+    private func isHeroLoadableVideo(of page: FeedPage) -> Bool {
+        loadableHeroMediaItem(of: page)?.kind == .video
     }
 
     // The Duo's status strip, an expanded island included, is an occlusion region from iOS 27.1, and no earlier device has a strip beside the card.
