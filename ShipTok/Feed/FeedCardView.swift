@@ -76,7 +76,6 @@ struct FeedCardView: View {
     private static let captionToComposerSpacing: CGFloat = 12
     private static let captionToRailSpacing: CGFloat = 8
     private static let captionBackdropFadeHeight: CGFloat = 80
-    private static let captionBackdropTintOpacity = 0.65
     private static let captionBackdropBlurClearanceAboveProgressLine: CGFloat = 6
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
@@ -101,18 +100,15 @@ struct FeedCardView: View {
         GeometryReader { geometry in
             let arrangedFrames = cardFrames(in: geometry.size)
             ZStack(alignment: .topLeading) {
-                ZStack(alignment: .bottom) {
-                    heroMedia
-                    captionBackdrop(frames: arrangedFrames)
-                }
-                .frame(width: arrangedFrames.card.width, height: arrangedFrames.card.height)
-                .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
-                .overlay {
-                    if isHeroLoadableVideo {
-                        heroFastPlaybackHoldArea
+                heroMedia(captionBackdrop: captionBackdrop(frames: arrangedFrames))
+                    .frame(width: arrangedFrames.card.width, height: arrangedFrames.card.height)
+                    .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
+                    .overlay {
+                        if isHeroLoadableVideo {
+                            heroFastPlaybackHoldArea
+                        }
                     }
-                }
-                .offset(x: arrangedFrames.card.minX, y: arrangedFrames.card.minY)
+                    .offset(x: arrangedFrames.card.minX, y: arrangedFrames.card.minY)
                 caption
                     .frame(width: arrangedFrames.caption.width, height: arrangedFrames.caption.height, alignment: .bottomLeading)
                     .opacity(isReactionPickerPresented || showsOnlyHeroBehindVibeFeedbackComposer || isHeroPlaybackGestureActive ? 0 : 1)
@@ -185,7 +181,7 @@ struct FeedCardView: View {
     }
 
     @ViewBuilder
-    private var heroMedia: some View {
+    private func heroMedia(captionBackdrop: FeedCaptionBackdrop) -> some View {
         if let heroMediaItem {
             PullRequestHeroMediaView(
                 mediaItem: heroMediaItem,
@@ -199,11 +195,13 @@ struct FeedCardView: View {
                 videoScrubFraction: videoScrubFraction,
                 progressLineInsets: pageLayout.heroProgressLineInsets,
                 wholeMediaInsets: pageLayout.wholeHeroMediaInsets,
+                captionBackdrop: captionBackdrop,
                 onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem, $0) }
             )
             .id(heroMediaItem.id)
         } else {
             RevylBrandColor.surfaceRaised
+                .overlay(alignment: .bottom) { captionBackdrop }
         }
     }
 
@@ -215,8 +213,7 @@ struct FeedCardView: View {
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
-    // The tint, not the blur, keeps the caption legible. Drawn over the blur, it holds at least 0.65 black from the caption's top line down, whatever the material does, so on pure white media textPrimary keeps 6.7:1 and the textBody metadata 4.7:1. The blur only keeps the media's own detail from competing with the caption, and over a video it clears above the progress line so the line stays sharp.
-    private func captionBackdrop(frames: CardFrames) -> some View {
+    private func captionBackdrop(frames: CardFrames) -> FeedCaptionBackdrop {
         let captionTopInCard = frames.caption.maxY - captionHeight - frames.card.minY
         let backdropHeight = min(frames.card.height - captionTopInCard + Self.captionBackdropFadeHeight, frames.card.height)
         let gradientHeight = max(backdropHeight, Self.captionBackdropFadeHeight)
@@ -229,23 +226,12 @@ struct FeedCardView: View {
                 .init(color: .clear, location: 1 - blurClearHeight / gradientHeight),
             ]
         }
-        return ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-                .mask(LinearGradient(stops: blurMaskStops, startPoint: .top, endPoint: .bottom))
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black.opacity(Self.captionBackdropTintOpacity), location: fadeEndLocation),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-        .frame(height: max(backdropHeight, 0))
-        .opacity(isHeroPlaybackGestureActive ? 0 : 1)
-        .allowsHitTesting(false)
+        return FeedCaptionBackdrop(
+            height: max(backdropHeight, 0),
+            tintFullLocation: fadeEndLocation,
+            blurMaskStops: blurMaskStops,
+            isHidden: isHeroPlaybackGestureActive
+        )
     }
 
     @ViewBuilder
@@ -564,6 +550,36 @@ struct FeedCardView: View {
 
     static func compactCount(_ count: Int) -> String {
         count.formatted(.number.notation(.compactName))
+    }
+}
+
+// The tint, not the blur, keeps the caption legible. Drawn over the blur, it holds at least 0.65 black from the caption's top line down, whatever the material does, so on pure white media textPrimary keeps 6.7:1 and the textBody metadata 4.7:1. The blur only keeps the media's own detail from competing with the caption, and over a video it clears above the progress line, which the hero draws over this backdrop so the tint never darkens it.
+struct FeedCaptionBackdrop: View {
+    let height: CGFloat
+    let tintFullLocation: CGFloat
+    let blurMaskStops: [Gradient.Stop]
+    let isHidden: Bool
+
+    private static let tintOpacity = 0.65
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .mask(LinearGradient(stops: blurMaskStops, startPoint: .top, endPoint: .bottom))
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black.opacity(Self.tintOpacity), location: tintFullLocation),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .frame(height: height)
+        .opacity(isHidden ? 0 : 1)
+        .allowsHitTesting(false)
     }
 }
 

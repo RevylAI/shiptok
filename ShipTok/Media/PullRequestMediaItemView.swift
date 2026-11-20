@@ -23,6 +23,7 @@ struct PullRequestMediaItemView: View {
     var videoScrubFraction: CGFloat?
     var heroProgressLineInsets = EdgeInsets()
     var wholeHeroMediaInsets = EdgeInsets()
+    var heroCaptionBackdrop: FeedCaptionBackdrop?
     let onLoadFailure: (_ wasRefusedToViewer: Bool) -> Void
     @State private var loadedImage: LoadedPullRequestImage?
     @State private var videoPlayback: LoopingVideoPlayback?
@@ -94,6 +95,8 @@ struct PullRequestMediaItemView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) { heroCaptionBackdrop }
+        .overlay(alignment: .bottom) { heroPlaybackControls }
         .task(id: MediaLoadRequest(mediaURL: mediaItem.url, renewalRequestCount: renewalRequestCount)) { await loadUnlessAlreadyLoaded() }
         .task(id: videoPlayback?.isReadyToPlay == true) { await handleVideoReadyToPlay() }
         .task(id: isWaitingForGitHubAccessToken && isWatchedPresentation) { await loadAgainAfterGitHubAccessTokenWait() }
@@ -170,15 +173,6 @@ struct PullRequestMediaItemView: View {
                     .overlay(Self.heroBackdropMaterialBlur)
             }
             .overlay { pausedGlyph }
-            .overlay(alignment: .bottom) {
-                if isPlaybackActive {
-                    VStack(spacing: 10) {
-                        playbackGestureHint(videoPlayback)
-                        VideoPlaybackProgressBar(player: videoPlayback.player, thicknessPoints: 2, scrubFraction: activeVideoScrubFraction)
-                    }
-                    .padding(heroProgressLineInsets)
-                }
-            }
             .opacity(isVideoShowing ? 1 : 0)
         case .deckPage:
             VStack(spacing: 12) {
@@ -196,6 +190,18 @@ struct PullRequestMediaItemView: View {
                     .padding(.horizontal, 16)
             }
             .padding(.bottom, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var heroPlaybackControls: some View {
+        if presentation == .hero, !isUnloadable, isPlaybackActive, let videoPlayback {
+            VStack(spacing: 10) {
+                playbackGestureHint(videoPlayback)
+                VideoPlaybackProgressBar(player: videoPlayback.player, thicknessPoints: 2, scrubFraction: activeVideoScrubFraction)
+            }
+            .padding(heroProgressLineInsets)
+            .opacity(isVideoShowing ? 1 : 0)
         }
     }
 
@@ -612,19 +618,19 @@ private struct VideoPlaybackProgressBar: View {
     let player: AVPlayer
     let thicknessPoints: CGFloat
     let scrubFraction: CGFloat?
+    @State private var playedFraction: CGFloat = 0
 
     private static let scrubbingThicknessScale: CGFloat = 3
     private static let playedTrackColor = Color(rgbHex: 0x9DA6B2)
     private static let unplayedTrackColor = Color(rgbHex: 0x282F35)
+    private static let playedFractionSamplingInterval: Duration = .milliseconds(100)
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Self.unplayedTrackColor)
-                    Capsule().fill(Self.playedTrackColor)
-                        .frame(width: geometry.size.width * (scrubFraction ?? playedFraction))
-                }
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Self.unplayedTrackColor)
+                Capsule().fill(Self.playedTrackColor)
+                    .frame(width: geometry.size.width * (scrubFraction ?? playedFraction))
             }
         }
         .frame(height: thicknessPoints)
@@ -632,10 +638,18 @@ private struct VideoPlaybackProgressBar: View {
         .animation(.easeOut(duration: 0.15), value: scrubFraction == nil)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .task { await keepPlayedFractionCurrent() }
     }
 
-    private var playedFraction: CGFloat {
-        guard let durationSeconds = player.currentItem?.duration.seconds, durationSeconds.isFinite, durationSeconds > 0 else { return 0 }
-        return CGFloat(min(max(player.currentTime().seconds / durationSeconds, 0), 1))
+    // The player's time isn't observable, so the line samples it into state, which redraws the line as the video plays.
+    private func keepPlayedFractionCurrent() async {
+        while !Task.isCancelled {
+            if let durationSeconds = player.currentItem?.duration.seconds, durationSeconds.isFinite, durationSeconds > 0 {
+                playedFraction = CGFloat(min(max(player.currentTime().seconds / durationSeconds, 0), 1))
+            } else {
+                playedFraction = 0
+            }
+            try? await Task.sleep(for: Self.playedFractionSamplingInterval)
+        }
     }
 }

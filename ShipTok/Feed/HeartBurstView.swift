@@ -31,5 +31,6 @@ struct HeartBurstView: View {
                 }
             }
             .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }

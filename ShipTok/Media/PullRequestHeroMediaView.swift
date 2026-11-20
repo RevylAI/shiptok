@@ -12,6 +12,7 @@ struct PullRequestHeroMediaView: View {
     let videoScrubFraction: CGFloat?
     let progressLineInsets: EdgeInsets
     let wholeMediaInsets: EdgeInsets
+    let captionBackdrop: FeedCaptionBackdrop
     let onLoadFailure: (_ wasRefusedToViewer: Bool) -> Void
 
     var body: some View {
@@ -28,6 +29,7 @@ struct PullRequestHeroMediaView: View {
             videoScrubFraction: videoScrubFraction,
             heroProgressLineInsets: progressLineInsets,
             wholeHeroMediaInsets: wholeMediaInsets,
+            heroCaptionBackdrop: captionBackdrop,
             onLoadFailure: onLoadFailure
         )
         .id(mediaItem.id)

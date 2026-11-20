@@ -16,6 +16,7 @@ struct VibeStampView: View {
                 .rotationEffect(.degrees(horizontalDragProgress >= 0 ? -14 : 14))
                 .opacity(min(1, Double(abs(horizontalDragProgress)) * 3))
                 .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 }
