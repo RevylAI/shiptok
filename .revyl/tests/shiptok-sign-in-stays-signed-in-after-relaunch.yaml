@@ -39,4 +39,4 @@ test:
           step_type: wait
           step_description: "5"
         - type: validation
-          step_description: 'ShipTok opens straight to its feed, with no signed-out screen, GitHub page or Repository list: a pull request card with the author, title and pull request number at its lower left, the feed's tabs at the top and a rail of buttons down the right side'
+          step_description: 'ShipTok opens straight to its feed, with no signed-out screen, GitHub page or Repository list: a pull request card with the author, title and pull request number at its lower left, the feed''s tabs at the top and a rail of buttons down the right side'
