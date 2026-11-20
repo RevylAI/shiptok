@@ -1,14 +1,14 @@
 # Revyl Test Definition
 
 _meta:
-    remote_id: a85699d9-432d-4619-8b1a-9c5c950855a1
-    remote_version: 2
-    local_version: 2
-    last_synced_at: "2026-11-20T03:07:32Z"
-    checksum: 3a30c975a56fe0e634bb2334cdb0752f09dfd843cccbd31e8a6adc1ff2a76f1f
+    remote_id: eb8262d3-4bf0-4bfa-916f-23afebb61d0f
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T18:58:05Z"
+    checksum: 6585d7ad6e7d3f5b6ebab916fae3c44f067bacc764e6f320db65cc9ef04e8647
 test:
     metadata:
-        name: shiptok-demo-pull-request-detail-sheet
+        name: shiptok-pull-request-detail-sheet
         platform: ios
     build:
         name: ShipTok
@@ -18,8 +18,8 @@ test:
         orientation: portrait
     blocks:
         - type: module_import
-          step_description: Open the demo feed with Look around first
-          module: shiptok-open-demo-feed
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
         - type: extraction
           step_description: The title of the pull request on the card
           variable_name: detailed-pull-request-title

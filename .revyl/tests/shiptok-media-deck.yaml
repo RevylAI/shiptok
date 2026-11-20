@@ -1,14 +1,14 @@
 # Revyl Test Definition
 
 _meta:
-    remote_id: 551f5a8c-7698-49b8-8fac-8f4701a443c9
+    remote_id: 92fad09b-2071-4442-8d73-75a796a08e8d
     remote_version: 3
     local_version: 3
-    last_synced_at: "2026-11-20T03:07:26Z"
-    checksum: 836da7798a5f69c9f05c8166dfabd66c83b606f76dba1c4a4b470fdc8a420f0d
+    last_synced_at: "2026-11-20T18:58:10Z"
+    checksum: 39f793e18a30d5234566ac63fd1ae303ab45fe20081920ec16d94d15f71e2a43
 test:
     metadata:
-        name: shiptok-demo-media-deck
+        name: shiptok-media-deck
         platform: ios
     build:
         name: ShipTok
@@ -18,12 +18,12 @@ test:
         orientation: portrait
     blocks:
         - type: module_import
-          step_description: Open the demo feed with Look around first
-          module: shiptok-open-demo-feed
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
         - type: instructions
           step_description: Tap the media deck button on the right rail, the fanned stack of small cards with a count under it
         - type: validation
-          step_description: The media deck opens full screen on a black background with a close button at its top left and a position label such as '1 of 3' at its top
+          step_description: The media deck opens full screen on a black background with a close button at its top left and a position label such as '1 of 4' at its top
         - type: instructions
           step_description: Swipe left across the full width of the media in one fast, long swipe, starting near the right edge of the screen at the middle of the media and ending near the left edge
         - type: validation

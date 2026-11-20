@@ -86,12 +86,10 @@ enum ShipTokAnalyticsEvent: Sendable {
     case showsOnlyPullRequestsWithVideosChanged(Bool)
     case commentsOpened(ShipTokAnalyticsSubject)
     case likeSelected(ShipTokAnalyticsSubject, control: LikeControl, wasLiked: Bool)
-    case signInStarted(attemptID: UUID, demoVisitID: UUID?)
-    case signInFailed(attemptID: UUID, reason: SignInFailureReason, demoVisitID: UUID?)
-    case signInCompleted(attemptID: UUID, demoVisitID: UUID?)
+    case signInStarted(attemptID: UUID)
+    case signInFailed(attemptID: UUID, reason: SignInFailureReason)
+    case signInCompleted(attemptID: UUID)
     case signInEnded(reason: SignInEndReason)
-    case demoEntered
-    case demoSignInPrompted(DemoSignInPromptAction)
     case contentReportOpened(GitHubPostedContent, control: ModerationControl)
     case personHidden(GitHubPostedContent, control: ModerationControl)
     case personUnhidden
@@ -115,8 +113,6 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .signInFailed: "shiptok_sign_in_failed"
         case .signInCompleted: "shiptok_sign_in_completed"
         case .signInEnded: "shiptok_sign_in_ended"
-        case .demoEntered: "shiptok_demo_entered"
-        case .demoSignInPrompted: "shiptok_demo_sign_in_prompted"
         case .contentReportOpened: "shiptok_content_report_opened"
         case .personHidden: "shiptok_person_hidden"
         case .personUnhidden: "shiptok_person_unhidden"
@@ -191,22 +187,18 @@ enum ShipTokAnalyticsEvent: Sendable {
             addSubject(subject)
             properties["control"] = .string(control.rawValue)
             properties["was_liked"] = .boolean(wasLiked)
-        case .signInStarted(let attemptID, let demoVisitID), .signInCompleted(let attemptID, let demoVisitID):
+        case .signInStarted(let attemptID), .signInCompleted(let attemptID):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
-            properties["demo_visit_id"] = demoVisitID.map { .string($0.uuidString) }
-        case .signInFailed(let attemptID, let reason, let demoVisitID):
+        case .signInFailed(let attemptID, let reason):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
             properties["failure_reason"] = .string(reason.rawValue)
-            properties["demo_visit_id"] = demoVisitID.map { .string($0.uuidString) }
         case .signInEnded(let reason):
             properties["end_reason"] = .string(reason.rawValue)
         case .contentReportOpened(let postedContent, let control), .personHidden(let postedContent, let control):
             if let subject = postedContent.postedOn { addSubject(subject) }
             properties["content_kind"] = .string(postedContent.kind.rawValue)
             properties["control"] = .string(control.rawValue)
-        case .demoSignInPrompted(let action):
-            properties["demo_action"] = .string(action.rawValue)
-        case .personUnhidden, .demoEntered:
+        case .personUnhidden:
             break
         }
         return properties
@@ -243,7 +235,6 @@ final class ShipTokAnalytics {
     private static let captureURL = URL(string: "https://us.i.posthog.com/i/v0/e/")!
     private let urlSession: URLSession
     private let distinctID: String
-    private let demoVisitID: UUID?
 
     convenience init(githubUserID: Int64) {
         self.init(distinctID: "github:\(githubUserID)")
@@ -254,14 +245,8 @@ final class ShipTokAnalytics {
         self.init(distinctID: "shiptok-sign-in-attempt:\(signInAttemptID.uuidString)")
     }
 
-    // A demo visitor has no GitHub account, so a visit's events share its own id, and a sign-in that starts from it carries the id to its completion.
-    convenience init(demoVisitID: UUID) {
-        self.init(distinctID: "shiptok-demo-visit:\(demoVisitID.uuidString)", demoVisitID: demoVisitID)
-    }
-
-    private init(distinctID: String, demoVisitID: UUID? = nil) {
+    private init(distinctID: String) {
         self.distinctID = distinctID
-        self.demoVisitID = demoVisitID
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 60
@@ -290,9 +275,6 @@ final class ShipTokAnalytics {
         properties["actor_type"] = .string("human")
         properties["identity_provider"] = .string("github")
         properties["source"] = .string("shiptok_ios")
-        if let demoVisitID {
-            properties["demo_visit_id"] = .string(demoVisitID.uuidString)
-        }
         properties["schema_version"] = .integer(4)
         properties["app_version"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")
         properties["app_build"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown")

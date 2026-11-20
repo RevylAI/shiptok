@@ -1,7 +1,0 @@
-blocks:
-  - type: validation
-    step_description: "The signed-out screen shows ShipTok with a 'Sign in with Revyl' button and a 'Look around first' button"
-  - type: instructions
-    step_description: "Tap 'Look around first'"
-  - type: validation
-    step_description: "The demo feed shows a pull request card filling the screen with no tab bar at the bottom: its video or image shows, the author and the pull request's title sit at the lower left, the Open / Merged / Weekly / Features tabs sit at the top with 'Merged' selected, and a rail of buttons runs down the right side"

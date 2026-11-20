@@ -1,0 +1,101 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: dc7c81f2-05da-4281-bdfa-627f1a23a405
+    remote_version: 4
+    local_version: 4
+    last_synced_at: "2026-11-20T20:27:58Z"
+    checksum: 49b52245a9c53e9329c8d8f290813a010cd12a4faccdc01d0b83797c75843b5e
+test:
+    metadata:
+        name: shiptok-likes-reactions-and-vibes-post-and-undo
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: extraction
+          step_description: 'The pull request number on the card, shown after the title at its lower left, such as #126'
+          variable_name: vibed-pull-request-number
+        - type: instructions
+          step_description: Tap the like button, the heart at the top of the right rail
+        - type: validation
+          step_description: The heart at the top of the right rail is filled red and a like count of at least 1 shows under it
+        - type: instructions
+          step_description: Tap the red heart at the top of the right rail
+        - type: validation
+          step_description: The heart at the top of the right rail is an outline again, not filled red
+        - type: instructions
+          step_description: Double-tap the middle of the card's video, away from the caption and the right rail
+        - type: validation
+          step_description: The heart at the top of the right rail is filled red again
+        - type: instructions
+          step_description: Tap the red heart at the top of the right rail
+        - type: validation
+          step_description: The heart at the top of the right rail is an outline again, not filled red
+        - type: instructions
+          step_description: Tap the React button on the right rail, the smiling face below the comments button
+        - type: validation
+          step_description: "A grid of GitHub reactions opens next to the rail, including \U0001F389"
+        - type: instructions
+          step_description: "Tap \U0001F389 in the grid of reactions"
+        - type: instructions
+          step_description: If the grid of reactions is still open, tap the X on the React button to close it
+        - type: validation
+          step_description: "The React button on the right rail shows \U0001F389 instead of the smiling face"
+        - type: instructions
+          step_description: "Tap the React button on the right rail, which shows \U0001F389"
+        - type: validation
+          step_description: "The grid of reactions opens with \U0001F389 highlighted"
+        - type: instructions
+          step_description: "Tap the highlighted \U0001F389 in the grid of reactions"
+        - type: instructions
+          step_description: If the grid of reactions is still open, tap the X on the React button to close it
+        - type: validation
+          step_description: "The React button on the right rail shows the smiling face again, not \U0001F389"
+        - type: instructions
+          step_description: Swipe right once across the middle of the card
+        - type: validation
+          step_description: A toast near the bottom says 'Good vibes on' a pull request's title and has an 'Undo' button
+        - type: manual
+          step_type: wait
+          step_description: "8"
+        - type: instructions
+          step_description: If the card for pull request {{vibed-pull-request-number}} isn't showing, swipe down on the middle of the card until it shows. Swipe only down, never right or left, and never tap 'Undo'. A right or left swipe casts another vibe on GitHub, so never use one to bring back the toast or the card.
+        - type: validation
+          step_description: The card for pull request {{vibed-pull-request-number}} shows a 'Your good vibes' badge in its caption
+        - type: instructions
+          step_description: Tap the 'Your good vibes' badge on the card for pull request {{vibed-pull-request-number}}. Never swipe right or left or cast another vibe here; if the badge isn't there, don't tap anything.
+        - type: validation
+          step_description: A confirmation titled 'Remove your good vibes?' offers 'Remove'
+        - type: instructions
+          step_description: Tap 'Remove'
+        - type: validation
+          step_description: The card for pull request {{vibed-pull-request-number}} shows no 'Your good vibes' badge
+        - type: instructions
+          step_description: Swipe left once across the middle of the card
+        - type: validation
+          step_description: A 'Bad vibes' feedback box shows over the feed with 'Skip' and 'Send' buttons
+        - type: instructions
+          step_description: Tap 'Skip'
+        - type: manual
+          step_type: wait
+          step_description: "8"
+        - type: instructions
+          step_description: If the card for pull request {{vibed-pull-request-number}} isn't showing, swipe down on the middle of the card until it shows. Swipe only down, never right or left, and never tap 'Undo'. A right or left swipe casts another vibe on GitHub, so never use one to bring back the toast or the card.
+        - type: validation
+          step_description: The card for pull request {{vibed-pull-request-number}} shows a 'Your bad vibes' badge in its caption
+        - type: instructions
+          step_description: Tap the 'Your bad vibes' badge on the card for pull request {{vibed-pull-request-number}}. Never swipe right or left or cast another vibe here; if the badge isn't there, don't tap anything.
+        - type: validation
+          step_description: A confirmation titled 'Remove your bad vibes?' offers 'Remove'
+        - type: instructions
+          step_description: Tap 'Remove'
+        - type: validation
+          step_description: The card for pull request {{vibed-pull-request-number}} shows no 'Your bad vibes' or 'Your good vibes' badge, and its heart on the right rail is an outline, not filled red

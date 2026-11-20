@@ -1,24 +1,17 @@
 import Foundation
 import Observation
 
-// The people the viewer hid, by GitHub login: kept only on this iPhone per signed-in person, and only in memory for a demo visit. Deleting ShipTok data clears them with the rest of the app's defaults (AGENTS.md, "Report And Hide").
+// The people the viewer hid, by GitHub login: kept only on this iPhone per signed-in person. Deleting ShipTok data clears them with the rest of the app's defaults (AGENTS.md, "Report And Hide").
 @Observable
 @MainActor
 final class HiddenPeopleStore {
     private(set) var hiddenGitHubLogins: [String]
     private var lowercasedHiddenGitHubLogins: Set<String>
-    private let hiddenGitHubLoginsDefaultsKey: String?
+    private let hiddenGitHubLoginsDefaultsKey: String
 
-    convenience init(githubUserID: Int64) {
-        self.init(hiddenGitHubLoginsDefaultsKey: "hidden-people-github-logins-github-\(githubUserID)")
-    }
-
-    static func forDemoVisit() -> HiddenPeopleStore {
-        HiddenPeopleStore(hiddenGitHubLoginsDefaultsKey: nil)
-    }
-
-    private init(hiddenGitHubLoginsDefaultsKey: String?) {
-        let savedHiddenGitHubLogins = hiddenGitHubLoginsDefaultsKey.flatMap { UserDefaults.standard.stringArray(forKey: $0) } ?? []
+    init(githubUserID: Int64) {
+        let hiddenGitHubLoginsDefaultsKey = "hidden-people-github-logins-github-\(githubUserID)"
+        let savedHiddenGitHubLogins = UserDefaults.standard.stringArray(forKey: hiddenGitHubLoginsDefaultsKey) ?? []
         self.hiddenGitHubLoginsDefaultsKey = hiddenGitHubLoginsDefaultsKey
         hiddenGitHubLogins = savedHiddenGitHubLogins
         lowercasedHiddenGitHubLogins = Set(savedHiddenGitHubLogins.map { $0.lowercased() })
@@ -45,8 +38,6 @@ final class HiddenPeopleStore {
     private func saveHiddenGitHubLogins(_ updatedHiddenGitHubLogins: [String]) {
         hiddenGitHubLogins = updatedHiddenGitHubLogins
         lowercasedHiddenGitHubLogins = Set(updatedHiddenGitHubLogins.map { $0.lowercased() })
-        if let hiddenGitHubLoginsDefaultsKey {
-            UserDefaults.standard.set(updatedHiddenGitHubLogins, forKey: hiddenGitHubLoginsDefaultsKey)
-        }
+        UserDefaults.standard.set(updatedHiddenGitHubLogins, forKey: hiddenGitHubLoginsDefaultsKey)
     }
 }

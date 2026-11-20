@@ -3,13 +3,13 @@ import Foundation
 import OSLog
 import UniformTypeIdentifiers
 
-// Media under one id never changes, so a video or image downloaded once plays from the device on later launches until it goes a month unused. Each viewer's files live in a folder of their own, a signed-in person's by GitHub user ID and the demo's in one shared folder, so no viewer ever reads another's. Files are named by a hash of the media item's id, which never carries a signed query string (AGENTS.md, "Feed Caching").
+// Media under one id never changes, so a video or image downloaded once plays from the device on later launches until it goes a month unused. Each signed-in person's files live in a folder of their own, by GitHub user ID, so no viewer ever reads another's. Files are named by a hash of the media item's id, which never carries a signed query string (AGENTS.md, "Feed Caching").
 struct PullRequestMediaDiskCache: Sendable {
     static let rootDirectoryURL = URL.cachesDirectory.appending(path: "pull-request-media", directoryHint: .isDirectory)
-    static let forDemoVisits = PullRequestMediaDiskCache(viewerFolderName: "demo")
     private static let videoFileExtensions = ["mp4", "mov", "m4v"]
     private static let imageFileExtension = "image"
     private static let unusedFileRetentionSeconds: TimeInterval = 30 * 24 * 60 * 60
+    private static let retiredDemoVisitsFolderName = "demo"
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
     private static let fileWriteQueue = DispatchQueue(label: "ai.revyl.shiptok.pull-request-media-writes", qos: .utility)
 
@@ -90,7 +90,7 @@ struct PullRequestMediaDiskCache: Sendable {
         }
     }
 
-    // The feed, weeks, decks and the demo share their viewer's files, so files go by how long they've gone unused, never by one surface's list. A file directly under the root was saved before each viewer had a folder, so no viewer reads it and it goes too.
+    // The feed, weeks and decks share their viewer's files, so files go by how long they've gone unused, never by one surface's list. A file directly under the root was saved before each viewer had a folder, and earlier builds saved demo visits' media in a folder of their own, so no viewer reads either and both go.
     static func removeLongUnusedFilesInBackground() {
         let oldestKeptUseDate = Date.now.addingTimeInterval(-unusedFileRetentionSeconds)
         fileWriteQueue.async {
@@ -113,7 +113,7 @@ struct PullRequestMediaDiskCache: Sendable {
                     logger.error("Removing a saved media file failed: \(failureDescription(error), privacy: .public)")
                 }
             }
-            // Only an entry known to be a file goes from the root, so one whose type can't be read never takes a viewer's folder with it.
+            // Only an entry known to be a file, or the retired demo visits' folder, goes from the root, so one whose type can't be read never takes a viewer's folder with it.
             for rootEntryURL in rootEntryURLs {
                 let rootEntryValues: URLResourceValues
                 do {
@@ -127,6 +127,10 @@ struct PullRequestMediaDiskCache: Sendable {
                     continue
                 }
                 guard rootEntryValues.isDirectory == true else { continue }
+                if rootEntryURL.lastPathComponent == retiredDemoVisitsFolderName {
+                    removeSavedFile(at: rootEntryURL)
+                    continue
+                }
                 let viewerFileURLs: [URL]
                 do {
                     viewerFileURLs = try FileManager.default.contentsOfDirectory(at: rootEntryURL, includingPropertiesForKeys: [.contentModificationDateKey])
