@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 5f68bb0a-89f3-4312-90d8-b4e9ce338bd4
-    remote_version: 2
-    local_version: 2
-    last_synced_at: "2026-11-19T15:42:12Z"
-    checksum: fd3b01393f7346fa5308038fad2e19cfdd108ff4bcc791607328d1114810b6b4
+    remote_version: 4
+    local_version: 4
+    last_synced_at: "2026-11-20T03:07:27Z"
+    checksum: 1090a738e4df0f2ca4a125a475d9fe6ccb533bf974eebc088e5f570a8ea2dac3
 test:
     metadata:
         name: shiptok-demo-weekly-mode
