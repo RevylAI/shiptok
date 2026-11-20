@@ -30,20 +30,7 @@ struct SignInView: View {
                     signedOutNote(message)
                 }
                 SignInWithRevylButton(signInSession: signInSession)
-                Button {
-                    Task { await signInSession.exploreDemo() }
-                } label: {
-                    HStack(spacing: 10) {
-                        if signInSession.isOpeningDemo {
-                            ProgressView()
-                        }
-                        Text("Look around first")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.revylSecondary)
-                .disabled(signInSession.isSigningIn || signInSession.isOpeningDemo)
-                Text("Revyl signs you in with your GitHub account. ShipTok shows the repositories where your organization installed Revyl's GitHub App, and your vibes, likes, reactions and comments post to GitHub under your name. Look around first to watch a demo repository without an account.")
+                Text("Revyl signs you in with your GitHub account. ShipTok shows the repositories where your organization installed Revyl's GitHub App, and your vibes, likes, reactions and comments post to GitHub under your name.")
                     .font(.caption)
                     .foregroundStyle(RevylBrandColor.textSubtle)
                     .multilineTextAlignment(.center)
@@ -56,7 +43,7 @@ struct SignInView: View {
         .animation(.default, value: message)
     }
 
-    // The same message says the data is deleted, why a sign-in ended, or why the demo didn't open, so it reads as a note rather than a warning.
+    // The same message says the data is deleted, or why a sign-in ended or failed, so it reads as a note rather than a warning.
     private func signedOutNote(_ message: String) -> some View {
         Label {
             Text(message)
@@ -98,6 +85,6 @@ struct SignInWithRevylButton: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.revylPrimary)
-        .disabled(signInSession.isSigningIn || signInSession.isOpeningDemo)
+        .disabled(signInSession.isSigningIn)
     }
 }

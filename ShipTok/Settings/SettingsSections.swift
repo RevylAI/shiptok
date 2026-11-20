@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HiddenPeopleSection: View {
     let hiddenPeopleStore: HiddenPeopleStore
-    let footerText: String
     @Environment(\.shipTokAnalytics) private var analytics
 
     var body: some View {
@@ -27,7 +26,7 @@ struct HiddenPeopleSection: View {
         } header: {
             Text("Hidden people")
         } footer: {
-            Text(footerText)
+            Text("Their pull requests, weekly videos, comments, vibes and media don't show in ShipTok on this iPhone. They aren't told, and nothing changes on GitHub.")
         }
     }
 }

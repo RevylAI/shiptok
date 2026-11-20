@@ -1,0 +1,32 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: a7ececbd-6128-4448-ba86-a7064164a59a
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T18:58:01Z"
+    checksum: 955d9316b65f1e5ff062299657f1d6b1fa0f58da9d682a6e4d1614a228190504
+test:
+    metadata:
+        name: shiptok-video-tap-to-pause
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: validation
+          step_description: The card plays a video, with no play symbol over it. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: instructions
+          step_description: Tap once in the middle of the video, away from the caption and the right rail
+        - type: validation
+          step_description: The video is paused and a play symbol shows in the middle of the card. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: instructions
+          step_description: Tap once in the middle of the video again
+        - type: validation
+          step_description: The play symbol is gone and the video plays again, its progress line moving on. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.

@@ -86,19 +86,16 @@ extension GitHubCommentThread {
         return newestVibeCommentByAuthorLogin.values.sorted { $0.comment.createdAt > $1.comment.createdAt }
     }
 
-    // A demo visitor has no login, so no vibe is theirs.
-    func vibeTally(viewerGitHubLogin: String?, viewerPendingVibe: PullRequestVibe?) -> PullRequestVibeTally {
+    func vibeTally(viewerGitHubLogin: String, viewerPendingVibe: PullRequestVibe?) -> PullRequestVibeTally {
         var authorVibes = newestVibeCommentPerAuthor.map { (authorLogin: $0.comment.author?.login ?? "", vibe: $0.vibe) }
-        if let viewerGitHubLogin, let viewerPendingVibe {
+        if let viewerPendingVibe {
             authorVibes.removeAll { $0.authorLogin.caseInsensitiveCompare(viewerGitHubLogin) == .orderedSame }
             authorVibes.append((authorLogin: viewerGitHubLogin, vibe: viewerPendingVibe))
         }
         return PullRequestVibeTally(
             goodVibeCount: authorVibes.filter { $0.vibe == .good }.count,
             badVibeCount: authorVibes.filter { $0.vibe == .bad }.count,
-            viewerVibe: viewerGitHubLogin.flatMap { viewerGitHubLogin in
-                authorVibes.first { $0.authorLogin.caseInsensitiveCompare(viewerGitHubLogin) == .orderedSame }?.vibe
-            }
+            viewerVibe: authorVibes.first { $0.authorLogin.caseInsensitiveCompare(viewerGitHubLogin) == .orderedSame }?.vibe
         )
     }
 }

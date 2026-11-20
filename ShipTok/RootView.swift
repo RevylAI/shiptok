@@ -11,16 +11,6 @@ struct RootView: View {
                 ProgressView().controlSize(.large)
             case .signedOut(let message):
                 SignInView(signInSession: signInSession, message: message)
-            case .exploringDemo(let demoVisitor, _):
-                // The demo has one repository and no account to lose access with, so it never chooses another or loses this one.
-                MergedPullRequestFeedView(
-                    viewer: .demoVisitor(demoVisitor),
-                    repositoryFullName: demoVisitor.repositoryFullName,
-                    signInSession: signInSession,
-                    onChooseRepository: { _ in },
-                    onFeedRepositoryLost: { _ in }
-                )
-                .id(demoVisitor.visitID)
             case .signedIn(let teammate):
                 SignedInView(teammate: teammate, signInSession: signInSession)
                     .id(teammate.user.githubUserID)
@@ -46,7 +36,7 @@ private struct SignedInView: View {
     var body: some View {
         if let chosenRepositoryFullName {
             MergedPullRequestFeedView(
-                viewer: .teammate(teammate),
+                viewer: teammate,
                 repositoryFullName: chosenRepositoryFullName,
                 signInSession: signInSession,
                 onChooseRepository: { self.chosenRepositoryFullName = $0 },

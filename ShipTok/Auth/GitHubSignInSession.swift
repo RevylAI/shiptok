@@ -32,7 +32,6 @@ final class GitHubSignInSession {
     enum Phase {
         case restoring
         case signedOut(message: String?)
-        case exploringDemo(DemoVisitor, signInFailureMessage: String?)
         case signedIn(SignedInTeammate)
     }
 
@@ -45,19 +44,8 @@ final class GitHubSignInSession {
 
     private(set) var phase: Phase = .restoring
     private(set) var isSigningIn = false
-    private(set) var isOpeningDemo = false
     private(set) var isDeletingShipTokData = false
     private let shipTokAPI = RevylShipTokAPI()
-
-    var demoSignInFailureMessage: String? {
-        guard case .exploringDemo(_, let signInFailureMessage) = phase else { return nil }
-        return signInFailureMessage
-    }
-
-    private var demoVisitor: DemoVisitor? {
-        guard case .exploringDemo(let demoVisitor, _) = phase else { return nil }
-        return demoVisitor
-    }
 
     func restoreSavedSession() async {
         if Self.unfinishedDataDeletionGitHubUserID != nil {
@@ -83,65 +71,19 @@ final class GitHubSignInSession {
         activate(storedSignIn)
     }
 
-    // The demo needs no account, so it opens on whatever the demo feed holds; a demo Revyl's backend can't serve leaves the person on the sign-in screen with why.
-    func exploreDemo() async {
-        isOpeningDemo = true
-        defer { isOpeningDemo = false }
-        let demoFeed = ShipTokDemoFeed()
-        do {
-            let repositoryFullName = try await demoFeed.repositoryFullName()
-            let visitID = UUID()
-            let demoVisitor = DemoVisitor(
-                visitID: visitID,
-                repositoryFullName: repositoryFullName,
-                demoFeed: demoFeed,
-                analytics: ShipTokAnalytics(demoVisitID: visitID),
-                hiddenPeopleStore: .forDemoVisit(),
-                mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil)
-            )
-            demoVisitor.analytics.capture(.demoEntered)
-            Self.logger.info("Opened the demo feed")
-            phase = .exploringDemo(demoVisitor, signInFailureMessage: nil)
-        } catch {
-            Self.logger.error("Opening the demo feed failed")
-            phase = .signedOut(message: error.localizedDescription)
-        }
-    }
-
-    // From the demo, a completed sign-in lands in the signed-in app and a failed one keeps the demo, saying why.
     func signIn(using webAuthenticationSession: WebAuthenticationSession) async {
         isSigningIn = true
         defer { isSigningIn = false }
-        var demoVisitor = self.demoVisitor
-        if let demoVisitor {
-            phase = .exploringDemo(demoVisitor, signInFailureMessage: nil)
-        }
         let signInAttemptID = UUID()
         let signInAttemptAnalytics = ShipTokAnalytics(signInAttemptID: signInAttemptID)
-        signInAttemptAnalytics.capture(.signInStarted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
+        signInAttemptAnalytics.capture(.signInStarted(attemptID: signInAttemptID))
         let proofKey = ProofKeyForCodeExchange.generate()
         let signInState = randomURLSafeString(byteCount: 32)
         do {
             // An unfinished deletion would take a new sign-in with it on the next launch, and each sign-in spends one of the person's GitHub tokens from Revyl's App, so it finishes before GitHub opens.
             if Self.unfinishedDataDeletionGitHubUserID != nil {
-                // The demo's own downloads would save into the folder the deletion removes, so they stop first and the visit goes on with media of its own from here.
-                if let visitBeforeDeletion = demoVisitor {
-                    visitBeforeDeletion.mediaCache.stopDownloadsAndRemoveAllMedia()
-                    let continuingVisit = DemoVisitor(
-                        visitID: visitBeforeDeletion.visitID,
-                        repositoryFullName: visitBeforeDeletion.repositoryFullName,
-                        demoFeed: visitBeforeDeletion.demoFeed,
-                        analytics: visitBeforeDeletion.analytics,
-                        hiddenPeopleStore: visitBeforeDeletion.hiddenPeopleStore,
-                        mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, signedInGitHubAccessTokenVault: nil)
-                    )
-                    demoVisitor = continuingVisit
-                    phase = .exploringDemo(continuingVisit, signInFailureMessage: nil)
-                }
                 try await finishDeletingShipTokDataOnThisIPhone()
-                if demoVisitor == nil {
-                    phase = .signedOut(message: Self.dataDeletedMessage)
-                }
+                phase = .signedOut(message: Self.dataDeletedMessage)
             }
             let authorizationURL = try await shipTokAPI.gitHubSignInAuthorizationURL(state: signInState, codeChallenge: proofKey.codeChallenge)
             // Ephemeral, since the shared session's prompt breaks sign-in on an unfolded iPhone Duo (AGENTS.md, "iOS App").
@@ -163,16 +105,12 @@ final class GitHubSignInSession {
             try GitHubSignInKeychainStore.saveStoredSignIn(storedSignIn)
             UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
             Self.logger.info("Signed in with Revyl")
-            activate(storedSignIn).analytics.capture(.signInCompleted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
+            activate(storedSignIn).analytics.capture(.signInCompleted(attemptID: signInAttemptID))
         } catch {
             let failureReason = Self.signInFailureReason(for: error)
-            signInAttemptAnalytics.capture(.signInFailed(attemptID: signInAttemptID, reason: failureReason, demoVisitID: demoVisitor?.visitID))
+            signInAttemptAnalytics.capture(.signInFailed(attemptID: signInAttemptID, reason: failureReason))
             if failureReason == .cancelled { return }
-            if let demoVisitor {
-                phase = .exploringDemo(demoVisitor, signInFailureMessage: error.localizedDescription)
-            } else {
-                phase = .signedOut(message: error.localizedDescription)
-            }
+            phase = .signedOut(message: error.localizedDescription)
         }
     }
 

@@ -21,7 +21,7 @@ enum MergedPullRequestFeedGroup: Int, Sendable {
 extension MergedPullRequest {
     static let shipTokLabelName = "shiptok"
 
-    // The feed is what merged in the window, plus every pull request labeled shiptok whose hero is a ShipTok video, so the demo videos never age out (AGENTS.md, "Feed Order").
+    // The feed is what merged in the window, plus every pull request labeled shiptok whose hero is a ShipTok video, so tagged examples never age out (AGENTS.md, "Feed Order").
     func belongsInFeed(mergedWindowStartDate: Date) -> Bool {
         guard let feedGroup else { return false }
         if mergedAt >= mergedWindowStartDate { return true }

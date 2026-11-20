@@ -25,8 +25,7 @@ final class VibeOutbox {
     private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     private let githubAPIClient: GitHubAPIClient
     private let analytics: ShipTokAnalytics
-    // A demo visitor has none, and casts no vibe.
-    private let viewerGitHubLogin: String?
+    private let viewerGitHubLogin: String
     private let feedStore: MergedPullRequestFeedStore
     private let weeklyEditionsStore: WeeklyEditionsStore
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
@@ -34,7 +33,7 @@ final class VibeOutbox {
     init(
         githubAPIClient: GitHubAPIClient,
         analytics: ShipTokAnalytics,
-        viewerGitHubLogin: String?,
+        viewerGitHubLogin: String,
         feedStore: MergedPullRequestFeedStore,
         weeklyEditionsStore: WeeklyEditionsStore,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
@@ -294,8 +293,7 @@ final class VibeOutbox {
     }
 
     private func isViewerVibeComment(_ comment: PullRequestComment) -> Bool {
-        guard let viewerGitHubLogin else { return false }
-        return comment.viewerCanDelete && comment.author?.hasLogin(viewerGitHubLogin) == true && PullRequestVibeComment(comment: comment) != nil
+        comment.viewerCanDelete && comment.author?.hasLogin(viewerGitHubLogin) == true && PullRequestVibeComment(comment: comment) != nil
     }
 
     private func endBackgroundTask() {

@@ -30,23 +30,37 @@ pr_review:
     system_prompt: >-
       ShipTok is a native SwiftUI iOS app: a vertical, Reels-style feed of the
       merged pull requests with media in one GitHub repository. Prove changes
-      signed out: on the signed-out screen, tap Look around first to open the
-      read-only demo of the public repository RevylAI/shiptok-demo. Swipe up for
-      the next pull request and down for the previous one; a sideways swipe
-      casts a vibe, a double-tap likes, and one tap pauses or resumes a video.
-      The right rail holds like, comments, react, mute, playback speed, the
-      media deck and More; the PRs / Weekly tabs sit at the top of the feed.
-      On the unfolded iPhone Duo a tab bar holds the feed, the inbox and
-      Settings; on other phones and the folded Duo there is no tab bar, the
-      inbox (a tray) and Settings (a gear) sit at the top right or at the top of
-      the folded Duo's side strip, and each leads back with a Feed button at its
-      top left. In the demo, likes, reactions, comments, vibes, Report and the
-      inbox ask the visitor to sign in, which is the expected result there.
-      Never complete a GitHub sign-in. If the signed-out screen says the demo
-      isn't available, report that and prove what the signed-out screen allows.
+      signed in as the GitHub test account revyl-shiptok-tests on the
+      repository RevylAI/kyle-expo. To sign in, run the steps of
+      .revyl/modules/shiptok-sign-in-as-test-account.yaml in order on the
+      device with revyl device instruction and revyl device validation, typing
+      the username and password through the variable references that file
+      uses, never their values. For the authentication code, run revyl device
+      code-execution --file .revyl/scripts/shiptok-github-totp-code.py
+      --variable-name github-totp-code, then type '{{github-totp-code}}' into
+      GitHub's Authentication code field. GitHub accepts each code once and
+      the script waits for a fresh one, so a refused code gets one retry with
+      a new run of the script. Never repeat the password or a code in a
+      comment, report or log. Tap Authorize only if GitHub shows it, and
+      choose RevylAI/kyle-expo if ShipTok asks for a repository. In the feed,
+      swipe up for the next pull request and down for the previous one; a
+      sideways swipe casts a vibe, a double-tap likes, and one tap pauses or
+      resumes a video. The right rail holds like, comments, react, mute,
+      playback speed, the media deck and More; the PRs / Weekly tabs sit at
+      the top of the feed. On the unfolded iPhone Duo a tab bar holds the
+      feed, the inbox and Settings; on other phones and the folded Duo there
+      is no tab bar, the inbox (a tray) and Settings (a gear) sit at the top
+      right or at the top of the folded Duo's side strip, and each leads back
+      with a Feed button at its top left. Likes, reactions, comments and vibes
+      post to GitHub as revyl-shiptok-tests on RevylAI/kyle-expo, so undo
+      every one before finishing: unlike, remove the reaction, delete the
+      comment, and remove a vibe from its Your good vibes or Your bad vibes
+      badge. Report on GitHub opens GitHub's report page in Safari; never
+      submit it. Never tap Sign out or Delete my ShipTok data.
     always_verify:
-      - The signed-out screen shows Sign in with Revyl and Look around first
-      - Look around first opens the demo feed on a pull request card
+      - Signing in as revyl-shiptok-tests opens RevylAI/kyle-expo's feed on a pull request card
+      - Settings shows @revyl-shiptok-tests and RevylAI/kyle-expo as the Repository
+      - Every like, reaction, comment and vibe the proof posted to GitHub is undone before it finishes
   workflows:
     enabled: true
     workflow_ids:

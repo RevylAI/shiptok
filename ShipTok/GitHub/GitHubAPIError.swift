@@ -9,13 +9,12 @@ enum GitHubAPIError: LocalizedError {
     case responseUnreadable(operationName: String)
     case pullRequestNotMerged(number: Int)
     case weeklyEditionUnreadable(number: Int)
-    case signInRequired
 
     var rejectsFeedAccess: Bool {
         switch self {
         case .accessTokenRejected, .feedRepositoryNotVisible:
             true
-        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNotMerged, .weeklyEditionUnreadable, .signInRequired:
+        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNotMerged, .weeklyEditionUnreadable:
             false
         }
     }
@@ -38,8 +37,6 @@ enum GitHubAPIError: LocalizedError {
             "#\(number) isn't merged."
         case .weeklyEditionUnreadable(let number):
             "#\(number) isn't a weekly video ShipTok can read."
-        case .signInRequired:
-            "Sign in with Revyl to do that."
         }
     }
 }

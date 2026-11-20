@@ -29,10 +29,10 @@ struct GitHubPostedContent: Hashable, Identifiable, Sendable {
 }
 
 extension GitHubCommentThread {
-    // The thread's description, then each comment whose media the thread shows, leaving out the viewer's own; a demo visitor has none.
-    func reportableContents(postedOn subject: ShipTokAnalyticsSubject, excludingContentBy viewerGitHubLogin: String?) -> [GitHubPostedContent] {
+    // The thread's description, then each comment whose media the thread shows, leaving out the viewer's own.
+    func reportableContents(postedOn subject: ShipTokAnalyticsSubject, excludingContentBy viewerGitHubLogin: String) -> [GitHubPostedContent] {
         var reportableContents: [GitHubPostedContent] = []
-        if let author, !(viewerGitHubLogin.map(author.hasLogin) ?? false) {
+        if let author, !author.hasLogin(viewerGitHubLogin) {
             reportableContents.append(GitHubPostedContent(kind: .description, postedBy: author, githubURL: url, postedOn: subject))
         }
         var reportedCommentIDs: Set<String> = []
@@ -47,7 +47,7 @@ extension GitHubCommentThread {
     }
 
     // The description or comment a media item came from, unless the viewer posted it.
-    func reportableContent(of mediaItem: PullRequestMediaItem, postedOn subject: ShipTokAnalyticsSubject, excludingContentBy viewerGitHubLogin: String?) -> GitHubPostedContent? {
+    func reportableContent(of mediaItem: PullRequestMediaItem, postedOn subject: ShipTokAnalyticsSubject, excludingContentBy viewerGitHubLogin: String) -> GitHubPostedContent? {
         let postedContent: GitHubPostedContent
         if let sourceCommentID = mediaItem.sourceCommentID {
             guard let postedBy = mediaItem.postedBy,
@@ -59,7 +59,7 @@ extension GitHubCommentThread {
             guard let author else { return nil }
             postedContent = GitHubPostedContent(kind: .description, postedBy: author, githubURL: url, postedOn: subject)
         }
-        if let viewerGitHubLogin, postedContent.postedBy.hasLogin(viewerGitHubLogin) { return nil }
+        if postedContent.postedBy.hasLogin(viewerGitHubLogin) { return nil }
         return postedContent
     }
 

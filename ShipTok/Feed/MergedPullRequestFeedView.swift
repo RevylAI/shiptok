@@ -46,19 +46,16 @@ struct MergedPullRequestFeedView: View {
         let id: String
     }
 
-    let viewer: FeedViewer
+    let viewer: SignedInTeammate
     let signInSession: GitHubSignInSession
     let onChooseRepository: @MainActor (String) -> Void
     private let githubAPIClient: GitHubAPIClient
     @State private var feedStore: MergedPullRequestFeedStore
     @State private var weeklyEditionsStore: WeeklyEditionsStore
     @State private var vibeOutbox: VibeOutbox
-    // A demo visitor has no inbox or saved settings.
-    @State private var inboxStore: DeveloperInboxStore?
-    @State private var userSettingsStore: UserSettingsStore?
-    @State private var demoSignInPromptAction: DemoSignInPromptAction?
-    @AppStorage("feed-mode") private var savedFeedMode: FeedMode = .perPullRequest
-    @State private var demoVisitFeedMode: FeedMode = .perPullRequest
+    @State private var inboxStore: DeveloperInboxStore
+    @State private var userSettingsStore: UserSettingsStore
+    @AppStorage("feed-mode") private var feedMode: FeedMode = .perPullRequest
     @State private var playbackRateChoice: VideoPlaybackRateChoice
     @State private var openWeeklyEdition: WeeklyEdition?
     @State private var pullRequestsPageIndex = 0
@@ -101,16 +98,13 @@ struct MergedPullRequestFeedView: View {
     private static let minimumKeyboardOverlap: CGFloat = 1
 
     init(
-        viewer: FeedViewer,
+        viewer: SignedInTeammate,
         repositoryFullName: String,
         signInSession: GitHubSignInSession,
         onChooseRepository: @escaping @MainActor (String) -> Void,
         onFeedRepositoryLost: @escaping @MainActor (String) -> Void
     ) {
-        let githubAPIClient = switch viewer {
-        case .teammate(let teammate): GitHubAPIClient(source: .signedInAccount(teammate.accountAPI), repositoryFullName: repositoryFullName)
-        case .demoVisitor(let demoVisitor): GitHubAPIClient(source: .demoFeed(demoVisitor.demoFeed), repositoryFullName: repositoryFullName)
-        }
+        let githubAPIClient = GitHubAPIClient(accountAPI: viewer.accountAPI, repositoryFullName: repositoryFullName)
         self.viewer = viewer
         self.githubAPIClient = githubAPIClient
         self.signInSession = signInSession
@@ -118,14 +112,14 @@ struct MergedPullRequestFeedView: View {
         let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void = { githubAPIError in
             if case .feedRepositoryNotVisible = githubAPIError {
                 onFeedRepositoryLost(githubAPIError.localizedDescription)
-            } else if let teammate = viewer.teammate {
-                signInSession.handleRejectedGitHubAccess(githubAPIError, endingSignInID: teammate.signInID)
+            } else {
+                signInSession.handleRejectedGitHubAccess(githubAPIError, endingSignInID: viewer.signInID)
             }
         }
         let feedStore = MergedPullRequestFeedStore(
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
-            viewerGitHubLogin: viewer.githubLogin,
+            viewerGitHubLogin: viewer.user.githubLogin,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         )
         let weeklyEditionsStore = WeeklyEditionsStore(
@@ -138,28 +132,14 @@ struct MergedPullRequestFeedView: View {
         _vibeOutbox = State(initialValue: VibeOutbox(
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
-            viewerGitHubLogin: viewer.githubLogin,
+            viewerGitHubLogin: viewer.user.githubLogin,
             feedStore: feedStore,
             weeklyEditionsStore: weeklyEditionsStore,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         ))
-        _inboxStore = State(initialValue: viewer.teammate.map { teammate in
-            DeveloperInboxStore(viewer: teammate.user, githubAPIClient: githubAPIClient, hiddenPeopleStore: teammate.hiddenPeopleStore)
-        })
-        _userSettingsStore = State(initialValue: viewer.teammate.map { UserSettingsStore(accessTokenVault: $0.accessTokenVault) })
-        _playbackRateChoice = State(initialValue: viewer.teammate == nil ? .forDemoVisit() : .savedOnDevice())
-    }
-
-    // A demo visit's choices last only as long as the visit (AGENTS.md, "Demo Mode").
-    private var feedMode: FeedMode {
-        get { viewer.teammate == nil ? demoVisitFeedMode : savedFeedMode }
-        nonmutating set {
-            if viewer.teammate == nil {
-                demoVisitFeedMode = newValue
-            } else {
-                savedFeedMode = newValue
-            }
-        }
+        _inboxStore = State(initialValue: DeveloperInboxStore(viewer: viewer.user, githubAPIClient: githubAPIClient, hiddenPeopleStore: viewer.hiddenPeopleStore))
+        _userSettingsStore = State(initialValue: UserSettingsStore(accessTokenVault: viewer.accessTokenVault))
+        _playbackRateChoice = State(initialValue: .savedOnDevice())
     }
 
     private var feedContext: FeedContext {
@@ -294,9 +274,9 @@ struct MergedPullRequestFeedView: View {
                     }
                 if isTabBarShown && !isKeyboardShown {
                     AppTabBar(
-                        selectedTab: Binding(get: { selectedTab }, set: { selectTab($0) }),
-                        unseenInboxItemCount: inboxStore?.unseenItemCount ?? 0,
-                        viewerAvatarURL: viewer.teammate?.user.githubAvatarURL
+                        selectedTab: $selectedTab,
+                        unseenInboxItemCount: inboxStore.unseenItemCount,
+                        viewerAvatarURL: viewer.user.githubAvatarURL
                     )
                     .frame(maxWidth: .infinity)
                     .ignoresSafeArea(.container, edges: .horizontal)
@@ -320,8 +300,7 @@ struct MergedPullRequestFeedView: View {
         .sheet(item: $commentsSheetPullRequest) { pullRequest in
             PullRequestCommentsSheet(
                 thread: pullRequest,
-                viewer: viewer.teammate?.user,
-                signInSession: signInSession,
+                viewer: viewer.user,
                 hiddenPeopleStore: viewer.hiddenPeopleStore,
                 githubAPIClient: githubAPIClient,
                 analytics: viewer.analytics,
@@ -335,8 +314,7 @@ struct MergedPullRequestFeedView: View {
         .sheet(item: $commentsSheetWeeklyEdition) { weeklyEdition in
             PullRequestCommentsSheet(
                 thread: weeklyEdition,
-                viewer: viewer.teammate?.user,
-                signInSession: signInSession,
+                viewer: viewer.user,
                 hiddenPeopleStore: viewer.hiddenPeopleStore,
                 githubAPIClient: githubAPIClient,
                 analytics: viewer.analytics,
@@ -352,18 +330,17 @@ struct MergedPullRequestFeedView: View {
                 feedStore: feedStore,
                 vibeOutbox: vibeOutbox,
                 viewer: viewer,
-                signInSession: signInSession,
                 repositoryFullName: githubAPIClient.repositoryFullName,
                 presentedPullRequest: pullRequest
             )
         }
         .fullScreenCover(item: $mediaDeckPullRequestID) { presentedPullRequestID in
-            MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, signInSession: signInSession, pullRequestID: presentedPullRequestID.id)
+            MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, pullRequestID: presentedPullRequestID.id)
         }
         .task { await feedStore.loadFeed() }
         .task { await feedStore.runLiveRefreshLoop() }
-        .task { await inboxStore?.runLiveRefreshLoop() }
-        .task { await userSettingsStore?.refresh() }
+        .task { await inboxStore.runLiveRefreshLoop() }
+        .task { await userSettingsStore.refresh() }
         .onAppear { focusPage(at: currentPageIndex) }
         .onChange(of: currentPageIndex) { _, newPageIndex in
             focusPage(at: newPageIndex)
@@ -391,8 +368,8 @@ struct MergedPullRequestFeedView: View {
                 if feedContext == .weeklyEditions {
                     Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
                 }
-                Task { await inboxStore?.refresh() }
-                Task { await userSettingsStore?.refresh() }
+                Task { await inboxStore.refresh() }
+                Task { await userSettingsStore.refresh() }
             case .background:
                 postVibeAwaitingFeedback()
                 vibeOutbox.postAllQueuedVibesBeforeSuspension()
@@ -405,7 +382,6 @@ struct MergedPullRequestFeedView: View {
             viewer.hiddenPeopleStore.hide(postedContent.postedBy)
             viewer.analytics.capture(.personHidden(postedContent, control: .feedRail))
         }
-        .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
         .environment(\.shipTokAnalytics, viewer.analytics)
         .environment(\.feedViewerMediaCache, viewer.mediaCache)
         .environment(playbackRateChoice)
@@ -443,45 +419,36 @@ struct MergedPullRequestFeedView: View {
         case .feed:
             EmptyView()
         case .inbox:
-            if let inboxStore {
-                DeveloperInboxView(
-                    store: inboxStore,
-                    onOpenPullRequest: openPullRequest(number:),
-                    onReport: { postedContent in
-                        viewer.analytics.capture(.contentReportOpened(postedContent, control: .inboxRow))
-                        openURL(postedContent.githubReportURL)
-                    },
-                    onHide: { postedContent in
-                        viewer.hiddenPeopleStore.hide(postedContent.postedBy)
-                        viewer.analytics.capture(.personHidden(postedContent, control: .inboxRow))
-                    },
-                    onShowFeed: onShowFeedFromTabPage
-                )
-            }
+            DeveloperInboxView(
+                store: inboxStore,
+                onOpenPullRequest: openPullRequest(number:),
+                onReport: { postedContent in
+                    viewer.analytics.capture(.contentReportOpened(postedContent, control: .inboxRow))
+                    openURL(postedContent.githubReportURL)
+                },
+                onHide: { postedContent in
+                    viewer.hiddenPeopleStore.hide(postedContent.postedBy)
+                    viewer.analytics.capture(.personHidden(postedContent, control: .inboxRow))
+                },
+                onShowFeed: onShowFeedFromTabPage
+            )
         case .settings:
-            switch viewer {
-            case .teammate(let teammate):
-                if let userSettingsStore {
-                    SettingsView(
-                        viewer: teammate.user,
-                        signInID: teammate.signInID,
-                        userSettingsStore: userSettingsStore,
-                        hiddenPeopleStore: teammate.hiddenPeopleStore,
-                        accountAPI: teammate.accountAPI,
-                        chosenRepositoryFullName: githubAPIClient.repositoryFullName,
-                        signInSession: signInSession,
-                        onChooseRepository: { repositoryFullName in
-                            postVibeAwaitingFeedback()
-                            vibeOutbox.postAllQueuedVibesBeforeSuspension()
-                            await feedStore.saveFeed()?.value
-                            onChooseRepository(repositoryFullName)
-                        },
-                        onShowFeed: onShowFeedFromTabPage
-                    )
-                }
-            case .demoVisitor(let demoVisitor):
-                DemoSettingsView(demoVisitor: demoVisitor, signInSession: signInSession, onShowFeed: onShowFeedFromTabPage)
-            }
+            SettingsView(
+                viewer: viewer.user,
+                signInID: viewer.signInID,
+                userSettingsStore: userSettingsStore,
+                hiddenPeopleStore: viewer.hiddenPeopleStore,
+                accountAPI: viewer.accountAPI,
+                chosenRepositoryFullName: githubAPIClient.repositoryFullName,
+                signInSession: signInSession,
+                onChooseRepository: { repositoryFullName in
+                    postVibeAwaitingFeedback()
+                    vibeOutbox.postAllQueuedVibesBeforeSuspension()
+                    await feedStore.saveFeed()?.value
+                    onChooseRepository(repositoryFullName)
+                },
+                onShowFeed: onShowFeedFromTabPage
+            )
         }
     }
 
@@ -518,7 +485,7 @@ struct MergedPullRequestFeedView: View {
     }
 
     private func feedNavigationButtons(style: FeedNavigationButtons.Style) -> some View {
-        FeedNavigationButtons(style: style, unseenInboxItemCount: inboxStore?.unseenItemCount ?? 0, onSelectTab: { selectTab($0) })
+        FeedNavigationButtons(style: style, unseenInboxItemCount: inboxStore.unseenItemCount, onSelectTab: { selectedTab = $0 })
     }
 
     @ViewBuilder
@@ -729,7 +696,7 @@ struct MergedPullRequestFeedView: View {
             isKeyboardShown: isKeyboardShown,
             vibes: feedCardVibes(
                 tally: thread.vibeTally(
-                    viewerGitHubLogin: viewer.githubLogin,
+                    viewerGitHubLogin: viewer.user.githubLogin,
                     viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: thread.id)
                 ),
                 target: vibeTarget,
@@ -737,28 +704,23 @@ struct MergedPullRequestFeedView: View {
             ),
             moderation: feedCardModeration(reportableContents: thread.reportableContents(
                 postedOn: analyticsSubject,
-                excludingContentBy: viewer.githubLogin
+                excludingContentBy: viewer.user.githubLogin
             )),
             isPlaybackActive: isCurrentPage && scenePhase == .active && !isFeedCovered,
             isOccludedForAnalytics: isHeroOccludedForAnalytics,
             horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
             likeBurstTrigger: likeBurstTriggers[thread.id, default: 0],
             onDoubleTap: {
-                guard !promptsSignIn(for: .like) else { return }
                 showLikeBurst(onPostID: thread.id)
                 viewer.analytics.capture(.likeSelected(analyticsSubject, control: .doubleTap, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
                 likeUnlessAlreadyLiked()
             },
             onToggleLike: {
-                guard !promptsSignIn(for: .like) else { return }
                 likeHapticTrigger += 1
                 viewer.analytics.capture(.likeSelected(analyticsSubject, control: .feedRail, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
                 toggleReaction(.heart)
             },
-            onToggleReaction: { reaction in
-                guard !promptsSignIn(for: .reaction) else { return }
-                toggleReaction(reaction)
-            },
+            onToggleReaction: toggleReaction,
             onOpenComments: {
                 openComments()
                 viewer.analytics.capture(.commentsOpened(analyticsSubject))
@@ -785,7 +747,6 @@ struct MergedPullRequestFeedView: View {
         GitHubPostedContentModeration(
             reportableContents: reportableContents,
             onReport: { postedContent in
-                guard !promptsSignIn(for: .report) else { return }
                 viewer.analytics.capture(.contentReportOpened(postedContent, control: .feedRail))
                 openURL(postedContent.githubReportURL)
             },
@@ -1059,10 +1020,6 @@ struct MergedPullRequestFeedView: View {
 
     // A vibe from VoiceOver's actions leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
     private func flingCard(of vibeTarget: VibeTarget, castingVibe vibe: PullRequestVibe, deckWidth: CGFloat) {
-        guard !promptsSignIn(for: .vibe) else {
-            withAnimation(.spring(duration: 0.3)) { horizontalDragOffset = 0 }
-            return
-        }
         isPageTransitionRunning = true
         let selectionID = UUID()
         viewer.analytics.capture(.vibeSelected(vibeTarget.analyticsSubject,
@@ -1087,7 +1044,7 @@ struct MergedPullRequestFeedView: View {
     // The feedback box never blocks the swipe (AGENTS.md, "Vibes").
     private func castVibe(_ vibe: PullRequestVibe, on vibeTarget: VibeTarget, selectionID: UUID) {
         postVibeAwaitingFeedback()
-        if userSettingsStore?.showsFeedbackBox(for: vibe) == true {
+        if userSettingsStore.showsFeedbackBox(for: vibe) {
             vibeAwaitingFeedback = VibeAwaitingFeedback(id: selectionID, target: vibeTarget, vibe: vibe)
         } else {
             vibeOutbox.enqueue(VibeOutbox.QueuedVibe(id: selectionID, target: vibeTarget, vibe: vibe, feedbackText: ""))
@@ -1132,14 +1089,6 @@ struct MergedPullRequestFeedView: View {
         isPageTransitionRunning = false
     }
 
-    // A demo visitor is asked to sign in instead of posting to GitHub; true when that's what happened (AGENTS.md, "Demo Mode").
-    private func promptsSignIn(for action: DemoSignInPromptAction) -> Bool {
-        guard case .demoVisitor(let demoVisitor) = viewer else { return false }
-        demoVisitor.analytics.capture(.demoSignInPrompted(action))
-        demoSignInPromptAction = action
-        return true
-    }
-
     private func showLikeBurst(onPostID postID: String) {
         likeBurstTriggers[postID, default: 0] += 1
         likeHapticTrigger += 1
@@ -1177,11 +1126,6 @@ struct MergedPullRequestFeedView: View {
         }
     }
 
-    private func selectTab(_ tab: AppTab) {
-        if tab == .inbox, promptsSignIn(for: .inbox) { return }
-        selectedTab = tab
-    }
-
     private func openPullRequest(number: Int) {
         guard let pageIndex = visiblePullRequests.firstIndex(where: { $0.number == number }) else {
             openURL(githubAPIClient.pullRequestURL(number: number))
@@ -1195,11 +1139,9 @@ struct MergedPullRequestFeedView: View {
 
 private struct MediaDeckCoverContent: View {
     let feedStore: MergedPullRequestFeedStore
-    let viewer: FeedViewer
-    let signInSession: GitHubSignInSession
+    let viewer: SignedInTeammate
     let pullRequestID: String
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-    @State private var demoSignInPromptAction: DemoSignInPromptAction?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
@@ -1216,14 +1158,9 @@ private struct MediaDeckCoverContent: View {
             analyticsSubject: analyticsSubject,
             reportableContent: { mediaItem in
                 guard let pullRequest, let analyticsSubject else { return nil }
-                return pullRequest.reportableContent(of: mediaItem, postedOn: analyticsSubject, excludingContentBy: viewer.githubLogin)
+                return pullRequest.reportableContent(of: mediaItem, postedOn: analyticsSubject, excludingContentBy: viewer.user.githubLogin)
             },
             onReport: { postedContent in
-                if case .demoVisitor(let demoVisitor) = viewer {
-                    demoVisitor.analytics.capture(.demoSignInPrompted(.report))
-                    demoSignInPromptAction = .report
-                    return
-                }
                 viewer.analytics.capture(.contentReportOpened(postedContent, control: .mediaDeck))
                 openURL(postedContent.githubReportURL)
             },
@@ -1237,19 +1174,16 @@ private struct MediaDeckCoverContent: View {
             viewer.analytics.capture(.personHidden(postedContent, control: .mediaDeck))
             if visiblePullRequest == nil { dismiss() }
         }
-        .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
     }
 }
 
 private struct DetailSheetContent: View {
     let feedStore: MergedPullRequestFeedStore
     let vibeOutbox: VibeOutbox
-    let viewer: FeedViewer
-    let signInSession: GitHubSignInSession
+    let viewer: SignedInTeammate
     let repositoryFullName: String
     let presentedPullRequest: MergedPullRequest
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-    @State private var demoSignInPromptAction: DemoSignInPromptAction?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
@@ -1260,23 +1194,21 @@ private struct DetailSheetContent: View {
             pullRequest: pullRequest,
             repositoryFullName: repositoryFullName,
             vibeTally: pullRequest.vibeTally(
-                viewerGitHubLogin: viewer.githubLogin,
+                viewerGitHubLogin: viewer.user.githubLogin,
                 viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: pullRequest.id)
             ),
             moderation: GitHubPostedContentModeration(
                 reportableContents: pullRequest.reportableContents(
                     postedOn: VibeTarget(pullRequest: pullRequest).analyticsSubject,
-                    excludingContentBy: viewer.githubLogin
+                    excludingContentBy: viewer.user.githubLogin
                 ).filter { $0.kind == .description },
                 onReport: { postedContent in
-                    guard !promptsSignIn(for: .report) else { return }
                     viewer.analytics.capture(.contentReportOpened(postedContent, control: .detailSheet))
                     openURL(postedContent.githubReportURL)
                 },
                 onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent }
             ),
             onToggleReaction: { reaction in
-                guard !promptsSignIn(for: .reaction) else { return }
                 Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) }
             }
         )
@@ -1285,13 +1217,5 @@ private struct DetailSheetContent: View {
             viewer.analytics.capture(.personHidden(postedContent, control: .detailSheet))
             dismiss()
         }
-        .demoSignInPrompt($demoSignInPromptAction, signInSession: signInSession)
-    }
-
-    private func promptsSignIn(for action: DemoSignInPromptAction) -> Bool {
-        guard case .demoVisitor(let demoVisitor) = viewer else { return false }
-        demoVisitor.analytics.capture(.demoSignInPrompted(action))
-        demoSignInPromptAction = action
-        return true
     }
 }

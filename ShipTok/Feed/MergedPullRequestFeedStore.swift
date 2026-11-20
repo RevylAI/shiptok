@@ -43,15 +43,14 @@ final class MergedPullRequestFeedStore {
     private let githubAPIClient: GitHubAPIClient
     private let reactionWriteQueue: ViewerReactionWriteQueue
     private let analytics: ShipTokAnalytics
-    // A demo visitor has none, and their feed isn't saved (AGENTS.md, "Demo Mode").
-    private let viewerGitHubLogin: String?
+    private let viewerGitHubLogin: String
     private let feedCache = MergedPullRequestFeedCache()
     private let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void
 
     init(
         githubAPIClient: GitHubAPIClient,
         analytics: ShipTokAnalytics,
-        viewerGitHubLogin: String?,
+        viewerGitHubLogin: String,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
     ) {
         self.githubAPIClient = githubAPIClient
@@ -176,7 +175,7 @@ final class MergedPullRequestFeedStore {
         defer { isFeedLoadRunning = false }
         feedLoadFailureMessage = nil
         let loadStartedAt = Date.now
-        if pullRequests.isEmpty, let viewerGitHubLogin {
+        if pullRequests.isEmpty {
             let savedFeed = await feedCache.loadSavedFeed(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: githubAPIClient.repositoryFullName, appliedSince: feedWindowStartDate)
             if let savedFeed {
                 let windowStartDate = feedWindowStartDate
@@ -220,7 +219,7 @@ final class MergedPullRequestFeedStore {
     // The app may be ended once it leaves the screen, so the feed is saved for the next launch then.
     @discardableResult
     func saveFeed() -> Task<Void, Never>? {
-        guard let nextUpdateSearchStartDate, let viewerGitHubLogin else { return nil }
+        guard let nextUpdateSearchStartDate else { return nil }
         savedFeedGeneration += 1
         let savedFeed = SavedMergedPullRequestFeed(
             formatVersion: SavedMergedPullRequestFeed.currentFormatVersion,

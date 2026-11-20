@@ -28,7 +28,6 @@ struct GitHubUserAccessTokens: Codable, Sendable, Equatable {
 
 enum RevylShipTokAPIError: LocalizedError {
     case backendNotConfigured
-    case demoUnavailable
     case signInRejected(operationName: String)
     case unexpectedResponse(operationName: String, statusCode: Int)
     case responseUnreadable(operationName: String)
@@ -37,8 +36,6 @@ enum RevylShipTokAPIError: LocalizedError {
         switch self {
         case .backendNotConfigured:
             "This build names no Revyl backend. Build it with SHIPTOK_REVYL_BACKEND_URL set to a Revyl backend URL."
-        case .demoUnavailable:
-            "The demo isn't available right now. Try again in a minute, or sign in with Revyl."
         case .signInRejected:
             "GitHub didn't accept this sign-in. Sign in with Revyl again."
         case .unexpectedResponse(let operationName, let statusCode):
@@ -49,7 +46,7 @@ enum RevylShipTokAPIError: LocalizedError {
     }
 }
 
-// Revyl's backend redeems and refreshes GitHub sign-ins, since both need its GitHub App's client secret, keeps each person's settings, and serves the demo feed someone sees before signing in. It never sees a signed-in person's GitHub reads or writes: the app calls GitHub directly.
+// Revyl's backend redeems and refreshes GitHub sign-ins, since both need its GitHub App's client secret, and keeps each person's settings. It never sees a signed-in person's GitHub reads or writes: the app calls GitHub directly.
 struct RevylShipTokAPI: Sendable {
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "revyl-backend")
     private static let urlSession: URLSession = {
@@ -99,15 +96,6 @@ struct RevylShipTokAPI: Sendable {
 
     func replaceUserSettings(_ userSettings: UserSettings, gitHubAccessToken: String) async throws -> UserSettings {
         try await send("PUT", path: "user-settings", jsonBody: userSettings, bearerToken: gitHubAccessToken, operationName: "your settings")
-    }
-
-    // The raw snapshot, since only the GitHub client reads its GitHub-shaped nodes.
-    func fetchDemoFeed() async throws -> Data {
-        do {
-            return try await sendRequest("GET", path: "demo-feed", operationName: "the demo")
-        } catch RevylShipTokAPIError.unexpectedResponse(_, 503) {
-            throw RevylShipTokAPIError.demoUnavailable
-        }
     }
 
     func deleteUserData(gitHubAccessToken: String) async throws {
