@@ -78,6 +78,8 @@ struct FeedCardView: View {
     private static let captionBackdropFadeHeight: CGFloat = 80
     private static let captionBackdropBlurClearanceAboveProgressLine: CGFloat = 6
     private static let reactionPickerSpacing: CGFloat = 8
+    private static let shipTokVideoSize = CGSize(width: 1080, height: 1920)
+    private static let shipTokVideoSafeZoneBottomFractionOfHeight: CGFloat = 1376.0 / 1920.0
     private nonisolated static let cardCoordinateSpaceName = "mergedPullRequestCard"
 
     // The box rides the keyboard over the card, so the caption would show half-covered around it; only the dimmed hero stays.
@@ -218,25 +220,42 @@ struct FeedCardView: View {
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
+    // The backdrop fades in over at most 80 points above the caption and never starts above the bottom of a ShipTok video's safe zone, so the video's own
+    // captions stay sharp; where the caption itself reaches above that line, the backdrop starts at the caption's top (AGENTS.md, "Card Layout").
     private func captionBackdrop(frames: CardFrames) -> FeedCaptionBackdrop {
         let captionTopInCard = frames.caption.maxY - captionHeight - frames.card.minY
-        let backdropHeight = min(frames.card.height - captionTopInCard + Self.captionBackdropFadeHeight, frames.card.height)
-        let gradientHeight = max(backdropHeight, Self.captionBackdropFadeHeight)
-        let fadeEndLocation = Self.captionBackdropFadeHeight / gradientHeight
+        let backdropTopInCard = min(
+            max(captionTopInCard - Self.captionBackdropFadeHeight, shipTokVideoSafeZoneBottom(inCardOfSize: frames.card.size)),
+            captionTopInCard
+        )
+        let backdropHeight = max(frames.card.height - backdropTopInCard, 1)
+        let fadeEndLocation = (captionTopInCard - backdropTopInCard) / backdropHeight
         var blurMaskStops: [Gradient.Stop] = [.init(color: .clear, location: 0), .init(color: .black, location: fadeEndLocation)]
         if isHeroLoadableVideo {
             let blurClearHeight = pageLayout.heroProgressLineInsets.bottom + Self.captionBackdropBlurClearanceAboveProgressLine
             blurMaskStops += [
-                .init(color: .black, location: 1 - (FeedPageLayout.captionBottomInset + pageLayout.homeIndicatorInsetInCard) / gradientHeight),
-                .init(color: .clear, location: 1 - blurClearHeight / gradientHeight),
+                .init(color: .black, location: 1 - (FeedPageLayout.captionBottomInset + pageLayout.homeIndicatorInsetInCard) / backdropHeight),
+                .init(color: .clear, location: 1 - blurClearHeight / backdropHeight),
             ]
         }
         return FeedCaptionBackdrop(
-            height: max(backdropHeight, 0),
+            height: backdropHeight,
             tintFullLocation: fadeEndLocation,
             blurMaskStops: blurMaskStops,
             isHidden: isHeroPlaybackGestureActive
         )
+    }
+
+    // Where the safe zone of a 9:16 ShipTok video ends on a card of this size, the video laid out as the hero lays it out: cropped to fill the card when that
+    // loses at most an eighth of it, else whole and centered between the page layout's whole-media insets (AGENTS.md, "Card Layout").
+    private func shipTokVideoSafeZoneBottom(inCardOfSize cardSize: CGSize) -> CGFloat {
+        let fillsCard = PullRequestMediaItemView.heroMediaFillsCard(mediaSize: Self.shipTokVideoSize, cardSize: cardSize)
+        let insets = fillsCard ? EdgeInsets() : pageLayout.wholeHeroMediaInsets
+        let videoBoxSize = CGSize(width: cardSize.width - insets.leading - insets.trailing, height: cardSize.height - insets.top - insets.bottom)
+        let widthScale = videoBoxSize.width / Self.shipTokVideoSize.width
+        let heightScale = videoBoxSize.height / Self.shipTokVideoSize.height
+        let videoHeight = Self.shipTokVideoSize.height * (fillsCard ? max(widthScale, heightScale) : min(widthScale, heightScale))
+        return insets.top + (videoBoxSize.height - videoHeight) / 2 + videoHeight * Self.shipTokVideoSafeZoneBottomFractionOfHeight
     }
 
     @ViewBuilder
