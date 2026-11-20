@@ -1,0 +1,77 @@
+# Signs in as the GitHub test account revyl-shiptok-tests and opens RevylAI/kyle-expo's feed.
+# The code step writes into github-totp-code, which every test that imports this module keeps as a secret
+# test variable in Revyl, so the code is masked in reports and logs.
+# GitHub accepts each authentication code once, so a refused code is retried once with the next one.
+blocks:
+  - type: validation
+    step_description: The signed-out screen shows ShipTok's title and a 'Sign in with Revyl' button
+  - type: instructions
+    step_description: Tap 'Sign in with Revyl'
+  - type: validation
+    step_description: A browser sheet over ShipTok shows GitHub's sign-in page with a 'Username or email address' field and a 'Password' field
+  - type: instructions
+    step_description: Tap the 'Username or email address' field and type '{{global.shiptok-github-sign-in-username}}'
+  - type: instructions
+    step_description: Tap the 'Password' field and type '{{global.shiptok-github-sign-in-password}}'
+  - type: instructions
+    step_description: Tap the green 'Sign in' button below the password field
+  - type: validation
+    step_description: GitHub shows its two-factor authentication page, which asks for the authentication code from an authenticator app
+  - type: code_execution
+    script: shiptok-github-totp-code
+    variable_name: github-totp-code
+  - type: instructions
+    step_description: Tap the 'Authentication code' field and type '{{github-totp-code}}'
+  - type: manual
+    step_type: wait
+    step_description: "3"
+  - type: if
+    condition: GitHub still shows the two-factor authentication page with the code typed in and a 'Verify' button, and no error message
+    then:
+      - type: instructions
+        step_description: Tap the 'Verify' button
+      - type: manual
+        step_type: wait
+        step_description: "3"
+  - type: if
+    condition: GitHub shows its two-factor authentication page with an error saying the code failed, was already used or is too old
+    then:
+      - type: code_execution
+        script: shiptok-github-totp-code
+        variable_name: github-totp-code
+      - type: instructions
+        step_description: Tap the 'Authentication code' field, delete any digits in it, and type '{{github-totp-code}}'
+      - type: manual
+        step_type: wait
+        step_description: "3"
+  - type: if
+    condition: GitHub still shows the two-factor authentication page with the code typed in and a 'Verify' button, and no error message
+    then:
+      - type: instructions
+        step_description: Tap the 'Verify' button
+  - type: if
+    condition: GitHub shows a page asking to authorize the Revyl app, with an 'Authorize' button
+    then:
+      - type: instructions
+        step_description: Tap the 'Authorize' button
+  - type: manual
+    step_type: wait
+    step_description: "5"
+  - type: if
+    condition: ShipTok shows its 'Repository' list of repositories to choose from
+    then:
+      - type: instructions
+        step_description: Tap RevylAI/kyle-expo in the list of repositories
+      - type: manual
+        step_type: wait
+        step_description: "5"
+  - type: if
+    condition: ShipTok shows 'Couldn't load merged PRs' with a 'Try again' button
+    then:
+      - type: instructions
+        step_description: Tap 'Try again'
+      - type: manual
+        step_type: wait
+        step_description: "5"
+  - type: validation
+    step_description: ShipTok shows its feed, not the sign-in screen or the Repository list - a pull request card with the author, title and pull request number at its lower left, the feed's tabs at the top and a rail of buttons down the right side

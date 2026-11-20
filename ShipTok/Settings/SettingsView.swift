@@ -67,10 +67,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                HiddenPeopleSection(
-                    hiddenPeopleStore: hiddenPeopleStore,
-                    footerText: "Their pull requests, weekly videos, comments, vibes and media don't show in ShipTok on this iPhone. They aren't told, and nothing changes on GitHub."
-                )
+                HiddenPeopleSection(hiddenPeopleStore: hiddenPeopleStore)
                 GesturesSection()
                 AccountActionsSections(signInSession: signInSession)
             }

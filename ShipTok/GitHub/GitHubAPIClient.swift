@@ -2,11 +2,6 @@ import Foundation
 import OSLog
 
 final class GitHubAPIClient: Sendable {
-    enum Source: Sendable {
-        case signedInAccount(GitHubAccountAPI)
-        case demoFeed(ShipTokDemoFeed)
-    }
-
     let repositoryFullName: String
     private let repositoryOwnerLogin: String
     private let repositoryName: String
@@ -22,10 +17,10 @@ final class GitHubAPIClient: Sendable {
     private static let concurrentlyReadPullRequestBatchCount = 6
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "github")
 
-    private let source: Source
+    private let accountAPI: GitHubAccountAPI
 
-    init(source: Source, repositoryFullName: String) {
-        self.source = source
+    init(accountAPI: GitHubAccountAPI, repositoryFullName: String) {
+        self.accountAPI = accountAPI
         self.repositoryFullName = repositoryFullName
         let repositoryComponents = repositoryFullName.split(separator: "/")
         repositoryOwnerLogin = String(repositoryComponents[0])
@@ -36,9 +31,7 @@ final class GitHubAPIClient: Sendable {
         URL(string: "https://github.com/\(repositoryFullName)/pull/\(number)")!
     }
 
-    // A demo visitor has no GitHub account, so every write and every read beyond the demo feed asks them to sign in.
     func sendGraphQLQuery<ResponseData: Decodable>(_ query: String, variables: [String: any Sendable]) async throws -> ResponseData {
-        guard case .signedInAccount(let accountAPI) = source else { throw GitHubAPIError.signInRequired }
         let operationName = Self.operationName(in: query)
         let requestBody = try JSONSerialization.data(withJSONObject: [
             "query": query,
@@ -98,29 +91,11 @@ final class GitHubAPIClient: Sendable {
         }
     }
 
-    // The demo's whole list for a mode, as its latest snapshot holds it; nil for a signed-in viewer, whose feeds GitHub serves (AGENTS.md, "Demo Mode").
-    func fetchDemoFeedPullRequests(in feed: PullRequestFeed) async throws -> [PullRequest]? {
-        guard case .demoFeed(let demoFeed) = source else { return nil }
-        let snapshot = try await demoFeed.snapshot()
-        let pullRequestNodes = switch feed {
-        case .open: snapshot.openPullRequests
-        case .merged: snapshot.mergedPullRequests
-        }
-        var pullRequests: [PullRequest] = []
-        for pullRequestNode in pullRequestNodes where !Self.isClosedWithoutMerging(pullRequestNode) {
-            pullRequests.append(try await pullRequest(from: pullRequestNode))
-        }
-        return pullRequests
-    }
-
     // The newest merge-date window ending before a date that holds at most about 50 merged pull requests, the widest that does, read whole. Its start is where the next window ends, and nil once nothing older is left (AGENTS.md, "Feed Order").
     // GitHub reads merge dates in whole seconds, so the window ends on a whole second and its start, the merged feed's cursor, is one too, the same value searched, compared and saved.
     func fetchMergedPullRequestWindow(mergedBefore windowEndDate: Date) async throws -> MergedPullRequestWindow {
         let windowEndSecond = Date(timeIntervalSince1970: windowEndDate.timeIntervalSince1970.rounded(.down))
         let latestMergeDate = windowEndSecond.addingTimeInterval(-1)
-        if let demoMergedPullRequests = try await fetchDemoFeedPullRequests(in: .merged) {
-            return MergedPullRequestWindow(pullRequests: demoMergedPullRequests.filter { ($0.mergedAt ?? .distantFuture) <= latestMergeDate }, startDate: nil)
-        }
         let candidateStartDates: [Date?] = Self.mergedPullRequestWindowCandidateSpansHours.map { windowEndSecond.addingTimeInterval(-$0 * 60 * 60) } + [nil]
         let candidateSearchQueries = candidateStartDates.map { candidateStartDate in
             mergedPullRequestSearchQuery(mergedFrom: candidateStartDate, mergedThrough: latestMergeDate)
@@ -221,9 +196,6 @@ final class GitHubAPIClient: Sendable {
 
     // A page of open pull requests, newest update first, through the repository's pull request list rather than search (AGENTS.md, "Feed Order").
     func fetchOpenPullRequestsPage(after pageCursor: String?) async throws -> OpenPullRequestsPage {
-        if let demoOpenPullRequests = try await fetchDemoFeedPullRequests(in: .open) {
-            return OpenPullRequestsPage(pullRequests: demoOpenPullRequests.sorted { $0.comesBefore($1, in: .open) }, nextPageCursor: nil)
-        }
         var variables: [String: any Sendable] = ["owner": repositoryOwnerLogin, "name": repositoryName]
         if let pageCursor {
             variables["after"] = pageCursor
@@ -285,15 +257,6 @@ final class GitHubAPIClient: Sendable {
     }
 
     func fetchPullRequest(number: Int) async throws -> PullRequest {
-        if case .demoFeed(let demoFeed) = source {
-            let snapshot = try await demoFeed.snapshot()
-            guard let pullRequestNode = (snapshot.mergedPullRequests + snapshot.openPullRequests).first(where: { $0.number == number }),
-                  !Self.isClosedWithoutMerging(pullRequestNode)
-            else {
-                throw GitHubAPIError.pullRequestNeitherOpenNorMerged(number: number)
-            }
-            return try await pullRequest(from: pullRequestNode)
-        }
         let response: PullRequestByNumberData = try await sendGraphQLQuery(GitHubGraphQLDocument.pullRequestByNumberQuery, variables: [
             "owner": repositoryOwnerLogin,
             "name": repositoryName,
@@ -308,14 +271,6 @@ final class GitHubAPIClient: Sendable {
     // Every published weekly edition, newest week first: the closed issues carrying the weekly label, read through the issues API, never search,
     // so a week shows the moment it closes (AGENTS.md, "Weekly Mode").
     func fetchWeeklyEditions() async throws -> [WeeklyEdition] {
-        if case .demoFeed(let demoFeed) = source {
-            var weeklyEditions: [WeeklyEdition] = []
-            for weeklyEditionNode in try await demoFeed.snapshot().weeklyEditionIssues {
-                guard let weeklyEdition = try await weeklyEdition(from: weeklyEditionNode) else { continue }
-                weeklyEditions.append(weeklyEdition)
-            }
-            return weeklyEditions.sorted { $0.weekStartDate > $1.weekStartDate }
-        }
         var weeklyEditions: [WeeklyEdition] = []
         var pageCursor: String?
         repeat {
@@ -342,14 +297,6 @@ final class GitHubAPIClient: Sendable {
     }
 
     func fetchWeeklyEdition(number: Int) async throws -> WeeklyEdition {
-        if case .demoFeed(let demoFeed) = source {
-            guard let weeklyEditionNode = try await demoFeed.snapshot().weeklyEditionIssues.first(where: { $0.number == number }),
-                  let weeklyEdition = try await weeklyEdition(from: weeklyEditionNode)
-            else {
-                throw GitHubAPIError.weeklyEditionUnreadable(number: number)
-            }
-            return weeklyEdition
-        }
         let response: WeeklyEditionByNumberData = try await sendGraphQLQuery(GitHubGraphQLDocument.weeklyEditionByNumberQuery, variables: [
             "owner": repositoryOwnerLogin,
             "name": repositoryName,
@@ -460,8 +407,8 @@ final class GitHubAPIClient: Sendable {
             title: PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(pullRequestNode.title),
             url: pullRequestNode.url,
             author: author,
-            isDraft: pullRequestNode.isDraft ?? false,
-            updatedAt: pullRequestNode.updatedAt ?? pullRequestNode.createdAt,
+            isDraft: pullRequestNode.isDraft,
+            updatedAt: pullRequestNode.updatedAt,
             mergedAt: pullRequestNode.mergedAt,
             descriptionMarkdown: pullRequestNode.body,
             additions: pullRequestNode.additions,

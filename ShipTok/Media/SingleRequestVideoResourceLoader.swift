@@ -52,8 +52,8 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     private static let maximumVideoByteCount = 100 * 1024 * 1024
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
-    // A hosted video on a private repository plays only for someone Revyl's backend sees GitHub lets read it, so a signed-in person's request for one carries their GitHub token and never goes without it. A demo visit has no token to send.
-    init(videoURL: URL, savingInto savedMedia: PullRequestMediaDiskCache, asMediaItemID mediaItemID: String, failureLogLevel: OSLogType, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) {
+    // A hosted video on a private repository plays only for someone Revyl's backend sees GitHub lets read it, so a signed-in person's request for one carries their GitHub token and never goes without it.
+    init(videoURL: URL, savingInto savedMedia: PullRequestMediaDiskCache, asMediaItemID mediaItemID: String, failureLogLevel: OSLogType, signedInGitHubAccessTokenVault: GitHubAccessTokenVault) {
         self.videoURL = videoURL
         self.savedMedia = savedMedia
         videoURLPathExtension = videoURL.pathExtension

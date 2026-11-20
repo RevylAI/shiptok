@@ -20,8 +20,7 @@ enum LoadedPullRequestImage {
 @MainActor
 final class FeedViewerMediaCache {
     let savedMedia: PullRequestMediaDiskCache
-    // Nil for a demo visit, so a demo never presents a GitHub token anywhere.
-    let signedInGitHubAccessTokenVault: GitHubAccessTokenVault?
+    let signedInGitHubAccessTokenVault: GitHubAccessTokenVault
     private let stillImagesByMediaItemID = NSCache<NSString, UIImage>()
     private let animatedGIFDataByMediaItemID = NSCache<NSString, NSData>()
     private let videoResourceLoadersByMediaItemID = NSCache<NSString, SingleRequestVideoResourceLoader>()
@@ -32,7 +31,7 @@ final class FeedViewerMediaCache {
     private var hasRemovedAllMedia = false
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
-    init(savedMedia: PullRequestMediaDiskCache, signedInGitHubAccessTokenVault: GitHubAccessTokenVault?) {
+    init(savedMedia: PullRequestMediaDiskCache, signedInGitHubAccessTokenVault: GitHubAccessTokenVault) {
         self.savedMedia = savedMedia
         self.signedInGitHubAccessTokenVault = signedInGitHubAccessTokenVault
     }

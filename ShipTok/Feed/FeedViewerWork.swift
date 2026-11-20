@@ -1,6 +1,6 @@
 import Foundation
 
-// The feed's reads and saves for one viewer, a signed-in teammate or a demo visit. Signing out and Delete my data stop it and wait for what's running before they go on, so nothing read for a sign-in is saved after it ended (AGENTS.md, "Feed Caching").
+// The feed's reads and saves for one signed-in teammate. Signing out and Delete my data stop it and wait for what's running before they go on, so nothing read for a sign-in is saved after it ended (AGENTS.md, "Feed Caching").
 @MainActor
 final class FeedViewerWork {
     private var runningTasksByID: [UUID: Task<Void, Never>] = [:]

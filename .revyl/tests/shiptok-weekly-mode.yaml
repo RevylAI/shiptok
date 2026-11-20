@@ -1,14 +1,14 @@
 # Revyl Test Definition
 
 _meta:
-    remote_id: 5f68bb0a-89f3-4312-90d8-b4e9ce338bd4
-    remote_version: 5
-    local_version: 5
-    last_synced_at: "2026-11-20T14:26:18Z"
-    checksum: 6d824d79b0b7c51085827888986617f800fd799a1b82cced3831ae4a368356ed
+    remote_id: 30eaa332-3158-459d-af58-5404acc64e95
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T18:58:02Z"
+    checksum: 2418048d71d2e63649d44814b36ab69cad75ddbe0349098d34598ce86c12b981
 test:
     metadata:
-        name: shiptok-demo-weekly-mode
+        name: shiptok-weekly-mode
         platform: ios
     build:
         name: ShipTok
@@ -18,8 +18,8 @@ test:
         orientation: portrait
     blocks:
         - type: module_import
-          step_description: Open the demo feed with Look around first
-          module: shiptok-open-demo-feed
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
         - type: instructions
           step_description: Tap 'Weekly' in the Open / Merged / Weekly tabs at the top of the feed
         - type: validation

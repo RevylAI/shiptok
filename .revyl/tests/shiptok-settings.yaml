@@ -1,0 +1,46 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: ff99732d-f49e-4e4d-9459-54f0c1ac5e25
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T18:58:07Z"
+    checksum: 89544bd37aeba6b38f9fb2b9631e2b9de53658f9a296fee7a90793187b1bd7e1
+test:
+    metadata:
+        name: shiptok-settings
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: validation
+          step_description: Settings shows an Account row with '@revyl-shiptok-tests' and 'Signed in with Revyl, using your GitHub account', and a Feed section whose Repository is RevylAI/kyle-expo
+        - type: instructions
+          step_description: Tap the Repository row in the Feed section
+        - type: validation
+          step_description: A Repository list shows RevylAI/kyle-expo with a checkmark beside it
+        - type: instructions
+          step_description: Tap the back button at the top left of the Repository list, without choosing a repository
+        - type: validation
+          step_description: Settings shows again with RevylAI/kyle-expo as the Repository
+        - type: instructions
+          step_description: Scroll down through Settings
+        - type: validation
+          step_description: Settings shows a 'Vibe feedback' section with 'Ask for feedback on good vibes' turned off and 'Ask for feedback on bad vibes' turned on, and says every vibe posts to GitHub as a comment from you
+        - type: instructions
+          step_description: Scroll down to the bottom of Settings without tapping any button
+        - type: validation
+          step_description: Settings also shows 'Hidden people' saying no one is hidden, a Gestures section explaining the swipes, taps and 2x speed, a 'Privacy and support' section with 'Privacy policy' and 'Contact support', and the 'Sign out' and 'Delete my ShipTok data' buttons
+        - type: instructions
+          step_description: Scroll back to the top of Settings and tap 'Feed', the back button with a chevron at the top left, without tapping any other button
+        - type: validation
+          step_description: The feed shows a pull request card again

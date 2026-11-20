@@ -292,8 +292,7 @@ final class PullRequestFeedStore {
     private let githubAPIClient: GitHubAPIClient
     private let reactionWriteQueue: ViewerReactionWriteQueue
     private let analytics: ShipTokAnalytics
-    // A demo visitor has none, and their feeds aren't saved (AGENTS.md, "Demo Mode").
-    private let viewerGitHubLogin: String?
+    private let viewerGitHubLogin: String
     private let hiddenPeopleStore: HiddenPeopleStore
     private let feedCache = PullRequestFeedCache()
     private let feedWork: FeedViewerWork
@@ -302,7 +301,7 @@ final class PullRequestFeedStore {
     init(
         githubAPIClient: GitHubAPIClient,
         analytics: ShipTokAnalytics,
-        viewerGitHubLogin: String?,
+        viewerGitHubLogin: String,
         hiddenPeopleStore: HiddenPeopleStore,
         feedWork: FeedViewerWork,
         handleRejectedGitHubAccess: @escaping @MainActor (GitHubAPIError) -> Void
@@ -581,7 +580,7 @@ final class PullRequestFeedStore {
     // The app may be ended once it leaves the screen, so the feeds are saved for the next launch then.
     @discardableResult
     func saveFeeds() -> Task<Void, Never>? {
-        guard let viewerGitHubLogin, savedFeedsOpening != nil else { return nil }
+        guard savedFeedsOpening != nil else { return nil }
         let savedMergedFeed = mergedFeed.everyUpdateAppliedBefore.map { everyUpdateAppliedBefore in
             SavedMergedPullRequestFeed(
                 everyUpdateAppliedBefore: everyUpdateAppliedBefore,
@@ -756,9 +755,7 @@ final class PullRequestFeedStore {
 
     private func openSavedFeeds() async {
         let openStartedAt = Date.now
-        guard let viewerGitHubLogin,
-              let savedFeeds = await feedCache.loadSavedFeeds(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: githubAPIClient.repositoryFullName)
-        else { return }
+        guard let savedFeeds = await feedCache.loadSavedFeeds(viewerGitHubLogin: viewerGitHubLogin, repositoryFullName: githubAPIClient.repositoryFullName) else { return }
         if let savedMergedFeed = savedFeeds.mergedFeed {
             everyMergedPullRequestLoadedSince = savedMergedFeed.everyMergedPullRequestLoadedSince
             updateLoadedFeed(.merged) { loadedFeed in
@@ -796,15 +793,11 @@ final class PullRequestFeedStore {
         let earliestUpdateDate = everyUpdateAppliedBefore.addingTimeInterval(-Self.updateSearchOverlapSeconds)
         do {
             let updatedPullRequestCount: Int
-            if let demoPullRequests = try await githubAPIClient.fetchDemoFeedPullRequests(in: feed) {
-                updatedPullRequestCount = applyDemoFeedSnapshot(demoPullRequests, to: feed, fetchedAt: refreshStartedAt)
-            } else {
-                switch feed {
-                case .open:
-                    updatedPullRequestCount = try await applyOpenPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
-                case .merged:
-                    updatedPullRequestCount = try await applyMergedPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
-                }
+            switch feed {
+            case .open:
+                updatedPullRequestCount = try await applyOpenPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
+            case .merged:
+                updatedPullRequestCount = try await applyMergedPullRequestUpdates(since: earliestUpdateDate, fetchedAt: refreshStartedAt)
             }
             try Task.checkCancellation()
             Self.logger.debug("Read \(updatedPullRequestCount, privacy: .public) \(feed.rawValue, privacy: .public) pull requests updated since \(everyUpdateAppliedBefore.formatted(.iso8601), privacy: .public) in \(Self.millisecondsElapsed(since: refreshStartedAt), privacy: .public) ms")
@@ -846,16 +839,6 @@ final class PullRequestFeedStore {
             }
         }
         return closedOrMergedPullRequestIDs.count + updatedOpenPullRequestCount
-    }
-
-    // The demo is a snapshot of each mode's newest pull requests, so a refresh makes the mode's list match it: a card the snapshot no longer holds leaves, the one under the viewer's finger once they move on, and every card it holds is applied with its fresh media links (AGENTS.md, "Demo Mode").
-    private func applyDemoFeedSnapshot(_ demoPullRequests: [PullRequest], to feed: PullRequestFeed, fetchedAt refreshStartedAt: Date) -> Int {
-        let demoPullRequestIDs = Set(demoPullRequests.map(\.id))
-        updateLoadedFeed(feed) { $0.removePullRequests { !demoPullRequestIDs.contains($0.id) } }
-        for demoPullRequest in demoPullRequests.sorted(by: { !$0.comesBefore($1, in: feed) }) {
-            apply(demoPullRequest, fetchedAt: refreshStartedAt, forcesMediaURLRenewal: false)
-        }
-        return demoPullRequests.count
     }
 
     private func appendOlderPullRequests(_ olderPullRequests: [PullRequest], to feed: PullRequestFeed, fetchedAt: Date) -> Int {

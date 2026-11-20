@@ -107,10 +107,9 @@ struct PullRequestNode: Decodable {
     let number: Int
     let title: String
     let url: URL
-    // Optional because the demo feed's nodes may not carry them (AGENTS.md, "Demo Mode").
-    let state: String?
-    let isDraft: Bool?
-    let updatedAt: Date?
+    let state: String
+    let isDraft: Bool
+    let updatedAt: Date
     let mergedAt: Date?
     let createdAt: Date
     let lastEditedAt: Date?

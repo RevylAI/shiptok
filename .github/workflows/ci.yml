@@ -108,4 +108,4 @@ jobs:
         run: |
           revyl explore run "$REVYL_IOS_APP_ID" --build-id "$REVYL_BUILD_ID" \
             --explorers 1 --max-duration 20m --timeout 45m \
-            --instructions "Explore signed out: start from Look around first on the signed-out screen. Never complete a GitHub sign-in."
+            --instructions "Explore signed out, from the sign-in screen. Never complete a GitHub sign-in."
