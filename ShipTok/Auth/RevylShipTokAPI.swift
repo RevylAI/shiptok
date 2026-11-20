@@ -240,22 +240,22 @@ struct RevylShipTokAPI: Sendable {
         }
         let refusal = RevylRefusal.decode(from: responseData)
         Self.logger.notice("Revyl answered \(statusCode) \(refusal?.key ?? "without a key", privacy: .public) to \(method, privacy: .public) \(path, privacy: .public)")
-        switch (statusCode, refusal?.key) {
-        case (_, RevylRefusal.revylSignInRequiredKey):
+        switch refusal?.key {
+        case RevylRefusal.revylSignInRequiredKey?:
             throw RevylShipTokAPIError.revylSignInRequired
-        case (_, RevylRefusal.revylOrganizationRequiredKey):
+        case RevylRefusal.revylOrganizationRequiredKey?:
             throw RevylShipTokAPIError.revylOrganizationRequired
-        case (_, "revyl_sign_in_expired"):
+        case "revyl_sign_in_expired"?:
             throw RevylShipTokAPIError.revylSignInExpired
-        case (_, "github_account_not_connected"):
+        case "github_sign_in_rejected"?:
+            throw RevylShipTokAPIError.githubSignInRejected(operationName: operationName)
+        case "github_account_not_connected"?:
             throw RevylShipTokAPIError.githubAccountNotConnected
-        case (_, "revyl_account_owns_organization"):
+        case "revyl_account_owns_organization"?:
             guard let revylMessage = refusal?.error else {
                 throw RevylShipTokAPIError.unexpectedResponse(operationName: operationName, statusCode: statusCode)
             }
             throw RevylShipTokAPIError.revylAccountOwnsOrganization(revylMessage: revylMessage)
-        case (401, _):
-            throw RevylShipTokAPIError.githubSignInRejected(operationName: operationName)
         default:
             throw RevylShipTokAPIError.unexpectedResponse(operationName: operationName, statusCode: statusCode)
         }
