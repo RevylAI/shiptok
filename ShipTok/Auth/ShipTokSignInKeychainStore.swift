@@ -29,10 +29,14 @@ enum ShipTokSignInKeychainStore {
     }
 
     private static let keychainService = "ai.revyl.shiptok"
-    // Debug and Release builds sign in through different GitHub Apps, so a phone that has run both never hands one's sign-in to the other.
+    // Device tests and development point Debug builds at other backends through SHIPTOK_REVYL_BACKEND_URL, and each backend has its own GitHub App and Revyl keys, so a Debug build keeps its sign-in per backend origin and never hands one backend's sign-in to another. Release builds talk only to https://backend.revyl.ai and keep plain names, the GitHub sign-in's being exactly the one the GitHub-only release stored it under, so updating from that release keeps the sign-in (AGENTS.md, "iOS App").
     #if DEBUG
-    private static let githubSignInKeychainAccount = "github-sign-in-test"
-    private static let revylSignInKeychainAccount = "revyl-sign-in-test"
+    private static let backendOrigin: String = {
+        guard let backendURL = RevylBackendConfiguration.backendURL, let scheme = backendURL.scheme, let host = backendURL.host() else { return "none" }
+        return "\(scheme.lowercased())://\(host.lowercased())" + (backendURL.port.map { ":\($0)" } ?? "")
+    }()
+    private static let githubSignInKeychainAccount = "github-sign-in-test@\(backendOrigin)"
+    private static let revylSignInKeychainAccount = "revyl-sign-in-test@\(backendOrigin)"
     #else
     private static let githubSignInKeychainAccount = "github-sign-in"
     private static let revylSignInKeychainAccount = "revyl-sign-in"
