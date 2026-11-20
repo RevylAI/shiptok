@@ -258,17 +258,16 @@ final class PullRequestFeedStore {
     var transientErrorMessage: String?
     // The pull requests of the card whose deck is open, in its video's order (AGENTS.md, "Pull Request Decks").
     private(set) var openDeckPullRequests: [PullRequest] = []
-    private(set) var isOpenDeckLoaded = false
-    private(set) var openDeckLoadFailureMessage: String?
+    // The deck's pull request numbers not read yet or whose last read failed, in the list's order, and why the last pass left any, so the end page offers to try again instead of saying the viewer saw them all (AGENTS.md, "Pull Request Decks").
+    private(set) var openDeckPullRequestNumbersToRead: [Int] = []
+    private(set) var openDeckReadFailureMessage: String?
     private(set) var isOpenDeckPullToRefreshRunning = false
 
-    @ObservationIgnored private var openDeckLoadTask: Task<Void, Never>?
-    // The open deck's pull request numbers, how many of them are in or left out so far, and the last read that failed, so a load the deck left off screen carries on where it stopped (AGENTS.md, "Pull Request Decks").
+    @ObservationIgnored private var openDeckReadTask: Task<Void, Never>?
+    // The open deck's pull request numbers in the list's order, which place a card read late among those already in.
     @ObservationIgnored private var openDeckPullRequestNumbers: [Int] = []
     // A feature's deck shows its pull requests with or without media of their own; a week's leaves out those without (AGENTS.md, "Features Mode").
     @ObservationIgnored private var openDeckShowsPullRequestsWithoutMedia = false
-    @ObservationIgnored private var openDeckResolvedNumberCount = 0
-    @ObservationIgnored private var openDeckLastFetchErrorMessage: String?
     @ObservationIgnored private var focusedOpenDeckPullRequestID: String?
     // Whether the viewer has moved from one card of the open deck to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Pull Request Decks").
     @ObservationIgnored private var hasViewerMovedInOpenDeck = false
@@ -340,35 +339,31 @@ final class PullRequestFeedStore {
             ?? openDeckPullRequests.first { $0.id == pullRequestID }
     }
 
-    // A deck's pull requests show in its video's order as each leading one arrives, so a page never moves under the viewer. A card names its pull requests by number, so they're read by number.
+    // A deck's pull requests show in its video's order as each leading one arrives, and one whose read failed is read again on the deck's next refresh or pull and takes its place in that order. A card names its pull requests by number, so they're read by number (AGENTS.md, "Pull Request Decks").
     func openDeck(pullRequestNumbers: [Int], showsPullRequestsWithoutMedia: Bool) {
-        openDeckLoadTask?.cancel()
-        openDeckLoadTask = nil
+        openDeckReadTask?.cancel()
+        openDeckReadTask = nil
         var seenPullRequestNumbers: Set<Int> = []
         openDeckPullRequestNumbers = pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
+        openDeckPullRequestNumbersToRead = openDeckPullRequestNumbers
+        openDeckReadFailureMessage = nil
         openDeckShowsPullRequestsWithoutMedia = showsPullRequestsWithoutMedia
-        openDeckResolvedNumberCount = 0
-        openDeckLastFetchErrorMessage = nil
         openDeckPullRequests = []
-        isOpenDeckLoaded = false
-        openDeckLoadFailureMessage = nil
         focusedOpenDeckPullRequestID = nil
         hasViewerMovedInOpenDeck = false
         openDeckPullRequestIDsLeavingOnceUnfocused = []
-        startOpenDeckLoadIfUnfinished()
+        startOpenDeckReadIfAnyLeft()
     }
 
     func closeDeck() {
         stopShownModeWork()
-        openDeckLoadTask?.cancel()
-        openDeckLoadTask = nil
+        openDeckReadTask?.cancel()
+        openDeckReadTask = nil
         openDeckPullRequestNumbers = []
+        openDeckPullRequestNumbersToRead = []
+        openDeckReadFailureMessage = nil
         openDeckShowsPullRequestsWithoutMedia = false
-        openDeckResolvedNumberCount = 0
-        openDeckLastFetchErrorMessage = nil
         openDeckPullRequests = []
-        isOpenDeckLoaded = false
-        openDeckLoadFailureMessage = nil
         focusedOpenDeckPullRequestID = nil
         hasViewerMovedInOpenDeck = false
         openDeckPullRequestIDsLeavingOnceUnfocused = []
@@ -406,28 +401,50 @@ final class PullRequestFeedStore {
         }
     }
 
-    func refreshFocusedOpenDeckPullRequest() async {
+    func refreshOpenDeck() async {
         await feedWork.perform { [self] in
             guard let focusedOpenDeckPullRequestID, let focusedPullRequest = openDeckPullRequests.first(where: { $0.id == focusedOpenDeckPullRequestID }) else { return }
             await fetchAndApplyPullRequest(number: focusedPullRequest.number, forcesMediaURLRenewal: false)
         }
+        await readOpenDeckPullRequestsStillToRead()
     }
 
-    // A pull only happens on a deck's first card, so that's the card it reads again.
+    // A pull only happens on a deck's first card, so that's the card it reads again, along with those still to read.
     func refreshOpenDeckFromPull() async {
         await feedWork.perform { [self] in
             guard let firstOpenDeckPullRequest = visibleOpenDeckPullRequests.first else { return }
             isOpenDeckPullToRefreshRunning = true
             defer { isOpenDeckPullToRefreshRunning = false }
             await fetchAndApplyPullRequest(number: firstOpenDeckPullRequest.number, forcesMediaURLRenewal: false)
+            await readOpenDeckPullRequestsStillToRead()
         }
     }
 
-    private func loadOpenDeck() async {
-        let loadStartedAt = Date.now
+    // Try again shows the deck loading until the pass it starts, or the one already running, ends.
+    func retryOpenDeckReads() {
+        openDeckReadFailureMessage = nil
+        startOpenDeckReadIfAnyLeft()
+    }
+
+    private func readOpenDeckPullRequestsStillToRead() async {
+        startOpenDeckReadIfAnyLeft()
+        await openDeckReadTask?.value
+    }
+
+    private func startOpenDeckReadIfAnyLeft() {
+        guard onScreenPullRequests == .openDeck, openDeckReadTask == nil, !openDeckPullRequestNumbersToRead.isEmpty else { return }
+        openDeckReadTask = feedWork.start { [self] in await readOpenDeckPullRequestsOnce() }
+    }
+
+    // One pass reads every number still to read and settles them in the list's order. One closed without merging or gone, or without media that loads where the deck needs media, is left out for good; one whose read failed stays to read unless a mode's copy shows instead.
+    private func readOpenDeckPullRequestsOnce() async {
+        let readStartedAt = Date.now
+        let numbersToRead = openDeckPullRequestNumbersToRead
+        var settledNumberCount = 0
         var fetchResultByNumber: [Int: Result<PullRequest, any Error>] = [:]
+        var lastReadFailureMessage: String?
         await withTaskGroup(of: (number: Int, fetchResult: Result<PullRequest, any Error>).self) { taskGroup in
-            var unrequestedNumbers = openDeckPullRequestNumbers.dropFirst(openDeckResolvedNumberCount)
+            var unrequestedNumbers = numbersToRead[...]
             func requestNextPullRequest() {
                 guard let number = unrequestedNumbers.popFirst() else { return }
                 taskGroup.addTask { [githubAPIClient] in
@@ -445,32 +462,37 @@ final class PullRequestFeedStore {
                     return
                 }
                 fetchResultByNumber[number] = fetchResult
-                while openDeckResolvedNumberCount < openDeckPullRequestNumbers.count, let resolvedFetchResult = fetchResultByNumber[openDeckPullRequestNumbers[openDeckResolvedNumberCount]] {
-                    let resolvedNumber = openDeckPullRequestNumbers[openDeckResolvedNumberCount]
-                    openDeckResolvedNumberCount += 1
-                    switch resolvedFetchResult {
+                while settledNumberCount < numbersToRead.count, let settledFetchResult = fetchResultByNumber[numbersToRead[settledNumberCount]] {
+                    let settledNumber = numbersToRead[settledNumberCount]
+                    settledNumberCount += 1
+                    switch settledFetchResult {
                     case .success(let fetchedPullRequest):
+                        openDeckPullRequestNumbersToRead.removeAll { $0 == settledNumber }
                         guard openDeckShowsPullRequestsWithoutMedia || !fetchedPullRequest.mediaItems.isEmpty, !isEveryMediaItemGivenUp(fetchedPullRequest) else {
-                            Self.logger.info("#\(resolvedNumber, privacy: .public) has no media that loads, so its deck leaves it out")
+                            Self.logger.info("#\(settledNumber, privacy: .public) has no media that loads, so its deck leaves it out")
                             continue
                         }
                         if !isInEitherFeed(pullRequestID: fetchedPullRequest.id) {
-                            mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = loadStartedAt
+                            mediaFetchedAtByPullRequestID[fetchedPullRequest.id] = readStartedAt
                         }
-                        openDeckPullRequests.append(fetchedPullRequest)
+                        insertIntoOpenDeckInListOrder(fetchedPullRequest)
                     case .failure(GitHubAPIError.pullRequestNeitherOpenNorMerged):
-                        Self.logger.info("#\(resolvedNumber, privacy: .public) is closed without merging or gone, so its deck leaves it out")
+                        openDeckPullRequestNumbersToRead.removeAll { $0 == settledNumber }
+                        Self.logger.info("#\(settledNumber, privacy: .public) is closed without merging or gone, so its deck leaves it out")
                     case .failure(let error):
                         if let githubAPIError = error as? GitHubAPIError, githubAPIError.rejectsFeedAccess {
                             handleRejectedGitHubAccess(githubAPIError)
+                            lastReadFailureMessage = error.localizedDescription
                             taskGroup.cancelAll()
                             return
                         }
-                        Self.logger.error("Reading #\(resolvedNumber, privacy: .public) for its deck failed: \(error.publicLogDescription, privacy: .public)")
-                        openDeckLastFetchErrorMessage = error.localizedDescription
-                        if let loadedPullRequest = (mergedFeed.pullRequestsOnceViewerMovesOn + openFeed.pullRequestsOnceViewerMovesOn).first(where: { $0.number == resolvedNumber }),
+                        Self.logger.error("Reading #\(settledNumber, privacy: .public) for its deck failed: \(error.publicLogDescription, privacy: .public)")
+                        if let loadedPullRequest = (mergedFeed.pullRequestsOnceViewerMovesOn + openFeed.pullRequestsOnceViewerMovesOn).first(where: { $0.number == settledNumber }),
                            !isEveryMediaItemGivenUp(loadedPullRequest) {
-                            openDeckPullRequests.append(loadedPullRequest)
+                            openDeckPullRequestNumbersToRead.removeAll { $0 == settledNumber }
+                            insertIntoOpenDeckInListOrder(loadedPullRequest)
+                        } else {
+                            lastReadFailureMessage = error.localizedDescription
                         }
                     }
                 }
@@ -478,11 +500,14 @@ final class PullRequestFeedStore {
             }
         }
         guard !Task.isCancelled else { return }
-        isOpenDeckLoaded = true
-        if openDeckPullRequests.isEmpty, let openDeckLastFetchErrorMessage {
-            openDeckLoadFailureMessage = openDeckLastFetchErrorMessage
-        }
-        Self.logger.info("Read a deck's \(self.openDeckPullRequests.count, privacy: .public) of \(self.openDeckPullRequestNumbers.count, privacy: .public) pull requests in \(Self.millisecondsElapsed(since: loadStartedAt), privacy: .public) ms")
+        openDeckReadTask = nil
+        openDeckReadFailureMessage = openDeckPullRequestNumbersToRead.isEmpty ? nil : lastReadFailureMessage
+        Self.logger.info("A deck read \(numbersToRead.count, privacy: .public) pull requests and left \(self.openDeckPullRequestNumbersToRead.count, privacy: .public) of its \(self.openDeckPullRequestNumbers.count, privacy: .public) to read in \(Self.millisecondsElapsed(since: readStartedAt), privacy: .public) ms")
+    }
+
+    private func insertIntoOpenDeckInListOrder(_ pullRequest: PullRequest) {
+        let numbersAfterItInList = Set(openDeckPullRequestNumbers.drop { $0 != pullRequest.number }.dropFirst())
+        openDeckPullRequests.insert(pullRequest, at: openDeckPullRequests.firstIndex { numbersAfterItInList.contains($0.number) } ?? openDeckPullRequests.endIndex)
     }
 
     // A launch opens on the saved feeds at once and asks GitHub only for what changed since; a feed with nothing loaded reads its newest page first (AGENTS.md, "Feed Order" and "Feed Caching").
@@ -578,7 +603,7 @@ final class PullRequestFeedStore {
         if wasOpenDeckOnScreen, newOnScreenPullRequests != .openDeck {
             leaveOpenDeckScreen()
         } else if !wasOpenDeckOnScreen, newOnScreenPullRequests == .openDeck {
-            startOpenDeckLoadIfUnfinished()
+            startOpenDeckReadIfAnyLeft()
         }
     }
 
@@ -687,19 +712,13 @@ final class PullRequestFeedStore {
         shownModeTasksByID[taskID] = task
     }
 
-    // Leaving the deck stops its load and releases what the viewer's finger held, while the viewer's place stays; coming back carries the load on from the first pull request not yet in (AGENTS.md, "Pull Request Decks").
+    // Leaving the deck stops its reading and releases what the viewer's finger held, while the viewer's place stays; coming back reads what's still to read (AGENTS.md, "Pull Request Decks").
     private func leaveOpenDeckScreen() {
-        openDeckLoadTask?.cancel()
-        openDeckLoadTask = nil
+        openDeckReadTask?.cancel()
+        openDeckReadTask = nil
         focusedOpenDeckPullRequestID = nil
         openDeckPullRequests.removeAll { openDeckPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
         openDeckPullRequestIDsLeavingOnceUnfocused.removeAll()
-    }
-
-    private func startOpenDeckLoadIfUnfinished() {
-        guard onScreenPullRequests == .openDeck, !isOpenDeckLoaded else { return }
-        openDeckLoadTask?.cancel()
-        openDeckLoadTask = feedWork.start { [self] in await loadOpenDeck() }
     }
 
     private func stopShownModeWork() {
