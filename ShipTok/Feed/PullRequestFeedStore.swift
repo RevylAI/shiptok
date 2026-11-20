@@ -263,11 +263,13 @@ final class PullRequestFeedStore {
     private(set) var openDeckReadFailureMessage: String?
     private(set) var isOpenDeckPullToRefreshRunning = false
 
+    // The cards each deck held when it was last read in full, which its card's deck button counts (AGENTS.md, "Pull Request Decks").
+    private var pullRequestsOfDecksReadInFull: [PullRequestDeckListing: [PullRequest]] = [:]
+
     @ObservationIgnored private var openDeckReadTask: Task<Void, Never>?
+    @ObservationIgnored private var openDeckListing: PullRequestDeckListing?
     // The open deck's pull request numbers in the list's order, which place a card read late among those already in.
     @ObservationIgnored private var openDeckPullRequestNumbers: [Int] = []
-    // A feature's deck shows its pull requests with or without media of their own; a week's leaves out those without (AGENTS.md, "Features Mode").
-    @ObservationIgnored private var openDeckShowsPullRequestsWithoutMedia = false
     @ObservationIgnored private var focusedOpenDeckPullRequestID: String?
     // Whether the viewer has moved from one card of the open deck to another; until then the card in focus is the one the deck opened on (AGENTS.md, "Pull Request Decks").
     @ObservationIgnored private var hasViewerMovedInOpenDeck = false
@@ -340,14 +342,15 @@ final class PullRequestFeedStore {
     }
 
     // A deck's pull requests show in its video's order as each leading one arrives, and one whose read failed is read again on the deck's next refresh or pull and takes its place in that order. A card names its pull requests by number, so they're read by number (AGENTS.md, "Pull Request Decks").
-    func openDeck(pullRequestNumbers: [Int], showsPullRequestsWithoutMedia: Bool) {
+    func openDeck(listing: PullRequestDeckListing) {
+        recordOpenDeckIfReadInFull()
         openDeckReadTask?.cancel()
         openDeckReadTask = nil
+        openDeckListing = listing
         var seenPullRequestNumbers: Set<Int> = []
-        openDeckPullRequestNumbers = pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
+        openDeckPullRequestNumbers = listing.pullRequestNumbers.filter { seenPullRequestNumbers.insert($0).inserted }
         openDeckPullRequestNumbersToRead = openDeckPullRequestNumbers
         openDeckReadFailureMessage = nil
-        openDeckShowsPullRequestsWithoutMedia = showsPullRequestsWithoutMedia
         openDeckPullRequests = []
         focusedOpenDeckPullRequestID = nil
         hasViewerMovedInOpenDeck = false
@@ -356,17 +359,31 @@ final class PullRequestFeedStore {
     }
 
     func closeDeck() {
+        recordOpenDeckIfReadInFull()
         stopShownModeWork()
         openDeckReadTask?.cancel()
         openDeckReadTask = nil
+        openDeckListing = nil
         openDeckPullRequestNumbers = []
         openDeckPullRequestNumbersToRead = []
         openDeckReadFailureMessage = nil
-        openDeckShowsPullRequestsWithoutMedia = false
         openDeckPullRequests = []
         focusedOpenDeckPullRequestID = nil
         hasViewerMovedInOpenDeck = false
         openDeckPullRequestIDsLeavingOnceUnfocused = []
+    }
+
+    // Nil until the listing's deck has been read in full; then the cards it held, less those the viewer can't see now. Reading every deck ahead of its opening would cost GitHub reads for each card the viewer only scrolls past.
+    func pullRequestCountOfDeckReadInFull(listing: PullRequestDeckListing) -> Int? {
+        pullRequestsOfDecksReadInFull[listing].map { pullRequests in
+            pullRequests.filter { !isEveryMediaItemGivenUp($0) && visibleCopyIgnoringVideosOnly(of: $0) != nil }.count
+        }
+    }
+
+    // A deck left with pull requests still to read keeps the count of its last read in full, if it had one.
+    private func recordOpenDeckIfReadInFull() {
+        guard let openDeckListing, openDeckPullRequestNumbersToRead.isEmpty else { return }
+        pullRequestsOfDecksReadInFull[openDeckListing] = openDeckPullRequests.filter { !openDeckPullRequestIDsLeavingOnceUnfocused.contains($0.id) }
     }
 
     // A deck shows every card it names whatever Videos only says, less what people the viewer hid wrote or posted (AGENTS.md, "Pull Request Decks").
@@ -754,6 +771,11 @@ final class PullRequestFeedStore {
               !isEveryMediaItemGivenUp(visiblePullRequest) || isEveryMediaItemGivenUp(pullRequest)
         else { return nil }
         return visiblePullRequest
+    }
+
+    // A feature's deck shows its pull requests with or without media of their own; a week's leaves out those without (AGENTS.md, "Features Mode").
+    private var openDeckShowsPullRequestsWithoutMedia: Bool {
+        openDeckListing?.showsPullRequestsWithoutMedia == true
     }
 
     private func isInEitherFeed(pullRequestID: String) -> Bool {

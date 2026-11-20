@@ -861,6 +861,11 @@ struct FeedView: View {
         let thread = post.thread
         let vibeTarget = post.vibeTarget
         let analyticsSubject = vibeTarget.analyticsSubject
+        let deckSource: PullRequestDeckSource? = switch post {
+        case .pullRequest: nil
+        case .weeklyEdition(let weeklyEdition): .weeklyEdition(weeklyEdition)
+        case .feature(let feature): .feature(feature)
+        }
         return FeedCardView(
             post: post,
             heroMediaItem: heroMediaItem,
@@ -884,6 +889,7 @@ struct FeedView: View {
                 postedOn: analyticsSubject,
                 excludingContentBy: viewer.githubLogin
             )),
+            deckPullRequestCount: deckSource.flatMap { feedStore.pullRequestCountOfDeckReadInFull(listing: $0.listing) },
             isPlaybackActive: isCurrentPage && scenePhase == .active && !isFeedCovered,
             isOccludedForAnalytics: isHeroOccludedForAnalytics,
             horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
@@ -1283,7 +1289,7 @@ struct FeedView: View {
     private func openDeck(of deckSource: PullRequestDeckSource) {
         openDeckPageIndex = 0
         openDeckSource = deckSource
-        feedStore.openDeck(pullRequestNumbers: deckSource.pullRequestNumbers, showsPullRequestsWithoutMedia: deckSource.showsPullRequestsWithoutMedia)
+        feedStore.openDeck(listing: deckSource.listing)
     }
 
     private func closeDeck() {

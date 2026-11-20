@@ -54,6 +54,8 @@ struct FeedCardView: View {
     let isKeyboardShown: Bool
     let vibes: FeedCardVibes
     let moderation: GitHubPostedContentModeration
+    // A week's or a feature's deck button shows a number only once that deck has been read in full, so it never counts a card the deck leaves out (AGENTS.md, "Pull Request Decks").
+    let deckPullRequestCount: Int?
     let isPlaybackActive: Bool
     let isOccludedForAnalytics: Bool
     let horizontalDragProgress: CGFloat
@@ -663,10 +665,10 @@ struct FeedCardView: View {
                 if pullRequest.mediaItems.count > 1 || heroMediaItem?.kind == .image || heroMediaItem?.kind == .animatedImage {
                     PullRequestMediaDeckButton(mediaItems: pullRequest.mediaItems, action: onOpenDeck)
                 }
-            case .weeklyEdition(let weeklyEdition):
-                pullRequestDeckButton(pullRequestCount: weeklyEdition.pullRequestNumbers.count, accessibilityLabel: "This week's pull requests")
-            case .feature(let feature):
-                pullRequestDeckButton(pullRequestCount: feature.pullRequestNumbers.count, accessibilityLabel: "The pull requests behind this feature")
+            case .weeklyEdition:
+                pullRequestDeckButton(accessibilityLabel: "This week's pull requests")
+            case .feature:
+                pullRequestDeckButton(accessibilityLabel: "The pull requests behind this feature")
             }
             if !moderation.reportableContents.isEmpty {
                 moderationMenu
@@ -675,13 +677,13 @@ struct FeedCardView: View {
         .frame(width: Self.railWidth)
     }
 
-    private func pullRequestDeckButton(pullRequestCount: Int, accessibilityLabel: String) -> some View {
+    private func pullRequestDeckButton(accessibilityLabel: String) -> some View {
         Button(action: onOpenDeck) {
-            railItem(systemImageName: "rectangle.stack", tint: RevylBrandColor.textPrimary, count: pullRequestCount)
+            railItem(systemImageName: "rectangle.stack", tint: RevylBrandColor.textPrimary, count: deckPullRequestCount)
         }
         .buttonStyle(.swipeYielding)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(pullRequestCount == 1 ? "1 pull request" : "\(pullRequestCount) pull requests")
+        .accessibilityValue(deckPullRequestCount.map { $0 == 1 ? "1 pull request" : "\($0) pull requests" } ?? "")
     }
 
     private var moderationMenu: some View {
