@@ -77,7 +77,6 @@ struct FeedCardView: View {
     private static let captionToRailSpacing: CGFloat = 8
     private static let captionBackdropFadeHeight: CGFloat = 80
     private static let captionBackdropBlurClearanceAboveProgressLine: CGFloat = 6
-    private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
     private nonisolated static let cardCoordinateSpaceName = "mergedPullRequestCard"
 
@@ -413,7 +412,7 @@ struct FeedCardView: View {
                 if !isReactionPickerPresented, let viewerReactionOtherThanLike {
                     Text(verbatim: viewerReactionOtherThanLike.emoji)
                         .font(.system(size: 26))
-                        .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
+                        .frame(width: FeedPageLayout.railGlyphSize.width, height: FeedPageLayout.railGlyphSize.height)
                         .actionRailGlyphStyle()
                 } else {
                     railItem(systemImageName: isReactionPickerPresented ? "xmark" : "face.smiling", tint: RevylBrandColor.textPrimary, count: nil)
@@ -448,9 +447,9 @@ struct FeedCardView: View {
                         .font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundStyle(RevylBrandColor.textPrimary)
                         .contentTransition(.numericText())
-                        .frame(width: Self.railGlyphSize.width, height: 26)
+                        .frame(width: FeedPageLayout.railGlyphSize.width, height: 26)
                         .overlay(Capsule().strokeBorder(RevylBrandColor.textPrimary, lineWidth: 1.5))
-                        .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
+                        .frame(width: FeedPageLayout.railGlyphSize.width, height: FeedPageLayout.railGlyphSize.height)
                         .actionRailGlyphStyle()
                         .animation(.snappy(duration: 0.2), value: playbackRateChoice.chosenPlaybackRate)
                 }
@@ -515,9 +514,9 @@ struct FeedCardView: View {
     private func railItem(systemImageName: String, tint: Color, count: Int?) -> some View {
         VStack(spacing: 2) {
             Image(systemName: systemImageName)
-                .font(.system(size: 26, weight: .regular))
+                .font(.actionRailGlyph)
                 .foregroundStyle(tint)
-                .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
+                .frame(width: FeedPageLayout.railGlyphSize.width, height: FeedPageLayout.railGlyphSize.height)
                 .actionRailGlyphStyle()
             if let count {
                 Text(Self.compactCount(count))
@@ -565,20 +564,19 @@ struct FeedCaptionBackdrop: View {
 
 // Stacks the rail from the bottom like Reels, closing its gaps when a tall status strip leaves less room, and never letting its top climb above its frame (AGENTS.md, "Card Layout").
 private struct ActionRailStack: Layout {
-    private static let preferredSpacing: CGFloat = 14
     // A glyph's 40-point frame pads its 26-point symbol by 7 points above and below, so neighbors may overlap 6 points of it before the symbols crowd.
     private static let tightestSpacing: CGFloat = -6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let subviewSizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let naturalHeight = subviewSizes.reduce(0) { $0 + $1.height } + Self.preferredSpacing * CGFloat(max(subviews.count - 1, 0))
+        let naturalHeight = subviewSizes.reduce(0) { $0 + $1.height } + FeedPageLayout.railGlyphSpacing * CGFloat(max(subviews.count - 1, 0))
         return CGSize(width: subviewSizes.map(\.width).max() ?? 0, height: min(naturalHeight, proposal.height ?? naturalHeight))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let subviewSizes = subviews.map { $0.sizeThatFits(.unspecified) }
         let contentHeight = subviewSizes.reduce(0) { $0 + $1.height }
-        let spacing = min(Self.preferredSpacing, max((bounds.height - contentHeight) / CGFloat(max(subviews.count - 1, 1)), Self.tightestSpacing))
+        let spacing = min(FeedPageLayout.railGlyphSpacing, max((bounds.height - contentHeight) / CGFloat(max(subviews.count - 1, 1)), Self.tightestSpacing))
         var subviewTop = bounds.minY
         for (subview, subviewSize) in zip(subviews, subviewSizes) {
             subview.place(at: CGPoint(x: bounds.midX, y: subviewTop), anchor: .top, proposal: ProposedViewSize(subviewSize))

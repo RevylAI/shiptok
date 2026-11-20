@@ -1,10 +1,10 @@
 import SwiftUI
 
-// Inbox and settings where no tab bar shows: round buttons at the top of the Duo's status strip, or plain glyphs in the top row's corner. The feed
-// itself is home, so it needs no button (AGENTS.md, "Card Layout").
+// Inbox and settings where no tab bar shows: glyphs drawn and spaced like the rail's at the top of the Duo's status strip, or plain glyphs in the top
+// row's corner. The feed itself is home, so it needs no button (AGENTS.md, "Card Layout").
 struct FeedNavigationButtons: View {
     enum Style {
-        case statusStripCircles
+        case statusStripGlyphs
         case topCornerGlyphs
     }
 
@@ -12,15 +12,13 @@ struct FeedNavigationButtons: View {
     let unseenInboxItemCount: Int
     let onSelectTab: (AppTab) -> Void
 
-    private static let circleFill = Color(rgbHex: 0x3A3C41)
-    private static let circleGlyphSize: CGFloat = 20
-    private static let topCornerGlyphSize: CGFloat = 24
+    private static let topCornerGlyphFont = Font.system(size: 24, weight: .semibold)
     private static let topCornerGlyphSpacing: CGFloat = 8
 
     var body: some View {
         switch style {
-        case .statusStripCircles:
-            VStack(spacing: FeedPageLayout.statusStripButtonSpacing) { buttons }
+        case .statusStripGlyphs:
+            VStack(spacing: FeedPageLayout.railGlyphSpacing) { buttons }
         case .topCornerGlyphs:
             HStack(spacing: Self.topCornerGlyphSpacing) { buttons }
         }
@@ -38,14 +36,13 @@ struct FeedNavigationButtons: View {
     private func button(for tab: AppTab, systemImageName: String) -> some View {
         Button { onSelectTab(tab) } label: {
             switch style {
-            case .statusStripCircles:
-                glyph(for: tab, systemImageName: systemImageName, size: Self.circleGlyphSize)
-                    .frame(width: FeedPageLayout.statusStripButtonDiameter, height: FeedPageLayout.statusStripButtonDiameter)
-                    .background(Circle().fill(Self.circleFill))
-                    .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
-                    .contentShape(Circle())
+            case .statusStripGlyphs:
+                glyph(for: tab, systemImageName: systemImageName, font: .actionRailGlyph)
+                    .actionRailGlyphStyle()
+                    .frame(width: FeedPageLayout.railGlyphSize.width, height: FeedPageLayout.railGlyphSize.height)
+                    .contentShape(Rectangle())
             case .topCornerGlyphs:
-                glyph(for: tab, systemImageName: systemImageName, size: Self.topCornerGlyphSize)
+                glyph(for: tab, systemImageName: systemImageName, font: Self.topCornerGlyphFont)
                     .actionRailGlyphStyle()
                     .frame(width: FeedPageLayout.topCornerButtonTapTargetSize, height: FeedPageLayout.topCornerButtonTapTargetSize)
                     .contentShape(Rectangle())
@@ -54,9 +51,9 @@ struct FeedNavigationButtons: View {
         .buttonStyle(.swipeYielding)
     }
 
-    private func glyph(for tab: AppTab, systemImageName: String, size: CGFloat) -> some View {
+    private func glyph(for tab: AppTab, systemImageName: String, font: Font) -> some View {
         Image(systemName: systemImageName)
-            .font(.system(size: size, weight: .semibold))
+            .font(font)
             .foregroundStyle(RevylBrandColor.textPrimary)
             .overlay(alignment: .topTrailing) {
                 if tab == .inbox {

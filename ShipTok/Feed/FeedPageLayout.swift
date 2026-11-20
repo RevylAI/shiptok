@@ -13,8 +13,8 @@ struct FeedPageLayout: Equatable {
     static let railWidth: CGFloat = 54
     static let topRowHeight: CGFloat = 34
     static let captionBottomInset: CGFloat = 32
-    static let statusStripButtonDiameter: CGFloat = 48
-    static let statusStripButtonSpacing: CGFloat = 13
+    static let railGlyphSize = CGSize(width: 44, height: 40)
+    static let railGlyphSpacing: CGFloat = 14
     static let topCornerButtonTapTargetSize: CGFloat = 44
 
     let card: CGRect
@@ -122,7 +122,7 @@ struct FeedPageLayout: Equatable {
                     x: statusStripLeading,
                     y: buttonsTop,
                     width: statusStripWidth,
-                    height: 2 * statusStripButtonDiameter + statusStripButtonSpacing
+                    height: 2 * railGlyphSize.height + railGlyphSpacing
                 )
                 navigationPlacement = .statusStripButtons(column: buttonsColumn)
                 railTopMinimum = buttonsColumn.maxY + railGapBelowNavigation

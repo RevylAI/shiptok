@@ -509,7 +509,7 @@ struct MergedPullRequestFeedView: View {
                     .frame(width: pageLayout.topCornerButtonsTrailingEdge - topRow.minX, height: topRow.height, alignment: .trailing)
                     .offset(x: topRow.minX, y: topRow.minY)
             case .statusStripButtons(let column):
-                feedNavigationButtons(style: .statusStripCircles)
+                feedNavigationButtons(style: .statusStripGlyphs)
                     .frame(width: column.width, height: column.height, alignment: .top)
                     .offset(x: column.minX, y: column.minY)
             }
