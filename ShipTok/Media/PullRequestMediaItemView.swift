@@ -614,13 +614,15 @@ private struct VideoPlaybackProgressBar: View {
     let scrubFraction: CGFloat?
 
     private static let scrubbingThicknessScale: CGFloat = 3
+    private static let playedTrackColor = Color(rgbHex: 0x9DA6B2)
+    private static let unplayedTrackColor = Color(rgbHex: 0x282F35)
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.1)) { _ in
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25))
-                    Capsule().fill(.white.opacity(0.9))
+                    Capsule().fill(Self.unplayedTrackColor)
+                    Capsule().fill(Self.playedTrackColor)
                         .frame(width: geometry.size.width * (scrubFraction ?? playedFraction))
                 }
             }

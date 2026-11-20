@@ -16,7 +16,6 @@ struct FeedNavigationButtons: View {
     private static let circleGlyphSize: CGFloat = 20
     private static let topCornerGlyphSize: CGFloat = 24
     private static let topCornerGlyphSpacing: CGFloat = 8
-    private static let topCornerGlyphTapTargetSize: CGFloat = 44
 
     var body: some View {
         switch style {
@@ -48,7 +47,7 @@ struct FeedNavigationButtons: View {
             case .topCornerGlyphs:
                 glyph(for: tab, systemImageName: systemImageName, size: Self.topCornerGlyphSize)
                     .actionRailGlyphStyle()
-                    .frame(width: Self.topCornerGlyphTapTargetSize, height: Self.topCornerGlyphTapTargetSize)
+                    .frame(width: FeedPageLayout.topCornerButtonTapTargetSize, height: FeedPageLayout.topCornerButtonTapTargetSize)
                     .contentShape(Rectangle())
             }
         }

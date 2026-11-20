@@ -286,7 +286,7 @@ struct FeedCardView: View {
                     Text(weeklyEdition.title)
                         .font(.callout)
                         .foregroundStyle(RevylBrandColor.textPrimary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                     Text(weeklyEdition.hook)
                         .font(.subheadline)
                         .foregroundStyle(RevylBrandColor.textBody)

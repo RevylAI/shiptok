@@ -280,6 +280,7 @@ struct MergedPullRequestFeedView: View {
                 }
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            .accessibilityHidden(selectedTab != .feed)
             // Scroll content margins rather than safe-area padding, which a List inside the tabs' NavigationStack ignores, leaving its last rows under the pill.
             selectedTabPage
                 .contentMargins(.bottom, isTabBarShown ? AppTabBar.height + tabBarBottomPadding + Self.tabPageScrollEndToTabBarSpacing : 0, for: .scrollContent)
@@ -505,7 +506,7 @@ struct MergedPullRequestFeedView: View {
                 EmptyView()
             case .topCornerButtons:
                 feedNavigationButtons(style: .topCornerGlyphs)
-                    .frame(width: topRow.width, height: topRow.height, alignment: .trailing)
+                    .frame(width: pageLayout.topCornerButtonsTrailingEdge - topRow.minX, height: topRow.height, alignment: .trailing)
                     .offset(x: topRow.minX, y: topRow.minY)
             case .statusStripButtons(let column):
                 feedNavigationButtons(style: .statusStripCircles)

@@ -15,6 +15,7 @@ struct FeedPageLayout: Equatable {
     static let captionBottomInset: CGFloat = 32
     static let statusStripButtonDiameter: CGFloat = 48
     static let statusStripButtonSpacing: CGFloat = 13
+    static let topCornerButtonTapTargetSize: CGFloat = 44
 
     let card: CGRect
     let rail: CGRect
@@ -43,8 +44,10 @@ struct FeedPageLayout: Equatable {
     private static let topRowGapBelowSafeArea: CGFloat = 8
     private static let topRowMinimumTop: CGFloat = 32
     private static let topRowHorizontalInset: CGFloat = 16
-    private static let heroProgressLineBottomInset: CGFloat = 15
-    private static let heroProgressLineHorizontalInsetInInsetCard: CGFloat = 8
+    private static let topCornerGlyphCenterInsetFromCardEdge: CGFloat = 23
+    private static let heroProgressLineGapAboveHomeIndicator: CGFloat = 2
+    private static let heroProgressLineBottomInsetInInsetCard: CGFloat = 9
+    private static let heroProgressLineHorizontalInsetInInsetCard: CGFloat = 3
     private static let videoScrubZoneDepthBelowInsetCard: CGFloat = 12
 
     var isTabBarShown: Bool {
@@ -53,6 +56,11 @@ struct FeedPageLayout: Equatable {
 
     var contentBottom: CGFloat {
         card.maxY - homeIndicatorInsetInCard
+    }
+
+    // Where the top row's corner glyphs end, so the last one's center sits where the reference puts its + glyph.
+    var topCornerButtonsTrailingEdge: CGFloat {
+        card.maxX - Self.topCornerGlyphCenterInsetFromCardEdge + Self.topCornerButtonTapTargetSize / 2
     }
 
     // The strip around the hero's progress line where a sideways drag scrubs the video instead of casting a vibe; it reaches neither the tab bar nor
@@ -78,9 +86,9 @@ struct FeedPageLayout: Equatable {
         let railColumnWidth = max(safeAreaInsets.trailing, railColumnMinimumWidth)
         let centeredCardLeading = max(safeAreaInsets.leading, railColumnWidth)
         let centeredCardWidth = pageSize.width - centeredCardLeading - railColumnWidth
-        let topRowTop = max(safeAreaInsets.top + topRowGapBelowSafeArea, topRowMinimumTop)
 
         let card: CGRect
+        let topRowTop: CGFloat
         let railColumnLeading: CGFloat?
         let navigationPlacement: NavigationPlacement
         let homeIndicatorInsetInCard: CGFloat
@@ -88,12 +96,16 @@ struct FeedPageLayout: Equatable {
         let railTopMinimum: CGFloat
         if centeredCardWidth >= insetCardHeight * reelsVideoWidthToHeightRatio {
             card = CGRect(x: centeredCardLeading, y: insetCardTop, width: centeredCardWidth, height: insetCardHeight)
+            // The inset card already starts under the status bar's band, and the Duo's status capsule covers only its corner, so the row keeps the
+            // reference's height instead of clearing the capsule (AGENTS.md, "Card Layout").
+            topRowTop = topRowMinimumTop
             railColumnLeading = pageSize.width - railColumnWidth
             navigationPlacement = .floatingTabBar
             homeIndicatorInsetInCard = 0
             bottomChromeHeight = floatingTabBarHeightWithBottomGap
             railTopMinimum = card.minY + railTopInsetInCard
         } else {
+            topRowTop = max(safeAreaInsets.top + topRowGapBelowSafeArea, topRowMinimumTop)
             let statusStripWidth = safeAreaInsets.trailing >= minimumStatusStripWidth ? safeAreaInsets.trailing : nil
             card = CGRect(x: 0, y: 0, width: max(pageSize.width - (statusStripWidth ?? 0), 0), height: pageSize.height)
             homeIndicatorInsetInCard = safeAreaInsets.bottom
@@ -133,7 +145,8 @@ struct FeedPageLayout: Equatable {
         // The Duo's status strip (its clock, battery and an expanded island) lies inside the safe area, so only the regions the system reserves say
         // where the rail can start.
         let railTop = top(below: railTopMinimum, clearOf: systemOcclusionFrames, acrossX: railX...(railX + railWidth))
-        let progressLineHorizontalInset = navigationPlacement == .floatingTabBar ? heroProgressLineHorizontalInsetInInsetCard : 0
+        let isInsetCard = navigationPlacement == .floatingTabBar
+        let progressLineHorizontalInset = isInsetCard ? heroProgressLineHorizontalInsetInInsetCard : 0
         let topRowBottom = topRowTop + topRowHeight
         return FeedPageLayout(
             card: card,
@@ -151,7 +164,7 @@ struct FeedPageLayout: Equatable {
             heroProgressLineInsets: EdgeInsets(
                 top: 0,
                 leading: progressLineHorizontalInset,
-                bottom: heroProgressLineBottomInset + homeIndicatorInsetInCard,
+                bottom: isInsetCard ? heroProgressLineBottomInsetInInsetCard : homeIndicatorInsetInCard + heroProgressLineGapAboveHomeIndicator,
                 trailing: progressLineHorizontalInset
             ),
             wholeHeroMediaInsets: EdgeInsets(top: max(topRowBottom - card.minY, 0), leading: 0, bottom: homeIndicatorInsetInCard, trailing: 0)

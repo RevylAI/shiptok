@@ -28,6 +28,7 @@ struct DemoSignInPromptSheet: View {
     let action: DemoSignInPromptAction
     let signInSession: GitHubSignInSession
     @Environment(\.dismiss) private var dismiss
+    @State private var contentHeight: CGFloat?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -57,7 +58,13 @@ struct DemoSignInPromptSheet: View {
         }
         .padding(24)
         .frame(maxWidth: 440)
-        .presentationDetents([.medium])
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { contentGeometry in
+            contentGeometry.size.height
+        } action: { measuredContentHeight in
+            contentHeight = measuredContentHeight
+        }
+        .presentationDetents(contentHeight.map { [.height($0)] } ?? [.medium])
         .presentationDragIndicator(.visible)
         .presentationBackground(RevylBrandColor.surface)
     }
