@@ -46,8 +46,7 @@ struct FeedCardView: View {
     let heroMediaItem: PullRequestMediaItem?
     let isHeroMediaUnloadable: Bool
     let analyticsSubject: ShipTokAnalyticsSubject
-    let pageChromeInsets: EdgeInsets
-    let systemOcclusionFrames: [CGRect]
+    let pageLayout: FeedPageLayout
     let videoScrubFraction: CGFloat?
     let vibeFeedbackComposerHeight: CGFloat
     let isBehindVibeFeedbackComposer: Bool
@@ -78,25 +77,11 @@ struct FeedCardView: View {
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
 
     private static let cardCornerRadius: CGFloat = 6
-    private static let cardMargin: CGFloat = 8
-    private static let cardMaximumTopInset: CGFloat = 30
-    private static let cardToTabBarSpacing: CGFloat = 30
-    private static let railColumnWidth: CGFloat = 84
-    private static let minimumSystemRailStripWidth: CGFloat = 56
-    private static let reelsVideoWidthToHeightRatio: CGFloat = 9.0 / 16.0
     private static let overlayInset: CGFloat = 16
-    private static let captionBottomInset: CGFloat = 32
     private static let captionToComposerSpacing: CGFloat = 12
     private static let captionToRailSpacing: CGFloat = 8
-    private static let railBottomInsetInColumn: CGFloat = 8
-    private static let railBottomInsetOverCard: CGFloat = 28
-    private static let videoScrubZoneDepthBelowCard: CGFloat = 12
-    private static let railTrailingInsetOverCard: CGFloat = 4
     private static let captionBackdropFadeHeight: CGFloat = 80
-    private static let captionBackdropTintOpacity = 0.65
     private static let captionBackdropBlurClearanceAboveProgressLine: CGFloat = 6
-    private static let railWidth: CGFloat = 54
-    private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
     private static let shipTokVideoSize = CGSize(width: 1080, height: 1920)
     private static let shipTokVideoSafeZoneTopFractionOfHeight: CGFloat = 322.0 / 1920.0
@@ -123,22 +108,20 @@ struct FeedCardView: View {
         isReactionPickerPresented || showsOnlyHeroBehindVibeFeedbackComposer || isHeroPlaybackGestureActive
     }
 
+    // The hero keeps one place in the view tree whatever the page layout, so a playing video never restarts when the window changes shape.
     var body: some View {
         GeometryReader { geometry in
             let arrangedFrames = cardFrames(in: geometry.size)
             ZStack(alignment: .topLeading) {
-                ZStack(alignment: .bottom) {
-                    heroMedia
-                    captionBackdrop(frames: arrangedFrames)
-                }
-                .frame(width: arrangedFrames.card.width, height: arrangedFrames.card.height)
-                .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
-                .overlay {
-                    if isHeroLoadableVideo {
-                        heroFastPlaybackHoldArea
+                heroMedia(captionBackdrop: captionBackdrop(frames: arrangedFrames))
+                    .frame(width: arrangedFrames.card.width, height: arrangedFrames.card.height)
+                    .clipShape(RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous))
+                    .overlay {
+                        if isHeroLoadableVideo {
+                            heroFastPlaybackHoldArea
+                        }
                     }
-                }
-                .offset(x: arrangedFrames.card.minX, y: arrangedFrames.card.minY)
+                    .offset(x: arrangedFrames.card.minX, y: arrangedFrames.card.minY)
                 if case .pullRequest(let pullRequest) = post, heroMediaItem == nil {
                     let summaryFrame = pullRequestSummaryFrame(frames: arrangedFrames)
                     pullRequestSummary(pullRequest)
@@ -163,6 +146,12 @@ struct FeedCardView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
             .coordinateSpace(.named(Self.cardCoordinateSpaceName))
+            // A sideways swipe is the only visible way to cast a vibe, so every element on the card offers both to VoiceOver (AGENTS.md, "Vibes").
+            .accessibilityActions {
+                ForEach(PullRequestVibe.allCases, id: \.self) { vibe in
+                    Button(vibe.displayName) { vibes.onCast(vibe) }
+                }
+            }
             .background(RevylBrandColor.canvas)
             .overlay {
                 if isBehindVibeFeedbackComposer {
@@ -198,76 +187,27 @@ struct FeedCardView: View {
         }
     }
 
-    // Placement reads only the window's size and safe area, never the device or its orientation, and the hero keeps one place in the view tree, so a playing video never restarts when the window changes shape.
-    static func cardFrame(in pageSize: CGSize, pageChromeInsets insets: EdgeInsets) -> (card: CGRect, railColumnLeading: CGFloat?) {
-        let cardTop = max(cardMargin, min(insets.top, cardMaximumTopInset))
-        let cardHeight = max(pageSize.height - insets.bottom - cardToTabBarSpacing - cardTop, 0)
-        let railColumnWidth = max(insets.trailing, Self.railColumnWidth)
-        let centeredCardLeading = max(insets.leading, railColumnWidth)
-        let centeredCardWidth = pageSize.width - centeredCardLeading - railColumnWidth
-        if centeredCardWidth >= cardHeight * reelsVideoWidthToHeightRatio {
-            return (CGRect(x: centeredCardLeading, y: cardTop, width: centeredCardWidth, height: cardHeight), pageSize.width - railColumnWidth)
-        }
-        let cardLeading = max(insets.leading, cardMargin)
-        let systemRailStripWidth = insets.trailing >= minimumSystemRailStripWidth ? insets.trailing : nil
-        let cardTrailingInset = systemRailStripWidth ?? max(insets.trailing, cardMargin)
-        let card = CGRect(x: cardLeading, y: cardTop, width: max(pageSize.width - cardLeading - cardTrailingInset, 0), height: cardHeight)
-        return (card, systemRailStripWidth.map { pageSize.width - $0 })
-    }
-
-    // The strip under the caption around the video's progress line, where a sideways drag scrubs the hero video instead of casting a vibe; it stops well above the tab bar (AGENTS.md, "Swipe Gestures").
-    static func videoScrubZone(cardFrame: CGRect) -> CGRect {
-        CGRect(
-            x: cardFrame.minX,
-            y: cardFrame.maxY - captionBottomInset,
-            width: cardFrame.width,
-            height: captionBottomInset + videoScrubZoneDepthBelowCard
-        )
-    }
-
-    static func videoScrubFraction(atX fingerX: CGFloat, cardFrame: CGRect) -> CGFloat {
-        let progressLineInset = PullRequestMediaItemView.heroProgressLineHorizontalInset
-        let progressLineWidth = max(cardFrame.width - 2 * progressLineInset, 1)
-        return min(max((fingerX - cardFrame.minX - progressLineInset) / progressLineWidth, 0), 1)
-    }
-
     private func cardFrames(in pageSize: CGSize) -> CardFrames {
-        let insets = pageChromeInsets
-        let (card, railColumnLeading) = Self.cardFrame(in: pageSize, pageChromeInsets: insets)
-        let railX: CGFloat
-        let railBottom: CGFloat
-        let captionTrailingInset: CGFloat
-        if let railColumnLeading {
-            railX = railColumnLeading + (pageSize.width - railColumnLeading - Self.railWidth) / 2
-            railBottom = card.maxY - Self.railBottomInsetInColumn
-            captionTrailingInset = Self.overlayInset
-        } else {
-            railX = card.maxX - Self.railTrailingInsetOverCard - Self.railWidth
-            railBottom = card.maxY - Self.railBottomInsetOverCard
-            captionTrailingInset = Self.railTrailingInsetOverCard + Self.railWidth + Self.captionToRailSpacing
-        }
-        // The Duo's status strip (its clock, battery and an expanded island) lies inside the safe area, so only the regions the system reserves say where the rail can start (AGENTS.md, "Card Layout").
-        let unobstructedRailTop = card.minY + Self.overlayInset
-        let railTop = systemOcclusionFrames
-            .filter { $0.minY <= unobstructedRailTop && $0.minX < railX + Self.railWidth && $0.maxX > railX }
-            .reduce(unobstructedRailTop) { max($0, $1.maxY) }
-        let rail = CGRect(x: railX, y: railTop, width: Self.railWidth, height: max(railBottom - railTop, 0))
-        let composerTop = pageSize.height - insets.bottom - vibeFeedbackComposerHeight
+        let card = pageLayout.card
+        let captionLeading = card.minX + Self.overlayInset
+        let captionTrailing = pageLayout.isRailBesideCard ? card.maxX - Self.overlayInset : pageLayout.rail.minX - Self.captionToRailSpacing
+        let unobstructedCaptionBottom = pageLayout.contentBottom - FeedPageLayout.captionBottomInset
+        let composerTop = pageSize.height - pageLayout.bottomChromeHeight - vibeFeedbackComposerHeight
         let captionBottom = vibeFeedbackComposerHeight > 0
-            ? min(card.maxY - Self.captionBottomInset, composerTop - Self.captionToComposerSpacing)
-            : card.maxY - Self.captionBottomInset
-        let captionTop = card.minY + Self.overlayInset
+            ? min(unobstructedCaptionBottom, composerTop - Self.captionToComposerSpacing)
+            : unobstructedCaptionBottom
+        let captionTop = max(card.minY, pageLayout.topRow.maxY) + Self.overlayInset
         let caption = CGRect(
-            x: card.minX + Self.overlayInset,
+            x: captionLeading,
             y: captionTop,
-            width: max(card.width - Self.overlayInset - captionTrailingInset, 0),
+            width: max(captionTrailing - captionLeading, 0),
             height: max(captionBottom - captionTop, 0)
         )
-        return CardFrames(card: card, rail: rail, caption: caption)
+        return CardFrames(card: card, rail: pageLayout.rail, caption: caption)
     }
 
     @ViewBuilder
-    private var heroMedia: some View {
+    private func heroMedia(captionBackdrop: FeedCaptionBackdrop) -> some View {
         if let heroMediaItem {
             PullRequestHeroMediaView(
                 mediaItem: heroMediaItem,
@@ -279,11 +219,15 @@ struct FeedCardView: View {
                 pauseToggleTrigger: heroPauseToggleTrigger,
                 isFastPlaybackHeld: isHeroFastPlaybackHeld,
                 videoScrubFraction: videoScrubFraction,
+                progressLineInsets: pageLayout.heroProgressLineInsets,
+                wholeMediaInsets: pageLayout.wholeHeroMediaInsets,
+                captionBackdrop: captionBackdrop,
                 onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem, $0) }
             )
             .id(heroMediaItem.id)
         } else {
             RevylBrandColor.surfaceRaised
+                .overlay(alignment: .bottom) { captionBackdrop }
         }
     }
 
@@ -291,55 +235,46 @@ struct FeedCardView: View {
     private var heroFastPlaybackHoldArea: some View {
         Color.clear
             .contentShape(Rectangle())
-            .padding(.bottom, Self.captionBottomInset)
+            .padding(.bottom, FeedPageLayout.captionBottomInset + pageLayout.homeIndicatorInsetInCard)
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
-    // The tint, not the blur, keeps the caption legible. Drawn over the blur, it holds at least 0.65 black from the caption's top line down, whatever the material does, so on pure white media textPrimary keeps 6.7:1 and the textBody metadata 4.7:1. Above the caption the backdrop fades in over at most 80 points and never starts above the bottom of a ShipTok video's safe zone, so the video's own captions stay sharp; where the caption itself reaches above that line, the backdrop starts at the caption's top (AGENTS.md, "Card Layout"). The blur only keeps the media's own detail from competing with the caption, and over a video it clears above the progress line so the line stays sharp.
-    private func captionBackdrop(frames: CardFrames) -> some View {
+    // The backdrop fades in over at most 80 points above the caption and never starts above the bottom of a ShipTok video's safe zone, so the video's own
+    // captions stay sharp; where the caption itself reaches above that line, the backdrop starts at the caption's top (AGENTS.md, "Card Layout").
+    private func captionBackdrop(frames: CardFrames) -> FeedCaptionBackdrop {
         let captionTopInCard = frames.caption.maxY - captionHeight - frames.card.minY
         let backdropTopInCard = min(
-            max(captionTopInCard - Self.captionBackdropFadeHeight, Self.shipTokVideoSafeZoneBottom(inCardOfSize: frames.card.size)),
+            max(captionTopInCard - Self.captionBackdropFadeHeight, shipTokVideoSafeZoneBottom(inCardOfSize: frames.card.size)),
             captionTopInCard
         )
         let backdropHeight = max(frames.card.height - backdropTopInCard, 1)
         let fadeEndLocation = (captionTopInCard - backdropTopInCard) / backdropHeight
         var blurMaskStops: [Gradient.Stop] = [.init(color: .clear, location: 0), .init(color: .black, location: fadeEndLocation)]
         if isHeroLoadableVideo {
-            let blurClearHeight = PullRequestMediaItemView.heroProgressLineBottomInset + Self.captionBackdropBlurClearanceAboveProgressLine
+            let blurClearHeight = pageLayout.heroProgressLineInsets.bottom + Self.captionBackdropBlurClearanceAboveProgressLine
             blurMaskStops += [
-                .init(color: .black, location: 1 - Self.captionBottomInset / backdropHeight),
+                .init(color: .black, location: 1 - (FeedPageLayout.captionBottomInset + pageLayout.homeIndicatorInsetInCard) / backdropHeight),
                 .init(color: .clear, location: 1 - blurClearHeight / backdropHeight),
             ]
         }
-        return ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
-                .mask(LinearGradient(stops: blurMaskStops, startPoint: .top, endPoint: .bottom))
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black.opacity(Self.captionBackdropTintOpacity), location: fadeEndLocation),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-        .frame(height: backdropHeight)
-        .opacity(isHeroPlaybackGestureActive ? 0 : 1)
-        .allowsHitTesting(false)
+        return FeedCaptionBackdrop(
+            height: backdropHeight,
+            tintFullLocation: fadeEndLocation,
+            blurMaskStops: blurMaskStops,
+            isHidden: isHeroPlaybackGestureActive
+        )
     }
 
-    // Where the safe zone of a 9:16 ShipTok video ends on a card of this size, the video laid out as the hero lays it out: cropped to fill the card when that loses at most an eighth of it, else whole and centered (AGENTS.md, "Card Layout").
-    private static func shipTokVideoSafeZoneBottom(inCardOfSize cardSize: CGSize) -> CGFloat {
-        let widthScale = cardSize.width / shipTokVideoSize.width
-        let heightScale = cardSize.height / shipTokVideoSize.height
-        let videoScale = PullRequestMediaItemView.heroMediaFillsCard(mediaSize: shipTokVideoSize, cardSize: cardSize)
-            ? max(widthScale, heightScale)
-            : min(widthScale, heightScale)
-        let videoHeight = shipTokVideoSize.height * videoScale
-        return (cardSize.height - videoHeight) / 2 + videoHeight * shipTokVideoSafeZoneBottomFractionOfHeight
+    // Where the safe zone of a 9:16 ShipTok video ends on a card of this size, the video laid out as the hero lays it out: cropped to fill the card when that
+    // loses at most an eighth of it, else whole and centered between the page layout's whole-media insets (AGENTS.md, "Card Layout").
+    private func shipTokVideoSafeZoneBottom(inCardOfSize cardSize: CGSize) -> CGFloat {
+        let fillsCard = PullRequestMediaItemView.heroMediaFillsCard(mediaSize: Self.shipTokVideoSize, cardSize: cardSize)
+        let insets = fillsCard ? EdgeInsets() : pageLayout.wholeHeroMediaInsets
+        let videoBoxSize = CGSize(width: cardSize.width - insets.leading - insets.trailing, height: cardSize.height - insets.top - insets.bottom)
+        let widthScale = videoBoxSize.width / Self.shipTokVideoSize.width
+        let heightScale = videoBoxSize.height / Self.shipTokVideoSize.height
+        let videoHeight = Self.shipTokVideoSize.height * (fillsCard ? max(widthScale, heightScale) : min(widthScale, heightScale))
+        return insets.top + (videoBoxSize.height - videoHeight) / 2 + videoHeight * Self.shipTokVideoSafeZoneBottomFractionOfHeight
     }
 
     // The summary keeps to the band of the card where a ShipTok video keeps everything a viewer must read, beside the rail and above the caption, so nothing the app draws over a card covers it (AGENTS.md, "Card Layout").
@@ -466,7 +401,7 @@ struct FeedCardView: View {
                             .padding(.vertical, 5)
                             .background(Capsule().fill(RevylBrandColor.brandGradient))
                         Text(verbatim: dateText)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.callout.weight(.semibold))
                             .foregroundStyle(RevylBrandColor.textPrimary)
                             .lineLimit(1)
                     }
@@ -480,17 +415,13 @@ struct FeedCardView: View {
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.callout)
                         .foregroundStyle(RevylBrandColor.textPrimary)
                         .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
                     Text(hook)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(RevylBrandColor.textBody)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -512,9 +443,9 @@ struct FeedCardView: View {
             HStack(spacing: 10) {
                 Button(action: onTapCaption) {
                     HStack(spacing: 10) {
-                        GitHubAvatarView(avatarURL: pullRequest.author?.avatarURL, diameter: 34)
+                        GitHubAvatarView(avatarURL: pullRequest.author?.avatarURL, diameter: 36)
                         Text(verbatim: pullRequest.author?.login ?? "ghost")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.callout.weight(.semibold))
                             .foregroundStyle(RevylBrandColor.textPrimary)
                             .lineLimit(1)
                     }
@@ -528,11 +459,9 @@ struct FeedCardView: View {
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(pullRequest.title)
-                        .font(.subheadline)
+                        .font(.callout)
                         .foregroundStyle(RevylBrandColor.textPrimary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
                     HStack(spacing: 4) {
                         Text(verbatim: "#\(pullRequest.number)")
                         Text("·")
@@ -542,7 +471,7 @@ struct FeedCardView: View {
                             Text("\(pullRequest.isDraft ? "Draft · " : "")updated \(pullRequest.updatedAt.formatted(.relative(presentation: .named)))")
                         }
                     }
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(RevylBrandColor.textBody)
                     .lineLimit(1)
                 }
@@ -627,7 +556,7 @@ struct FeedCardView: View {
                 if !isReactionPickerPresented, let viewerReactionOtherThanLike {
                     Text(verbatim: viewerReactionOtherThanLike.emoji)
                         .font(.system(size: 26))
-                        .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
+                        .frame(width: FeedPageLayout.railGlyphSize.width, height: FeedPageLayout.railGlyphSize.height)
                         .actionRailGlyphStyle()
                 } else {
                     railItem(systemImageName: isReactionPickerPresented ? "xmark" : "face.smiling", tint: RevylBrandColor.textPrimary, count: nil)
@@ -641,7 +570,6 @@ struct FeedCardView: View {
             } action: { reactButtonFrame in
                 reactButtonFrameInCard = reactButtonFrame
             }
-            vibesMenu
             if isHeroLoadableVideo {
                 Button { HeroVideoMuteChoice.shared.isMuted.toggle() } label: {
                     railItem(
@@ -663,9 +591,9 @@ struct FeedCardView: View {
                         .font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
                         .foregroundStyle(RevylBrandColor.textPrimary)
                         .contentTransition(.numericText())
-                        .frame(width: Self.railGlyphSize.width, height: 26)
+                        .frame(width: FeedPageLayout.railGlyphSize.width, height: 26)
                         .overlay(Capsule().strokeBorder(RevylBrandColor.textPrimary, lineWidth: 1.5))
-                        .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
+                        .frame(width: FeedPageLayout.railGlyphSize.width, height: FeedPageLayout.railGlyphSize.height)
                         .actionRailGlyphStyle()
                         .animation(.snappy(duration: 0.2), value: playbackRateChoice.chosenPlaybackRate)
                 }
@@ -689,7 +617,7 @@ struct FeedCardView: View {
                 moderationMenu
             }
         }
-        .frame(width: Self.railWidth)
+        .frame(width: FeedPageLayout.railWidth)
     }
 
     private func pullRequestDeckButton(accessibilityLabel: String) -> some View {
@@ -709,31 +637,6 @@ struct FeedCardView: View {
         .accessibilityHint("Report on GitHub or hide a person")
     }
 
-    private var vibesMenu: some View {
-        let viewerVibe = vibes.tally.viewerVibe
-        return Menu {
-            ForEach(PullRequestVibe.allCases, id: \.self) { vibe in
-                Button { vibes.onCast(vibe) } label: {
-                    Label(vibe.displayName, systemImage: vibe.systemImageName)
-                }
-            }
-            if let viewerVibe {
-                Button(role: .destructive, action: vibes.onRemoveViewerVibe) {
-                    Label("Remove your \(viewerVibe.displayName.lowercased())", systemImage: "trash")
-                }
-            }
-        } label: {
-            railItem(
-                systemImageName: viewerVibe.map { "\($0.systemImageName).fill" } ?? "sparkles",
-                tint: viewerVibe?.tintColor ?? RevylBrandColor.textPrimary,
-                count: nil
-            )
-        }
-        .menuOrder(.fixed)
-        .accessibilityLabel("Vibes")
-        .accessibilityValue(viewerVibe?.displayName ?? "")
-    }
-
     private var reactionPicker: some View {
         GitHubReactionPicker(viewerReactions: post.reactions.viewerReactions) { reaction in
             onToggleReaction(reaction)
@@ -743,10 +646,10 @@ struct FeedCardView: View {
 
     private func reactionPickerOffset(cardFrame: CGRect) -> CGSize {
         let pickerSize = GitHubReactionPicker.fittedSize
-        let railLeadingX = reactButtonFrameInCard.midX - Self.railWidth / 2
+        let railLeadingX = reactButtonFrameInCard.midX - FeedPageLayout.railWidth / 2
         let pickerX = railLeadingX - Self.reactionPickerSpacing - pickerSize.width
         let pickerY = reactButtonFrameInCard.midY - pickerSize.height / 2
-        let lowestPickerY = cardFrame.maxY - Self.overlayInset - pickerSize.height
+        let lowestPickerY = pageLayout.contentBottom - Self.overlayInset - pickerSize.height
         let highestPickerY = cardFrame.minY + Self.overlayInset
         return CGSize(
             width: max(pickerX, cardFrame.minX + Self.overlayInset),
@@ -757,9 +660,9 @@ struct FeedCardView: View {
     private func railItem(systemImageName: String, tint: Color, count: Int?) -> some View {
         VStack(spacing: 2) {
             Image(systemName: systemImageName)
-                .font(.system(size: 26, weight: .regular))
+                .font(.actionRailGlyph)
                 .foregroundStyle(tint)
-                .frame(width: Self.railGlyphSize.width, height: Self.railGlyphSize.height)
+                .frame(width: FeedPageLayout.railGlyphSize.width, height: FeedPageLayout.railGlyphSize.height)
                 .actionRailGlyphStyle()
             if let count {
                 Text(Self.compactCount(count))
@@ -775,22 +678,51 @@ struct FeedCardView: View {
     }
 }
 
+// The tint, not the blur, keeps the caption legible. Drawn over the blur, it holds at least 0.65 black from the caption's top line down, whatever the material does, so on pure white media textPrimary keeps 6.7:1 and the textBody metadata 4.7:1. The blur only keeps the media's own detail from competing with the caption, and over a video it clears above the progress line, which the hero draws over this backdrop so the tint never darkens it.
+struct FeedCaptionBackdrop: View {
+    let height: CGFloat
+    let tintFullLocation: CGFloat
+    let blurMaskStops: [Gradient.Stop]
+    let isHidden: Bool
+
+    private static let tintOpacity = 0.65
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .environment(\.colorScheme, .dark)
+                .mask(LinearGradient(stops: blurMaskStops, startPoint: .top, endPoint: .bottom))
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .black.opacity(Self.tintOpacity), location: tintFullLocation),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .frame(height: height)
+        .opacity(isHidden ? 0 : 1)
+        .allowsHitTesting(false)
+    }
+}
+
 // Stacks the rail from the bottom like Reels, closing its gaps when a tall status strip leaves less room, and never letting its top climb above its frame (AGENTS.md, "Card Layout").
 private struct ActionRailStack: Layout {
-    private static let preferredSpacing: CGFloat = 14
     // A glyph's 40-point frame pads its 26-point symbol by 7 points above and below, so neighbors may overlap 6 points of it before the symbols crowd.
     private static let tightestSpacing: CGFloat = -6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let subviewSizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let naturalHeight = subviewSizes.reduce(0) { $0 + $1.height } + Self.preferredSpacing * CGFloat(max(subviews.count - 1, 0))
+        let naturalHeight = subviewSizes.reduce(0) { $0 + $1.height } + FeedPageLayout.railGlyphSpacing * CGFloat(max(subviews.count - 1, 0))
         return CGSize(width: subviewSizes.map(\.width).max() ?? 0, height: min(naturalHeight, proposal.height ?? naturalHeight))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let subviewSizes = subviews.map { $0.sizeThatFits(.unspecified) }
         let contentHeight = subviewSizes.reduce(0) { $0 + $1.height }
-        let spacing = min(Self.preferredSpacing, max((bounds.height - contentHeight) / CGFloat(max(subviews.count - 1, 1)), Self.tightestSpacing))
+        let spacing = min(FeedPageLayout.railGlyphSpacing, max((bounds.height - contentHeight) / CGFloat(max(subviews.count - 1, 1)), Self.tightestSpacing))
         var subviewTop = bounds.minY
         for (subview, subviewSize) in zip(subviews, subviewSizes) {
             subview.place(at: CGPoint(x: bounds.midX, y: subviewTop), anchor: .top, proposal: ProposedViewSize(subviewSize))

@@ -21,7 +21,7 @@ test:
           step_description: Open the demo feed with Look around first
           module: shiptok-open-demo-feed
         - type: instructions
-          step_description: Tap the Settings tab, the person icon at the right of the tab bar at the bottom
+          step_description: Tap Settings, the gear icon at the top right of the feed
         - type: validation
           step_description: Settings shows a Feed section with the Repository RevylAI/shiptok-demo and a 'Videos only' toggle that is on, with a note that Open and Merged show only pull requests that lead with a video
         - type: instructions
@@ -29,13 +29,13 @@ test:
         - type: validation
           step_description: The 'Videos only' toggle is off
         - type: instructions
-          step_description: Tap the Feed tab, the house icon at the left of the tab bar
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
         - type: validation
-          step_description: The demo feed shows a pull request card with 'Merged' selected in the switch at its top left
+          step_description: The demo feed shows a pull request card with 'Merged' the selected tab at the top
         - type: instructions
-          step_description: Tap 'Open' in the switch at the card's top left
+          step_description: Tap 'Open' in the tabs at the top of the feed
         - type: validation
-          step_description: '''Open'' is selected in the switch, and the card shows pull request #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'', #8 ''Find rare bugs when a shopper searches for Rare'' or #9 ''Give each tab in the bottom bar its own icon'''
+          step_description: '''Open'' is the selected tab, and the card shows pull request #7 ''Add the Orchid Mantis to the cart, not a Gold Tortoise'', #8 ''Find rare bugs when a shopper searches for Rare'' or #9 ''Give each tab in the bottom bar its own icon'''
         - type: extraction
           step_description: The pull request number after '#' in the line under the card's title, digits only
           variable_name: first-open-pull-request-number
@@ -55,7 +55,7 @@ test:
         - type: validation
           step_description: The page says 'That's every open PR' and 'You've seen every open pull request in this demo with a video, screenshot or GIF.'
         - type: instructions
-          step_description: Tap the Settings tab again
+          step_description: Tap Settings, the gear icon at the top right of the feed, again
         - type: validation
           step_description: The 'Videos only' toggle is still off
         - type: instructions
@@ -63,9 +63,9 @@ test:
         - type: validation
           step_description: The 'Videos only' toggle is on
         - type: instructions
-          step_description: Tap the Feed tab
+          step_description: Tap 'Feed' at the top left of Settings
         - type: validation
-          step_description: '''Open'' is selected in the switch, and the page says ''That''s every open PR'' and ''You''ve seen every open pull request in this demo that leads with a video.'''
+          step_description: '''Open'' is the selected tab, and the page says ''That''s every open PR'' and ''You''ve seen every open pull request in this demo that leads with a video.'''
         - type: instructions
           step_description: Swipe down on the middle of the page
         - type: validation

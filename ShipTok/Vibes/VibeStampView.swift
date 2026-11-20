@@ -5,7 +5,8 @@ struct VibeStampView: View {
 
     var body: some View {
         let castVibe = FeedSwipeGestureMapping.action(for: horizontalDragProgress >= 0 ? .right : .left).castVibe
-        if let castVibe {
+        // Built only mid-drag: the feed's accessibilityHidden(false) would expose an invisible stamp to VoiceOver, overriding a hidden modifier here.
+        if let castVibe, horizontalDragProgress != 0 {
             Text(castVibe.displayName.uppercased())
                 .font(.system(size: 34, weight: .black))
                 .tracking(2)

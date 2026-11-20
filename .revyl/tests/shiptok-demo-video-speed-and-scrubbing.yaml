@@ -38,6 +38,6 @@ test:
           step_description: The title of the pull request on the card
           variable_name: scrubbed-pull-request-title
         - type: instructions
-          step_description: Press on the thin progress line at the bottom of the card near its left end and drag sideways to the right along the line to about its middle, then lift
+          step_description: Press on the thin progress line at the bottom of the card a short way in from its left end, not at the screen's edge, and drag sideways to the right along the line to about its middle, then lift
         - type: validation
-          step_description: The card still shows '{{scrubbed-pull-request-title}}', no sign-in sheet opened, and the video's progress line is filled to roughly where the drag ended
+          step_description: The card still shows '{{scrubbed-pull-request-title}}', no sign-in sheet opened, and the video's progress line is filled to roughly where the drag ended, or a little past it since the video keeps playing

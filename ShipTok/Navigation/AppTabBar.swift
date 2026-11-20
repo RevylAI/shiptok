@@ -6,7 +6,7 @@ enum AppTab: CaseIterable {
     case settings
 }
 
-// A floating pill like Instagram's tab bar; the inbox and settings tabs replace the feed while it pauses (AGENTS.md, "Card Layout").
+// A floating pill like Instagram's tab bar, shown where the card leaves room for it; the inbox and settings tabs replace the feed while it pauses (AGENTS.md, "Card Layout").
 struct AppTabBar: View {
     static let height: CGFloat = 60
 
@@ -62,17 +62,7 @@ struct AppTabBar: View {
                 .font(.system(size: 21, weight: .semibold))
                 .foregroundStyle(RevylBrandColor.textPrimary)
                 .overlay(alignment: .topTrailing) {
-                    if unseenInboxItemCount > 0 {
-                        Text(unseenInboxItemCount > 99 ? "99+" : "\(unseenInboxItemCount)")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.white)
-                            .contentTransition(.numericText(value: Double(unseenInboxItemCount)))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(RevylBrandColor.danger))
-                            .offset(x: 10, y: -8)
-                            .transition(.scale.combined(with: .opacity))
-                    }
+                    UnseenInboxCountBadge(unseenItemCount: unseenInboxItemCount)
                 }
         case .settings:
             if let viewerAvatarURL {

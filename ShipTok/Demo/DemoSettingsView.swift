@@ -6,6 +6,7 @@ struct DemoSettingsView: View {
     let signInSession: GitHubSignInSession
     // Kept only for the visit, like everything else a demo visitor chooses.
     @Binding var showsOnlyPullRequestsWithVideos: Bool
+    let onShowFeed: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -61,6 +62,7 @@ struct DemoSettingsView: View {
             .background(RevylBrandColor.surface)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .backToFeedToolbarItem(onShowFeed)
         }
     }
 }
