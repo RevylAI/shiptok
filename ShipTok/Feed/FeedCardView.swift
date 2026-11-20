@@ -93,6 +93,8 @@ struct FeedCardView: View {
     private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
+    private static let shipTokVideoSize = CGSize(width: 1080, height: 1920)
+    private static let shipTokVideoSafeZoneBottomFractionOfHeight: CGFloat = 1376.0 / 1920.0
     private nonisolated static let cardCoordinateSpaceName = "feedCard"
 
     // The box rides the keyboard over the card, so the caption would show half-covered around it; only the dimmed hero stays.
@@ -274,18 +276,21 @@ struct FeedCardView: View {
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
-    // The tint, not the blur, keeps the caption legible. Drawn over the blur, it holds at least 0.65 black from the caption's top line down, whatever the material does, so on pure white media textPrimary keeps 6.7:1 and the textBody metadata 4.7:1. The blur only keeps the media's own detail from competing with the caption, and over a video it clears above the progress line so the line stays sharp.
+    // The tint, not the blur, keeps the caption legible. Drawn over the blur, it holds at least 0.65 black from the caption's top line down, whatever the material does, so on pure white media textPrimary keeps 6.7:1 and the textBody metadata 4.7:1. Above the caption the backdrop fades in over at most 80 points and never starts above the bottom of a ShipTok video's safe zone, so the video's own captions stay sharp; where the caption itself reaches above that line, the backdrop starts at the caption's top (AGENTS.md, "Card Layout"). The blur only keeps the media's own detail from competing with the caption, and over a video it clears above the progress line so the line stays sharp.
     private func captionBackdrop(frames: CardFrames) -> some View {
         let captionTopInCard = frames.caption.maxY - captionHeight - frames.card.minY
-        let backdropHeight = min(frames.card.height - captionTopInCard + Self.captionBackdropFadeHeight, frames.card.height)
-        let gradientHeight = max(backdropHeight, Self.captionBackdropFadeHeight)
-        let fadeEndLocation = Self.captionBackdropFadeHeight / gradientHeight
+        let backdropTopInCard = min(
+            max(captionTopInCard - Self.captionBackdropFadeHeight, Self.shipTokVideoSafeZoneBottom(inCardOfSize: frames.card.size)),
+            captionTopInCard
+        )
+        let backdropHeight = max(frames.card.height - backdropTopInCard, 1)
+        let fadeEndLocation = (captionTopInCard - backdropTopInCard) / backdropHeight
         var blurMaskStops: [Gradient.Stop] = [.init(color: .clear, location: 0), .init(color: .black, location: fadeEndLocation)]
         if isHeroLoadableVideo {
             let blurClearHeight = PullRequestMediaItemView.heroProgressLineBottomInset + Self.captionBackdropBlurClearanceAboveProgressLine
             blurMaskStops += [
-                .init(color: .black, location: 1 - Self.captionBottomInset / gradientHeight),
-                .init(color: .clear, location: 1 - blurClearHeight / gradientHeight),
+                .init(color: .black, location: 1 - Self.captionBottomInset / backdropHeight),
+                .init(color: .clear, location: 1 - blurClearHeight / backdropHeight),
             ]
         }
         return ZStack {
@@ -302,9 +307,20 @@ struct FeedCardView: View {
                 endPoint: .bottom
             )
         }
-        .frame(height: max(backdropHeight, 0))
+        .frame(height: backdropHeight)
         .opacity(isHeroPlaybackGestureActive ? 0 : 1)
         .allowsHitTesting(false)
+    }
+
+    // Where the safe zone of a 9:16 ShipTok video ends on a card of this size, the video laid out as the hero lays it out: cropped to fill the card when that loses at most an eighth of it, else whole and centered (AGENTS.md, "Card Layout").
+    private static func shipTokVideoSafeZoneBottom(inCardOfSize cardSize: CGSize) -> CGFloat {
+        let widthScale = cardSize.width / shipTokVideoSize.width
+        let heightScale = cardSize.height / shipTokVideoSize.height
+        let videoScale = PullRequestMediaItemView.heroMediaFillsCard(mediaSize: shipTokVideoSize, cardSize: cardSize)
+            ? max(widthScale, heightScale)
+            : min(widthScale, heightScale)
+        let videoHeight = shipTokVideoSize.height * videoScale
+        return (cardSize.height - videoHeight) / 2 + videoHeight * shipTokVideoSafeZoneBottomFractionOfHeight
     }
 
     @ViewBuilder
