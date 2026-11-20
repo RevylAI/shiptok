@@ -79,7 +79,7 @@ struct RevylShipTokAPI: Sendable {
         sessionConfiguration.urlCache = nil
         sessionConfiguration.httpCookieStorage = nil
         sessionConfiguration.urlCredentialStorage = nil
-        return URLSession(configuration: sessionConfiguration)
+        return URLSession(configuration: sessionConfiguration, delegate: RevylAPIRedirectRefusingDelegate(), delegateQueue: nil)
     }()
 
     func revylSignInAuthorizationURL(state: String, codeChallenge: String) async throws -> URL {
@@ -277,6 +277,13 @@ struct RevylRefusal: Decodable {
 
     static func decode(from responseData: Data) -> RevylRefusal? {
         try? JSONDecoder().decode(Body.self, from: responseData).detail
+    }
+}
+
+// None of these routes redirects, and a followed redirect would carry the Revyl key, a GitHub token or a sign-in code wherever it pointed, so a 3xx comes back as an unexpected answer instead (AGENTS.md, "iOS App").
+private final class RevylAPIRedirectRefusingDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
 
