@@ -17,12 +17,77 @@ enum SignInCallbackError: LocalizedError {
     }
 }
 
-// Revyl's part of Delete my ShipTok data is done, and only this iPhone's is left to try again.
-struct ShipTokDataDeletionUnfinishedError: LocalizedError {
-    let cleanupError: Error
+// A deletion Revyl has done its part of, which can't run twice, and what it still owes: the GitHub token revocation Delete my Revyl account leaves to the app, then this iPhone's part. It's saved in the defaults as soon as Revyl confirms, so a quit or a failure leaves it for the next launch or Revyl sign-in to finish, and this iPhone's part removes it last, with the rest of the defaults (AGENTS.md, "Ownership And Boundaries").
+struct UnfinishedDeletion {
+    enum Kind: String {
+        case shipTokData = "shiptok_data"
+        case revylAccount = "revyl_account"
+    }
+
+    enum GitHubTokenRevocation: String {
+        case owed
+        case failed
+        case notOwed = "not_owed"
+    }
+
+    private static let defaultsKey = "unfinished-deletion"
+    // Releases from before the Revyl sign-in saved only an unfinished Delete my ShipTok data, as the person's GitHub user ID.
+    private static let earlierReleasesShipTokDataDeletionDefaultsKey = "unfinished-data-deletion-github-user-id"
+
+    let kind: Kind
+    var gitHubTokenRevocation: GitHubTokenRevocation
+
+    static func loadSaved() -> UnfinishedDeletion? {
+        if let savedDeletion = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: String],
+           let kind = savedDeletion["kind"].flatMap(Kind.init(rawValue:)),
+           let gitHubTokenRevocation = savedDeletion["github_token_revocation"].flatMap(GitHubTokenRevocation.init(rawValue:)) {
+            return UnfinishedDeletion(kind: kind, gitHubTokenRevocation: gitHubTokenRevocation)
+        }
+        guard UserDefaults.standard.object(forKey: earlierReleasesShipTokDataDeletionDefaultsKey) != nil else { return nil }
+        return UnfinishedDeletion(kind: .shipTokData, gitHubTokenRevocation: .notOwed)
+    }
+
+    func save() {
+        UserDefaults.standard.set(["kind": kind.rawValue, "github_token_revocation": gitHubTokenRevocation.rawValue], forKey: Self.defaultsKey)
+    }
+
+    var signInEndReason: ShipTokAnalyticsEvent.SignInEndReason {
+        switch kind {
+        case .shipTokData: .dataDeleted
+        case .revylAccount: .revylAccountDeleted
+        }
+    }
+
+    var firstScreenShowReason: ShipTokAnalyticsEvent.FirstScreenShowReason {
+        switch kind {
+        case .shipTokData: .dataDeleted
+        case .revylAccount: .revylAccountDeleted
+        }
+    }
+
+    var completionMessage: String {
+        switch (kind, gitHubTokenRevocation) {
+        case (.shipTokData, _):
+            "Your ShipTok data is deleted. Your comments, reactions and vibes stay on GitHub."
+        case (.revylAccount, .failed):
+            "Your Revyl account is deleted, but ShipTok couldn't end its access to your GitHub account. Revoke Revyl's GitHub App under Applications in your GitHub settings. Your comments, reactions and vibes stay on GitHub."
+        case (.revylAccount, .owed), (.revylAccount, .notOwed):
+            "Your Revyl account is deleted. Your comments, reactions and vibes stay on GitHub."
+        }
+    }
+}
+
+// Revyl's part of a deletion is done, and only this iPhone's is left to try again.
+struct UnfinishedDeletionError: LocalizedError {
+    let kind: UnfinishedDeletion.Kind
+    let cleanupError: any Error
 
     var errorDescription: String? {
-        "Revyl deleted your ShipTok data. \(cleanupError.localizedDescription) Try again or open ShipTok again to finish on this iPhone."
+        let revylPart = switch kind {
+        case .shipTokData: "Revyl deleted your ShipTok data."
+        case .revylAccount: "Revyl deleted your Revyl account."
+        }
+        return "\(revylPart) \(cleanupError.localizedDescription) Try again or open ShipTok again to finish on this iPhone."
     }
 }
 
@@ -49,10 +114,6 @@ final class ShipTokSignInSession {
 
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "sign-in")
     private static let signedOutReasonDefaultsKey = "signed-out-reason"
-    // Revyl's deletion revokes the sign-in's token, so it can't run twice: once it's done, only this iPhone's part is left, across launches too.
-    private static let unfinishedDataDeletionGitHubUserIDDefaultsKey = "unfinished-data-deletion-github-user-id"
-    private static let dataDeletedMessage = "Your ShipTok data is deleted. Your comments, reactions and vibes stay on GitHub."
-    private static let revylAccountDeletedMessage = "Your Revyl account is deleted. Your comments, reactions and vibes stay on GitHub."
     private static let signInCallbackURLScheme = "shiptok"
 
     private(set) var phase: Phase = .restoring
@@ -79,8 +140,8 @@ final class ShipTokSignInSession {
 
     func restoreSavedSession() async {
         do {
-            if try await finishUnfinishedDataDeletion() {
-                showFirstScreen(reason: .dataDeleted, message: Self.dataDeletedMessage)
+            if let finishedDeletion = try await finishUnfinishedDeletion() {
+                showFirstScreen(reason: finishedDeletion.firstScreenShowReason, message: finishedDeletion.completionMessage)
                 return
             }
         } catch {
@@ -126,8 +187,8 @@ final class ShipTokSignInSession {
         let newRevylAPIKey: String
         do {
             // An unfinished deletion would take a new sign-in with it on the next launch, so it finishes before Revyl's sign-in opens.
-            if try await finishUnfinishedDataDeletion() {
-                firstScreenVisit.message = Self.dataDeletedMessage
+            if let finishedDeletion = try await finishUnfinishedDeletion() {
+                firstScreenVisit.message = finishedDeletion.completionMessage
                 phase = .signedOut(firstScreenVisit)
             }
             let proofKey = ProofKeyForCodeExchange.generate()
@@ -257,7 +318,9 @@ final class ShipTokSignInSession {
         try await teammate.accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
             try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
         }
-        UserDefaults.standard.set(teammate.user.githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
+        // Revyl's part can't run again, so what's left is saved before anything else can stop it.
+        let unfinishedDeletion = UnfinishedDeletion(kind: .shipTokData, gitHubTokenRevocation: .notOwed)
+        unfinishedDeletion.save()
         await revokeRevylAPIKeyIfRevylCan(revylAPIKey)
         self.revylAPIKey = nil
         teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
@@ -265,14 +328,14 @@ final class ShipTokSignInSession {
         await teammate.feedWork.stopAndWaitForRunningWork()
         // Revyl has revoked the sign-in's tokens, so its feed can't work any more: if this iPhone's part fails, the app leaves for the first screen saying the deletion is unfinished, as the next launch would.
         do {
-            try await finishDeletingShipTokDataOnThisIPhone(signInEndReason: .dataDeleted)
-            showFirstScreen(reason: .dataDeleted, message: Self.dataDeletedMessage)
+            try await finishDeletingOnThisIPhone(unfinishedDeletion)
+            showFirstScreen(reason: unfinishedDeletion.firstScreenShowReason, message: unfinishedDeletion.completionMessage)
         } catch {
             showFirstScreen(reason: .failure, message: error.localizedDescription)
         }
     }
 
-    // Revyl deletes the account with its keys, its GitHub connection and that GitHub account's ShipTok settings; then the GitHub token this iPhone holds is revoked as Delete my ShipTok data revokes it, and the iPhone forgets everything ShipTok kept. Revyl's part can't run twice, since it revokes the key, so a failed revocation tells the person where to revoke it on GitHub (AGENTS.md, "Revyl Sign-In").
+    // Revyl deletes the account with its keys, its GitHub connection and that GitHub account's ShipTok settings; then the GitHub token this iPhone holds is revoked as Delete my ShipTok data revokes it, and the iPhone forgets everything ShipTok kept. Revyl's part can't run twice, since it revokes the key, so what's left is saved as soon as Revyl confirms, with or without a GitHub sign-in on this iPhone, and a failed revocation tells the person where to revoke it on GitHub (AGENTS.md, "Revyl Sign-In").
     func deleteRevylAccount() async throws {
         guard let revylAPIKey, !isDeletingRevylAccount, !isDeletingShipTokData, !isSigningOut else { return }
         let teammate: SignedInTeammate?
@@ -302,23 +365,12 @@ final class ShipTokSignInSession {
             guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey) else { return }
             throw error
         }
+        var unfinishedDeletion = UnfinishedDeletion(kind: .revylAccount, gitHubTokenRevocation: .owed)
+        unfinishedDeletion.save()
         self.revylAPIKey = nil
         Self.logger.info("Deleted the Revyl account")
-        var message = Self.revylAccountDeletedMessage
-        let storedGitHubSignIn = try? ShipTokSignInKeychainStore.loadStoredGitHubSignIn()
-        if let accessTokenVault = teammate?.accessTokenVault ?? storedGitHubSignIn.map({ GitHubAccessTokenVault(tokens: $0.tokens) }) {
-            do {
-                try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
-                    try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
-                }
-            } catch {
-                Self.logger.error("Ending ShipTok's GitHub access after deleting the Revyl account failed: \(error.publicLogDescription, privacy: .public)")
-                message = "Your Revyl account is deleted, but ShipTok couldn't end its access to your GitHub account. Revoke Revyl's GitHub App under Applications in your GitHub settings. Your comments, reactions and vibes stay on GitHub."
-            }
-        }
-        if let githubUserID = teammate?.user.githubUserID ?? storedGitHubSignIn?.user.githubUserID {
-            UserDefaults.standard.set(githubUserID, forKey: Self.unfinishedDataDeletionGitHubUserIDDefaultsKey)
-        }
+        unfinishedDeletion.gitHubTokenRevocation = await revokeGitHubAccessToken(heldBy: teammate?.accessTokenVault)
+        unfinishedDeletion.save()
         if let teammate {
             teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
             await teammate.feedWork.stopAndWaitForRunningWork()
@@ -328,8 +380,8 @@ final class ShipTokSignInSession {
             demoVisitor.feedWork.stop()
         }
         do {
-            try await finishDeletingShipTokDataOnThisIPhone(signInEndReason: .revylAccountDeleted)
-            showFirstScreen(reason: .revylAccountDeleted, message: message)
+            try await finishDeletingOnThisIPhone(unfinishedDeletion)
+            showFirstScreen(reason: unfinishedDeletion.firstScreenShowReason, message: unfinishedDeletion.completionMessage)
         } catch {
             showFirstScreen(reason: .failure, message: error.localizedDescription)
         }
@@ -588,8 +640,8 @@ final class ShipTokSignInSession {
             return .codeMissing
         case RevylShipTokAPIError.revylSignInExpired:
             return .signInExpired
-        case let dataDeletionUnfinishedError as ShipTokDataDeletionUnfinishedError:
-            return revylSignInFailureReason(for: dataDeletionUnfinishedError.cleanupError)
+        case let unfinishedDeletionError as UnfinishedDeletionError:
+            return revylSignInFailureReason(for: unfinishedDeletionError.cleanupError)
         case is ShipTokSignInKeychainError:
             return .keychainFailed
         default:
@@ -613,35 +665,53 @@ final class ShipTokSignInSession {
         }
     }
 
-    private static var unfinishedDataDeletionGitHubUserID: Int64? {
-        UserDefaults.standard.object(forKey: unfinishedDataDeletionGitHubUserIDDefaultsKey) as? Int64
+    // Finishes the deletion a quit or a failure left unfinished: the GitHub token revocation it still owes, then this iPhone's part. Nil when none was left.
+    private func finishUnfinishedDeletion() async throws -> UnfinishedDeletion? {
+        guard var unfinishedDeletion = UnfinishedDeletion.loadSaved() else { return nil }
+        if unfinishedDeletion.gitHubTokenRevocation == .owed {
+            unfinishedDeletion.gitHubTokenRevocation = await revokeGitHubAccessToken(heldBy: nil)
+            unfinishedDeletion.save()
+        }
+        try await finishDeletingOnThisIPhone(unfinishedDeletion)
+        return unfinishedDeletion
     }
 
-    // True when a deletion was left to finish and now is.
-    private func finishUnfinishedDataDeletion() async throws -> Bool {
-        guard Self.unfinishedDataDeletionGitHubUserID != nil else { return false }
-        try await finishDeletingShipTokDataOnThisIPhone(signInEndReason: .dataDeleted)
-        return true
+    // Revokes the GitHub token this iPhone holds as Delete my ShipTok data revokes it, through the feed's own token vault when there is one. A GitHub sign-in GitHub already refuses has nothing left to revoke.
+    private func revokeGitHubAccessToken(heldBy feedAccessTokenVault: GitHubAccessTokenVault?) async -> UnfinishedDeletion.GitHubTokenRevocation {
+        do {
+            guard let accessTokenVault = try feedAccessTokenVault ?? ShipTokSignInKeychainStore.loadStoredGitHubSignIn().map({ GitHubAccessTokenVault(tokens: $0.tokens) }) else {
+                return .notOwed
+            }
+            try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
+                try await shipTokAPI.deleteUserData(gitHubAccessToken: accessToken)
+            }
+            return .notOwed
+        } catch where Self.isGitHubSignInRefusal(error) {
+            return .notOwed
+        } catch {
+            Self.logger.error("Ending ShipTok's GitHub access after deleting the Revyl account failed: \(error.publicLogDescription, privacy: .public)")
+            return .failed
+        }
     }
 
     // The record of the unfinished deletion goes last, with the defaults, so a failure or a quit midway is finished on the next try or launch; callers report success only once this returns.
-    private func finishDeletingShipTokDataOnThisIPhone(signInEndReason: ShipTokAnalyticsEvent.SignInEndReason) async throws {
+    private func finishDeletingOnThisIPhone(_ unfinishedDeletion: UnfinishedDeletion) async throws {
         do {
             if let storedGitHubSignIn = try ShipTokSignInKeychainStore.loadStoredGitHubSignIn() {
                 try ShipTokSignInKeychainStore.deleteStoredGitHubSignIn()
-                ShipTokAnalytics(githubUserID: storedGitHubSignIn.user.githubUserID).capture(.signInEnded(reason: signInEndReason))
+                ShipTokAnalytics(githubUserID: storedGitHubSignIn.user.githubUserID).capture(.signInEnded(reason: unfinishedDeletion.signInEndReason))
             }
             try ShipTokSignInKeychainStore.deleteRevylAPIKey()
             URLCache.shared.removeAllCachedResponses()
             await PullRequestMediaDiskCache.finishPendingSaves()
             try Self.deleteCachedFiles()
         } catch {
-            throw ShipTokDataDeletionUnfinishedError(cleanupError: error)
+            throw UnfinishedDeletionError(kind: unfinishedDeletion.kind, cleanupError: error)
         }
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
         }
-        Self.logger.info("Deleted this person's ShipTok data")
+        Self.logger.info("Deleted what ShipTok kept on this iPhone")
     }
 
     // The deletion finishes only once the app's own caches are gone. Anything else under Caches is iOS's, which may refuse its removal, so it goes best effort.
