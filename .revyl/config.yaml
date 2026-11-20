@@ -3,6 +3,10 @@ project:
 run_test_definitions_from_git: true
 session:
   idle_timeout_seconds: 1800
+  default_profile: signed-in
+  profiles:
+    signed-in:
+      script: scripts/revyl/signed-in-session-profile.py
 build:
   framework: ios
   profiles:

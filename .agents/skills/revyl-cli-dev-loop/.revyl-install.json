@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "name": "revyl-cli-dev-loop",
-  "cli_version": "v0.2.18",
+  "cli_version": "v0.2.38",
   "files": {
-    "SKILL.md": "04cba4ac947109bc2522192e02357cecdd241dfd0c64b8f7a20fc81595e73df8",
+    "SKILL.md": "783e8f0e5d5ca4384dcf60e4fa5ec5e6e441fb37d96f30c7f83c0019cf41f639",
     "agents/openai.yaml": "f5a4adebb2752f95c8cc1add51e6a8ffca7791943c9ddb975656d5de4173d81b"
   }
 }

@@ -64,6 +64,16 @@ final class GitHubSignInSession {
             phase = .signedOut(message: error.localizedDescription)
             return
         }
+        // The app never refreshes a launch sign-in's token, so a relaunch with the same arguments finds it already saved and keeps what the session chose since.
+        if let launchGitHubUserAccessToken = LaunchArgumentSignIn.gitHubUserAccessToken, storedSignIn?.tokens.accessToken != launchGitHubUserAccessToken {
+            do {
+                activate(try await LaunchArgumentSignIn.signIn(gitHubUserAccessToken: launchGitHubUserAccessToken))
+                UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
+            } catch {
+                phase = .signedOut(message: error.localizedDescription)
+            }
+            return
+        }
         guard let storedSignIn else {
             phase = .signedOut(message: UserDefaults.standard.string(forKey: Self.signedOutReasonDefaultsKey))
             return
