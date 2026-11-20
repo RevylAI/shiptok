@@ -9,6 +9,7 @@ struct SettingsView: View {
     let chosenRepositoryFullName: String
     let signInSession: GitHubSignInSession
     let onChooseRepository: @MainActor (String) async -> Void
+    let onShowFeed: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -72,6 +73,7 @@ struct SettingsView: View {
             .background(RevylBrandColor.surface)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .backToFeedToolbarItem(onShowFeed)
         }
         .task { await userSettingsStore.refresh() }
         .alert(

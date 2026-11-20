@@ -21,6 +21,8 @@ struct PullRequestMediaItemView: View {
     var pauseToggleTrigger = 0
     var isFastPlaybackHeld = false
     var videoScrubFraction: CGFloat?
+    var heroProgressLineInsets = EdgeInsets()
+    var wholeHeroMediaInsets = EdgeInsets()
     let onLoadFailure: (_ wasRefusedToViewer: Bool) -> Void
     @State private var loadedImage: LoadedPullRequestImage?
     @State private var videoPlayback: LoopingVideoPlayback?
@@ -40,8 +42,6 @@ struct PullRequestMediaItemView: View {
     @Environment(\.feedViewerMediaCache) private var feedViewerMediaCache
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
     @Environment(\.scenePhase) private var scenePhase
-    static let heroProgressLineHorizontalInset: CGFloat = 16
-    static let heroProgressLineBottomInset: CGFloat = 15
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
     private static let fastPlaybackRate: Float = 2
     private static let deckPageProgressLineHitSlop: CGFloat = 20
@@ -176,8 +176,7 @@ struct PullRequestMediaItemView: View {
                         playbackGestureHint(videoPlayback)
                         VideoPlaybackProgressBar(player: videoPlayback.player, thicknessPoints: 2, scrubFraction: activeVideoScrubFraction)
                     }
-                    .padding(.horizontal, Self.heroProgressLineHorizontalInset)
-                    .padding(.bottom, Self.heroProgressLineBottomInset)
+                    .padding(heroProgressLineInsets)
                 }
             }
             .opacity(isVideoShowing ? 1 : 0)
@@ -276,7 +275,7 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    // Media within an eighth of the card's shape crops to fill it, as Reels fill a phone with a 9:16 video; any other shape shows whole over a blurred copy of itself (AGENTS.md, "Card Layout").
+    // Media within an eighth of the card's shape crops to fill it, as a 9:16 video fills the folded Duo's card; any other shape shows whole within wholeHeroMediaInsets over a blurred copy of itself (AGENTS.md, "Card Layout").
     private func heroFrame<Media: View, Backdrop: View>(
         @ViewBuilder media: @escaping (ContentMode) -> Media,
         @ViewBuilder backdrop: @escaping () -> Backdrop
@@ -290,7 +289,9 @@ struct PullRequestMediaItemView: View {
                         .clipped()
                         .overlay(Color.black.opacity(Self.heroBackdropDimmingOpacity))
                 }
-                media(fillsCard ? .fill : .fit).frame(width: geometry.size.width, height: geometry.size.height)
+                media(fillsCard ? .fill : .fit)
+                    .padding(fillsCard ? EdgeInsets() : wholeHeroMediaInsets)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
             }
             .clipped()
             .contentShape(Rectangle())

@@ -43,8 +43,7 @@ struct FeedCardView: View {
     let heroMediaItem: PullRequestMediaItem?
     let isHeroMediaUnloadable: Bool
     let analyticsSubject: ShipTokAnalyticsSubject
-    let pageChromeInsets: EdgeInsets
-    let systemOcclusionFrames: [CGRect]
+    let pageLayout: FeedPageLayout
     let videoScrubFraction: CGFloat?
     let vibeFeedbackComposerHeight: CGFloat
     let isBehindVibeFeedbackComposer: Bool
@@ -73,24 +72,12 @@ struct FeedCardView: View {
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
 
     private static let cardCornerRadius: CGFloat = 6
-    private static let cardMargin: CGFloat = 8
-    private static let cardMaximumTopInset: CGFloat = 30
-    private static let cardToTabBarSpacing: CGFloat = 30
-    private static let railColumnWidth: CGFloat = 84
-    private static let minimumSystemRailStripWidth: CGFloat = 56
-    private static let reelsVideoWidthToHeightRatio: CGFloat = 9.0 / 16.0
     private static let overlayInset: CGFloat = 16
-    private static let captionBottomInset: CGFloat = 32
     private static let captionToComposerSpacing: CGFloat = 12
     private static let captionToRailSpacing: CGFloat = 8
-    private static let railBottomInsetInColumn: CGFloat = 8
-    private static let railBottomInsetOverCard: CGFloat = 28
-    private static let videoScrubZoneDepthBelowCard: CGFloat = 12
-    private static let railTrailingInsetOverCard: CGFloat = 4
     private static let captionBackdropFadeHeight: CGFloat = 80
     private static let captionBackdropTintOpacity = 0.65
     private static let captionBackdropBlurClearanceAboveProgressLine: CGFloat = 6
-    private static let railWidth: CGFloat = 54
     private static let railGlyphSize = CGSize(width: 44, height: 40)
     private static let reactionPickerSpacing: CGFloat = 8
     private nonisolated static let cardCoordinateSpaceName = "mergedPullRequestCard"
@@ -109,6 +96,7 @@ struct FeedCardView: View {
         isHeroFastPlaybackHeld || videoScrubFraction != nil
     }
 
+    // The hero keeps one place in the view tree whatever the page layout, so a playing video never restarts when the window changes shape.
     var body: some View {
         GeometryReader { geometry in
             let arrangedFrames = cardFrames(in: geometry.size)
@@ -177,72 +165,23 @@ struct FeedCardView: View {
         }
     }
 
-    // Placement reads only the window's size and safe area, never the device or its orientation, and the hero keeps one place in the view tree, so a playing video never restarts when the window changes shape.
-    static func cardFrame(in pageSize: CGSize, pageChromeInsets insets: EdgeInsets) -> (card: CGRect, railColumnLeading: CGFloat?) {
-        let cardTop = max(cardMargin, min(insets.top, cardMaximumTopInset))
-        let cardHeight = max(pageSize.height - insets.bottom - cardToTabBarSpacing - cardTop, 0)
-        let railColumnWidth = max(insets.trailing, Self.railColumnWidth)
-        let centeredCardLeading = max(insets.leading, railColumnWidth)
-        let centeredCardWidth = pageSize.width - centeredCardLeading - railColumnWidth
-        if centeredCardWidth >= cardHeight * reelsVideoWidthToHeightRatio {
-            return (CGRect(x: centeredCardLeading, y: cardTop, width: centeredCardWidth, height: cardHeight), pageSize.width - railColumnWidth)
-        }
-        let cardLeading = max(insets.leading, cardMargin)
-        let systemRailStripWidth = insets.trailing >= minimumSystemRailStripWidth ? insets.trailing : nil
-        let cardTrailingInset = systemRailStripWidth ?? max(insets.trailing, cardMargin)
-        let card = CGRect(x: cardLeading, y: cardTop, width: max(pageSize.width - cardLeading - cardTrailingInset, 0), height: cardHeight)
-        return (card, systemRailStripWidth.map { pageSize.width - $0 })
-    }
-
-    // The strip under the caption around the video's progress line, where a sideways drag scrubs the hero video instead of casting a vibe; it stops well above the tab bar (AGENTS.md, "Swipe Gestures").
-    static func videoScrubZone(cardFrame: CGRect) -> CGRect {
-        CGRect(
-            x: cardFrame.minX,
-            y: cardFrame.maxY - captionBottomInset,
-            width: cardFrame.width,
-            height: captionBottomInset + videoScrubZoneDepthBelowCard
-        )
-    }
-
-    static func videoScrubFraction(atX fingerX: CGFloat, cardFrame: CGRect) -> CGFloat {
-        let progressLineInset = PullRequestMediaItemView.heroProgressLineHorizontalInset
-        let progressLineWidth = max(cardFrame.width - 2 * progressLineInset, 1)
-        return min(max((fingerX - cardFrame.minX - progressLineInset) / progressLineWidth, 0), 1)
-    }
-
     private func cardFrames(in pageSize: CGSize) -> CardFrames {
-        let insets = pageChromeInsets
-        let (card, railColumnLeading) = Self.cardFrame(in: pageSize, pageChromeInsets: insets)
-        let railX: CGFloat
-        let railBottom: CGFloat
-        let captionTrailingInset: CGFloat
-        if let railColumnLeading {
-            railX = railColumnLeading + (pageSize.width - railColumnLeading - Self.railWidth) / 2
-            railBottom = card.maxY - Self.railBottomInsetInColumn
-            captionTrailingInset = Self.overlayInset
-        } else {
-            railX = card.maxX - Self.railTrailingInsetOverCard - Self.railWidth
-            railBottom = card.maxY - Self.railBottomInsetOverCard
-            captionTrailingInset = Self.railTrailingInsetOverCard + Self.railWidth + Self.captionToRailSpacing
-        }
-        // The Duo's status strip (its clock, battery and an expanded island) lies inside the safe area, so only the regions the system reserves say where the rail can start (AGENTS.md, "Card Layout").
-        let unobstructedRailTop = card.minY + Self.overlayInset
-        let railTop = systemOcclusionFrames
-            .filter { $0.minY <= unobstructedRailTop && $0.minX < railX + Self.railWidth && $0.maxX > railX }
-            .reduce(unobstructedRailTop) { max($0, $1.maxY) }
-        let rail = CGRect(x: railX, y: railTop, width: Self.railWidth, height: max(railBottom - railTop, 0))
-        let composerTop = pageSize.height - insets.bottom - vibeFeedbackComposerHeight
+        let card = pageLayout.card
+        let captionLeading = card.minX + Self.overlayInset
+        let captionTrailing = pageLayout.isRailBesideCard ? card.maxX - Self.overlayInset : pageLayout.rail.minX - Self.captionToRailSpacing
+        let unobstructedCaptionBottom = pageLayout.contentBottom - FeedPageLayout.captionBottomInset
+        let composerTop = pageSize.height - pageLayout.bottomChromeHeight - vibeFeedbackComposerHeight
         let captionBottom = vibeFeedbackComposerHeight > 0
-            ? min(card.maxY - Self.captionBottomInset, composerTop - Self.captionToComposerSpacing)
-            : card.maxY - Self.captionBottomInset
-        let captionTop = card.minY + Self.overlayInset
+            ? min(unobstructedCaptionBottom, composerTop - Self.captionToComposerSpacing)
+            : unobstructedCaptionBottom
+        let captionTop = max(card.minY, pageLayout.topRow.maxY) + Self.overlayInset
         let caption = CGRect(
-            x: card.minX + Self.overlayInset,
+            x: captionLeading,
             y: captionTop,
-            width: max(card.width - Self.overlayInset - captionTrailingInset, 0),
+            width: max(captionTrailing - captionLeading, 0),
             height: max(captionBottom - captionTop, 0)
         )
-        return CardFrames(card: card, rail: rail, caption: caption)
+        return CardFrames(card: card, rail: pageLayout.rail, caption: caption)
     }
 
     @ViewBuilder
@@ -258,6 +197,8 @@ struct FeedCardView: View {
                 pauseToggleTrigger: heroPauseToggleTrigger,
                 isFastPlaybackHeld: isHeroFastPlaybackHeld,
                 videoScrubFraction: videoScrubFraction,
+                progressLineInsets: pageLayout.heroProgressLineInsets,
+                wholeMediaInsets: pageLayout.wholeHeroMediaInsets,
                 onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem, $0) }
             )
             .id(heroMediaItem.id)
@@ -270,7 +211,7 @@ struct FeedCardView: View {
     private var heroFastPlaybackHoldArea: some View {
         Color.clear
             .contentShape(Rectangle())
-            .padding(.bottom, Self.captionBottomInset)
+            .padding(.bottom, FeedPageLayout.captionBottomInset + pageLayout.homeIndicatorInsetInCard)
             .fastPlaybackHold(isHeld: $isHeroFastPlaybackHeld)
     }
 
@@ -282,9 +223,9 @@ struct FeedCardView: View {
         let fadeEndLocation = Self.captionBackdropFadeHeight / gradientHeight
         var blurMaskStops: [Gradient.Stop] = [.init(color: .clear, location: 0), .init(color: .black, location: fadeEndLocation)]
         if isHeroLoadableVideo {
-            let blurClearHeight = PullRequestMediaItemView.heroProgressLineBottomInset + Self.captionBackdropBlurClearanceAboveProgressLine
+            let blurClearHeight = pageLayout.heroProgressLineInsets.bottom + Self.captionBackdropBlurClearanceAboveProgressLine
             blurMaskStops += [
-                .init(color: .black, location: 1 - Self.captionBottomInset / gradientHeight),
+                .init(color: .black, location: 1 - (FeedPageLayout.captionBottomInset + pageLayout.homeIndicatorInsetInCard) / gradientHeight),
                 .init(color: .clear, location: 1 - blurClearHeight / gradientHeight),
             ]
         }
@@ -329,7 +270,7 @@ struct FeedCardView: View {
                             .padding(.vertical, 5)
                             .background(Capsule().fill(RevylBrandColor.brandGradient))
                         Text(verbatim: weeklyEdition.weekDatesText)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.callout.weight(.semibold))
                             .foregroundStyle(RevylBrandColor.textPrimary)
                             .lineLimit(1)
                     }
@@ -343,17 +284,13 @@ struct FeedCardView: View {
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(weeklyEdition.title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.callout)
                         .foregroundStyle(RevylBrandColor.textPrimary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
                     Text(weeklyEdition.hook)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(RevylBrandColor.textBody)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -375,9 +312,9 @@ struct FeedCardView: View {
             HStack(spacing: 10) {
                 Button(action: onTapCaption) {
                     HStack(spacing: 10) {
-                        GitHubAvatarView(avatarURL: pullRequest.author?.avatarURL, diameter: 34)
+                        GitHubAvatarView(avatarURL: pullRequest.author?.avatarURL, diameter: 36)
                         Text(verbatim: pullRequest.author?.login ?? "ghost")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.callout.weight(.semibold))
                             .foregroundStyle(RevylBrandColor.textPrimary)
                             .lineLimit(1)
                     }
@@ -391,17 +328,15 @@ struct FeedCardView: View {
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(pullRequest.title)
-                        .font(.subheadline)
+                        .font(.callout)
                         .foregroundStyle(RevylBrandColor.textPrimary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
                     HStack(spacing: 4) {
                         Text(verbatim: "#\(pullRequest.number)")
                         Text("·")
                         Text("merged \(pullRequest.mergedAt.formatted(.relative(presentation: .named)))")
                     }
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(RevylBrandColor.textBody)
                     .lineLimit(1)
                 }
@@ -555,7 +490,7 @@ struct FeedCardView: View {
                 moderationMenu
             }
         }
-        .frame(width: Self.railWidth)
+        .frame(width: FeedPageLayout.railWidth)
     }
 
     private var moderationMenu: some View {
@@ -600,10 +535,10 @@ struct FeedCardView: View {
 
     private func reactionPickerOffset(cardFrame: CGRect) -> CGSize {
         let pickerSize = GitHubReactionPicker.fittedSize
-        let railLeadingX = reactButtonFrameInCard.midX - Self.railWidth / 2
+        let railLeadingX = reactButtonFrameInCard.midX - FeedPageLayout.railWidth / 2
         let pickerX = railLeadingX - Self.reactionPickerSpacing - pickerSize.width
         let pickerY = reactButtonFrameInCard.midY - pickerSize.height / 2
-        let lowestPickerY = cardFrame.maxY - Self.overlayInset - pickerSize.height
+        let lowestPickerY = pageLayout.contentBottom - Self.overlayInset - pickerSize.height
         let highestPickerY = cardFrame.minY + Self.overlayInset
         return CGSize(
             width: max(pickerX, cardFrame.minX + Self.overlayInset),

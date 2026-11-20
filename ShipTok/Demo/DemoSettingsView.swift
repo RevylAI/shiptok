@@ -4,6 +4,7 @@ import SwiftUI
 struct DemoSettingsView: View {
     let demoVisitor: DemoVisitor
     let signInSession: GitHubSignInSession
+    let onShowFeed: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -48,6 +49,7 @@ struct DemoSettingsView: View {
             .background(RevylBrandColor.surface)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .backToFeedToolbarItem(onShowFeed)
         }
     }
 }
