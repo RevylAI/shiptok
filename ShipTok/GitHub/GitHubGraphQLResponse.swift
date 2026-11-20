@@ -133,18 +133,33 @@ struct LabelNode: Decodable {
     let color: String
 }
 
-struct PullRequestConnectionNode: Decodable {
-    let pageInfo: PageInfoNode
-    let nodes: [PullRequestNode?]
+struct MergedPullRequestListPageData: Decodable {
+    struct MergedPullRequestListNode: Decodable {
+        let id: String
+        let number: Int
+        let mergedAt: Date?
+    }
+
+    struct MergedPullRequestListConnectionNode: Decodable {
+        let pageInfo: PageInfoNode
+        let nodes: [MergedPullRequestListNode?]
+    }
+
+    let search: MergedPullRequestListConnectionNode
 }
 
-struct MergedPullRequestSearchPageData: Decodable {
-    let search: PullRequestConnectionNode
-}
+struct OpenPullRequestListPageData: Decodable {
+    struct OpenPullRequestListNode: Decodable {
+        let id: String
+    }
 
-struct OpenPullRequestsPageData: Decodable {
+    struct OpenPullRequestListConnectionNode: Decodable {
+        let pageInfo: PageInfoNode
+        let nodes: [OpenPullRequestListNode?]
+    }
+
     struct RepositoryNode: Decodable {
-        let pullRequests: PullRequestConnectionNode
+        let pullRequests: OpenPullRequestListConnectionNode
     }
 
     let feedRepository: RepositoryNode?

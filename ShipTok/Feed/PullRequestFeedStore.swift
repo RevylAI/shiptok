@@ -543,7 +543,7 @@ final class PullRequestFeedStore {
         await feedWork.perform { [self] in await loadOlderPullRequestPages(in: feed) }
     }
 
-    // Older pull requests are read a page at a time, each read whole, sorted and put below every card already loaded, so nothing moves under the viewer, until enough more cards show or GitHub has no more (AGENTS.md, "Feed Order").
+    // Older pull requests are listed a list page or merge-date window at a time and read in full by id, each batch applied as a page as soon as it and every batch before it are read: sorted and put below every card already loaded, so nothing moves under the viewer, until enough more cards show or GitHub has no more (AGENTS.md, "Feed Order").
     private func loadOlderPullRequestPages(in feed: PullRequestFeed) async {
         await openSavedFeedsOnce()
         guard !loadedFeed(feed).hasLoadedEveryPullRequest, olderPullRequestLoadRunningFeeds.insert(feed).inserted else { return }
@@ -555,35 +555,26 @@ final class PullRequestFeedStore {
         let visibleCountBeforeLoad = visiblePullRequests(in: feed).count
         do {
             repeat {
-                let pageReadStartedAt = Date.now
-                let isNewestPage = !loadedFeed(feed).isNewestPageLoaded
-                let olderPullRequests: [PullRequest]
+                let listReadStartedAt = Date.now
                 let hasLoadedEveryPullRequest: Bool
                 switch feed {
                 case .open:
-                    let openPullRequestsPage = try await githubAPIClient.fetchOpenPullRequestsPage(after: nextOpenPullRequestsPageCursor)
-                    olderPullRequests = openPullRequestsPage.pullRequests
-                    nextOpenPullRequestsPageCursor = openPullRequestsPage.nextPageCursor
-                    hasLoadedEveryPullRequest = openPullRequestsPage.nextPageCursor == nil
+                    let openPullRequestListPage = try await githubAPIClient.fetchOpenPullRequestListPage(after: nextOpenPullRequestsPageCursor)
+                    try await applyListedPullRequestPages(ids: openPullRequestListPage.pullRequestIDs, in: feed, listReadStartedAt: listReadStartedAt, loadStartedAt: loadStartedAt)
+                    nextOpenPullRequestsPageCursor = openPullRequestListPage.nextPageCursor
+                    hasLoadedEveryPullRequest = openPullRequestListPage.nextPageCursor == nil
                 case .merged:
                     let mergedPullRequestWindow = try await githubAPIClient.fetchMergedPullRequestWindow(mergedBefore: everyMergedPullRequestLoadedSince ?? loadStartedAt)
-                    olderPullRequests = mergedPullRequestWindow.pullRequests
+                    try await applyListedPullRequestPages(ids: mergedPullRequestWindow.pullRequestIDs, in: feed, listReadStartedAt: listReadStartedAt, loadStartedAt: loadStartedAt)
                     everyMergedPullRequestLoadedSince = mergedPullRequestWindow.startDate
                     hasLoadedEveryPullRequest = mergedPullRequestWindow.startDate == nil
                 }
-                let visibleCountBeforePage = visiblePullRequests(in: feed).count
-                let addedPullRequestCount = appendOlderPullRequests(olderPullRequests, to: feed, fetchedAt: pageReadStartedAt)
                 updateLoadedFeed(feed) { loadedFeed in
                     loadedFeed.hasLoadedEveryPullRequest = hasLoadedEveryPullRequest
                     if loadedFeed.everyUpdateAppliedBefore == nil {
                         loadedFeed.everyUpdateAppliedBefore = loadStartedAt
                     }
                 }
-                let addedVisiblePullRequestCount = visiblePullRequests(in: feed).count - visibleCountBeforePage
-                if !isNewestPage {
-                    analytics.capture(.olderPullRequestsLoaded(feed, addedPullRequestCount: addedPullRequestCount, addedVisiblePullRequestCount: addedVisiblePullRequestCount))
-                }
-                Self.logger.info("Read \(isNewestPage ? "the newest" : "an older", privacy: .public) page of \(feed.rawValue, privacy: .public) pull requests: \(addedPullRequestCount, privacy: .public) more with media in \(Self.millisecondsElapsed(since: pageReadStartedAt), privacy: .public) ms")
             } while !loadedFeed(feed).hasLoadedEveryPullRequest && visiblePullRequests(in: feed).count - visibleCountBeforeLoad < Self.olderPullRequestLoadCardCount && feed == shownFeed
             saveFeeds()
         } catch {
@@ -595,6 +586,22 @@ final class PullRequestFeedStore {
             Self.logger.error("Loading \(feed.rawValue, privacy: .public) pull requests failed: \(error.publicLogDescription, privacy: .public)")
             updateLoadedFeed(feed) { $0.loadFailureMessage = error.localizedDescription }
         }
+    }
+
+    // A list's pull requests apply in list order, a batch at a time, each as the mode's newest page until one has applied and as an older page after. A load cut short throws, so its list page or window is read again rather than counted as read (AGENTS.md, "Feed Order").
+    private func applyListedPullRequestPages(ids listedPullRequestIDs: [String], in feed: PullRequestFeed, listReadStartedAt: Date, loadStartedAt: Date) async throws {
+        for try await olderPullRequests in githubAPIClient.pullRequestBatchesInListOrder(ids: listedPullRequestIDs) {
+            let isNewestPage = !loadedFeed(feed).isNewestPageLoaded
+            let visibleCountBeforePage = visiblePullRequests(in: feed).count
+            let addedPullRequestCount = appendOlderPullRequests(olderPullRequests, to: feed, fetchedAt: listReadStartedAt)
+            if isNewestPage {
+                updateLoadedFeed(feed) { $0.everyUpdateAppliedBefore = loadStartedAt }
+            } else {
+                analytics.capture(.olderPullRequestsLoaded(feed, addedPullRequestCount: addedPullRequestCount, addedVisiblePullRequestCount: visiblePullRequests(in: feed).count - visibleCountBeforePage))
+            }
+            Self.logger.info("Read \(isNewestPage ? "the newest" : "an older", privacy: .public) page of \(feed.rawValue, privacy: .public) pull requests: \(addedPullRequestCount, privacy: .public) more with media, \(Self.millisecondsElapsed(since: listReadStartedAt), privacy: .public) ms after its list read began")
+        }
+        try Task.checkCancellation()
     }
 
     // Counting only the cards the viewer is shown, so the next page is in before they reach the end (AGENTS.md, "Feed Order").
