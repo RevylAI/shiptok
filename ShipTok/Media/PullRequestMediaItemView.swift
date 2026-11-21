@@ -285,13 +285,16 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    // Media within an eighth of the card's shape crops to fill it, as a 9:16 video fills the folded Duo's card; any other shape shows whole within wholeHeroMediaInsets over a blurred copy of itself (AGENTS.md, "Card Layout").
+    // Media within an eighth of the card's shape crops to fill it, as a 9:16 video fills the folded Duo's card; any other shape shows whole within wholeHeroMediaInsets over a blurred copy of itself.
+    // Zoomed, either kind stays within wholeHeroMediaInsets, clear of the top row and the home indicator (AGENTS.md, "Card Layout" and "Swipe Gestures").
     private func heroFrame<Media: View, Backdrop: View>(
         @ViewBuilder media: @escaping (ContentMode) -> Media,
         @ViewBuilder backdrop: @escaping () -> Backdrop
     ) -> some View {
         GeometryReader { geometry in
             let fillsCard = Self.heroMediaFillsCard(mediaSize: naturalSize, cardSize: geometry.size)
+            let zoomViewportFrame = Self.heroZoomViewportFrame(cardSize: geometry.size, wholeMediaInsets: wholeHeroMediaInsets)
+            let visibleMediaFrame = heroZoom.isZoomed ? zoomViewportFrame : CGRect(origin: .zero, size: geometry.size)
             ZStack {
                 if !fillsCard {
                     backdrop()
@@ -302,23 +305,44 @@ struct PullRequestMediaItemView: View {
                 media(fillsCard ? .fill : .fit)
                     .padding(fillsCard ? EdgeInsets() : wholeHeroMediaInsets)
                     .frame(width: geometry.size.width, height: geometry.size.height)
-                    .scaleEffect(heroZoom.scale)
+                    .scaleEffect(
+                        heroZoom.scale,
+                        anchor: UnitPoint(x: zoomViewportFrame.midX / max(geometry.size.width, 1), y: zoomViewportFrame.midY / max(geometry.size.height, 1))
+                    )
                     .offset(heroZoom.offset)
+                    .mask(alignment: .topLeading) {
+                        Rectangle()
+                            .frame(width: visibleMediaFrame.width, height: visibleMediaFrame.height)
+                            .offset(x: visibleMediaFrame.minX, y: visibleMediaFrame.minY)
+                    }
             }
             .clipped()
             .contentShape(Rectangle())
         }
     }
 
-    // Where heroFrame shows media of this size on a card of this size, which is all a pinch on the hero zooms.
-    static func heroMediaFrame(mediaSize: CGSize, cardSize: CGSize, wholeMediaInsets: EdgeInsets) -> CGRect {
-        guard !heroMediaFillsCard(mediaSize: mediaSize, cardSize: cardSize) else { return CGRect(origin: .zero, size: cardSize) }
-        return AVMakeRect(aspectRatio: mediaSize, insideRect: CGRect(
+    struct HeroZoomViewport: Equatable {
+        let frameInCard: CGRect
+        let mediaFrame: CGRect
+    }
+
+    // Where heroFrame zooms media of this size on a card of this size: the part of the card zoomed media stays in, and the media's frame at its normal fit
+    // in that viewport's coordinates, which for media that fills the card reaches past the viewport, under the top row, until it's zoomed.
+    static func heroZoomViewport(mediaSize: CGSize, cardSize: CGSize, wholeMediaInsets: EdgeInsets) -> HeroZoomViewport {
+        let frameInCard = heroZoomViewportFrame(cardSize: cardSize, wholeMediaInsets: wholeMediaInsets)
+        let mediaFrame = heroMediaFillsCard(mediaSize: mediaSize, cardSize: cardSize)
+            ? CGRect(x: -frameInCard.minX, y: -frameInCard.minY, width: cardSize.width, height: cardSize.height)
+            : AVMakeRect(aspectRatio: mediaSize, insideRect: CGRect(origin: .zero, size: frameInCard.size))
+        return HeroZoomViewport(frameInCard: frameInCard, mediaFrame: mediaFrame)
+    }
+
+    private static func heroZoomViewportFrame(cardSize: CGSize, wholeMediaInsets: EdgeInsets) -> CGRect {
+        CGRect(
             x: wholeMediaInsets.leading,
             y: wholeMediaInsets.top,
-            width: cardSize.width - wholeMediaInsets.leading - wholeMediaInsets.trailing,
-            height: cardSize.height - wholeMediaInsets.top - wholeMediaInsets.bottom
-        ))
+            width: max(cardSize.width - wholeMediaInsets.leading - wholeMediaInsets.trailing, 0),
+            height: max(cardSize.height - wholeMediaInsets.top - wholeMediaInsets.bottom, 0)
+        )
     }
 
     static func heroMediaFillsCard(mediaSize: CGSize?, cardSize: CGSize) -> Bool {

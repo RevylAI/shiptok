@@ -770,10 +770,15 @@ struct FeedView: View {
         .gesture(deckDragGesture(deckSize: deckSize, pageLayout: pageLayout))
         .simultaneousGesture(heroPinchGesture(pageLayout: pageLayout))
         .onChange(of: pageLayout) { previousPageLayout, resizedPageLayout in
-            guard let previousHeroMediaFrame = heroZoomMediaFrame(pageLayout: previousPageLayout),
-                  let resizedHeroMediaFrame = heroZoomMediaFrame(pageLayout: resizedPageLayout)
+            guard let previousHeroZoomViewport = heroZoomViewport(pageLayout: previousPageLayout),
+                  let resizedHeroZoomViewport = heroZoomViewport(pageLayout: resizedPageLayout)
             else { return }
-            heroZoom = heroZoom.refitted(from: previousHeroMediaFrame, in: previousPageLayout.card.size, to: resizedHeroMediaFrame, in: resizedPageLayout.card.size)
+            heroZoom = heroZoom.refitted(
+                from: previousHeroZoomViewport.mediaFrame,
+                in: previousHeroZoomViewport.frameInCard.size,
+                to: resizedHeroZoomViewport.mediaFrame,
+                in: resizedHeroZoomViewport.frameInCard.size
+            )
         }
     }
 
@@ -1154,8 +1159,12 @@ struct FeedView: View {
                 case .videoScrub:
                     videoScrubFraction = pageLayout.videoScrubFraction(atX: dragValue.location.x)
                 case .heroPan(let heroPan):
-                    guard let heroMediaFrame = heroZoomMediaFrame(pageLayout: pageLayout) else { return }
-                    heroZoom = heroPan.startZoom.panned(by: heroPan.translation(from: dragValue.translation), mediaFrame: heroMediaFrame, in: pageLayout.card.size)
+                    guard let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else { return }
+                    heroZoom = heroPan.startZoom.panned(
+                        by: heroPan.translation(from: dragValue.translation),
+                        mediaFrame: zoomViewport.mediaFrame,
+                        in: zoomViewport.frameInCard.size
+                    )
                 case .heroPinch, nil:
                     break
                 }
@@ -1171,9 +1180,13 @@ struct FeedView: View {
                 case .vibeSwipe:
                     finishHorizontalDrag(dragValue, deckSize: deckSize)
                 case .heroPan(let heroPan):
-                    guard let heroMediaFrame = heroZoomMediaFrame(pageLayout: pageLayout) else { return }
+                    guard let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else { return }
                     withAnimation(MediaZoom.settleAnimation) {
-                        heroZoom = heroPan.startZoom.panEnded(by: heroPan.translation(from: dragValue.predictedEndTranslation), mediaFrame: heroMediaFrame, in: pageLayout.card.size)
+                        heroZoom = heroPan.startZoom.panEnded(
+                            by: heroPan.translation(from: dragValue.predictedEndTranslation),
+                            mediaFrame: zoomViewport.mediaFrame,
+                            in: zoomViewport.frameInCard.size
+                        )
                     }
                 case .videoScrub, .heroPinch, nil:
                     break
@@ -1185,10 +1198,13 @@ struct FeedView: View {
     private func heroPinchGesture(pageLayout: FeedPageLayout) -> some Gesture {
         MagnifyGesture()
             .onChanged { magnifyValue in
-                guard !isPageTransitionRunning, heroZoomMediaFrame(pageLayout: pageLayout) != nil else { return }
+                guard !isPageTransitionRunning, let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else { return }
                 let activeHeroPinch = heroPinch ?? MediaZoom.Pinch(
                     startZoom: heroZoom,
-                    anchor: CGPoint(x: magnifyValue.startLocation.x - pageLayout.card.minX, y: magnifyValue.startLocation.y - pageLayout.card.minY)
+                    anchor: CGPoint(
+                        x: magnifyValue.startLocation.x - pageLayout.card.minX - zoomViewport.frameInCard.minX,
+                        y: magnifyValue.startLocation.y - pageLayout.card.minY - zoomViewport.frameInCard.minY
+                    )
                 )
                 if heroPinch == nil, activeDeckDrag != nil {
                     activeDeckDrag = .heroPinch
@@ -1199,20 +1215,20 @@ struct FeedView: View {
                     }
                 }
                 heroPinch = activeHeroPinch
-                heroZoom = activeHeroPinch.startZoom.pinched(by: magnifyValue.magnification, around: activeHeroPinch.anchor, in: pageLayout.card.size)
+                heroZoom = activeHeroPinch.startZoom.pinched(by: magnifyValue.magnification, around: activeHeroPinch.anchor, in: zoomViewport.frameInCard.size)
             }
             .onEnded { magnifyValue in
                 guard let endedHeroPinch = heroPinch else { return }
                 heroPinch = nil
-                guard let heroMediaFrame = heroZoomMediaFrame(pageLayout: pageLayout) else {
+                guard let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else {
                     heroZoom = .normalFit
                     return
                 }
                 let settledHeroZoom = endedHeroPinch.startZoom.pinchEnded(
                     by: magnifyValue.magnification,
                     around: endedHeroPinch.anchor,
-                    mediaFrame: heroMediaFrame,
-                    in: pageLayout.card.size
+                    mediaFrame: zoomViewport.mediaFrame,
+                    in: zoomViewport.frameInCard.size
                 )
                 withAnimation(MediaZoom.settleAnimation) { heroZoom = settledHeroZoom }
                 if !endedHeroPinch.startZoom.isZoomed, settledHeroZoom.isZoomed {
@@ -1221,12 +1237,12 @@ struct FeedView: View {
             }
     }
 
-    // Where the hero of the card in focus shows its media, once it has loaded far enough to know its size; a pinch zooms only that.
-    private func heroZoomMediaFrame(pageLayout: FeedPageLayout) -> CGRect? {
+    // Where the hero of the card in focus zooms its media, once it has loaded far enough to know its size; a pinch zooms only that.
+    private func heroZoomViewport(pageLayout: FeedPageLayout) -> PullRequestMediaItemView.HeroZoomViewport? {
         guard let heroMediaItem = loadableHeroMediaItem(of: feedPages[clampedPageIndex]),
               let heroMediaSize = heroMediaSizes[heroMediaItem.id]
         else { return nil }
-        return PullRequestMediaItemView.heroMediaFrame(mediaSize: heroMediaSize, cardSize: pageLayout.card.size, wholeMediaInsets: pageLayout.wholeHeroMediaInsets)
+        return PullRequestMediaItemView.heroZoomViewport(mediaSize: heroMediaSize, cardSize: pageLayout.card.size, wholeMediaInsets: pageLayout.wholeHeroMediaInsets)
     }
 
     private func captureHeroZoomIn() {
