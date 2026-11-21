@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import Response, sync_playwright
+from playwright.sync_api import Request, sync_playwright
 
 SHIPTOK_REVYL_BACKEND_URL = "https://backend.revyl.ai"
 SIGN_IN_CALLBACK_URL_PREFIX = "shiptok://github-sign-in-callback"
@@ -101,11 +101,10 @@ def request_json(url: str, *, method: str = "GET", body: dict[str, str] | None =
 def github_sign_in_callback_url(authorization_url: str, username: str, password: str, totp_secret: str) -> str:
     callback_urls: list[str] = []
 
-    # GitHub ends the sign-in with a redirect to the app's URL scheme, which Chrome can't open, so the code is read from that redirect. A route never sees it, since Playwright routes no redirect's follow-up.
-    def read_sign_in_callback(response: Response) -> None:
-        location = response.headers.get("location", "")
-        if location.startswith(SIGN_IN_CALLBACK_URL_PREFIX):
-            callback_urls.append(location)
+    # GitHub sends the browser on to the app's URL scheme by a redirect or by the script on its "You are being redirected" page. Chrome can't open the scheme but still requests it, so the code is read from that request.
+    def read_sign_in_callback(request: Request) -> None:
+        if request.url.startswith(SIGN_IN_CALLBACK_URL_PREFIX):
+            callback_urls.append(request.url)
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel="chrome", headless=True)
@@ -113,7 +112,7 @@ def github_sign_in_callback_url(authorization_url: str, username: str, password:
             context = browser.new_context(user_agent=browser.new_page().evaluate("navigator.userAgent").replace("HeadlessChrome", "Chrome"))
             page = context.new_page()
             page.set_default_timeout(PAGE_TIMEOUT_MILLISECONDS)
-            page.on("response", read_sign_in_callback)
+            page.on("request", read_sign_in_callback)
             page.goto(authorization_url)
             page.fill("#login_field", username)
             page.fill("#password", password)
@@ -142,7 +141,11 @@ def github_sign_in_callback_url(authorization_url: str, username: str, password:
                 except PlaywrightError:
                     continue
             if not callback_urls:
-                raise GrantNotSaved(f"GitHub didn't return to ShipTok; the browser stopped on {urllib.parse.urlsplit(page.url).path}")
+                try:
+                    page_labels = [" ".join(text.split())[:80] for text in page.locator("h1:visible, h2:visible, h3:visible, button:visible").all_inner_texts()][:8]
+                except PlaywrightError:
+                    page_labels = []
+                raise GrantNotSaved(f"GitHub didn't return to ShipTok; the browser stopped on {urllib.parse.urlsplit(page.url).path}, showing {page_labels}")
             return callback_urls[0]
         finally:
             browser.close()
