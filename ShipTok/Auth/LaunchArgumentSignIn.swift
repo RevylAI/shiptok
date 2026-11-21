@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-// A Revyl session profile signs a session's app in through `-KEY value` launch arguments (scripts/revyl/signed-in-session-profile.sh). Only whoever launches the app (Revyl, Xcode or devicectl) can pass them, never a link or another app, and a launch from the Home Screen carries none, so an ordinary launch never signs in this way (AGENTS.md, "Revyl").
+// A Revyl session profile signs a session's app in through `-KEY value` launch arguments (scripts/revyl/signed-in-session-profile.py). Only whoever launches the app (Revyl, Xcode or devicectl) can pass them, never a link or another app, and a launch from the Home Screen carries none, so an ordinary launch never signs in this way (AGENTS.md, "Revyl").
 enum LaunchArgumentSignIn {
     private static let gitHubUserAccessTokenArgumentName = "SHIPTOK_LAUNCH_SIGN_IN_GITHUB_USER_ACCESS_TOKEN"
     private static let feedRepositoryFullNameArgumentName = "SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME"
