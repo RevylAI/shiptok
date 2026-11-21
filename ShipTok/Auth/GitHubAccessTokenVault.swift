@@ -1,9 +1,10 @@
 import Foundation
 import OSLog
 
-// GitHub App user access tokens expire after 8 hours and each refresh token works once, so one refresh at a time renews the pair and saves it before anyone uses it; two at once would retire each other's tokens and sign the person out. A sign-in ends only when GitHub refuses the refresh (AGENTS.md, "iOS App").
+// GitHub App user access tokens expire after 8 hours and each refresh token works once, so one refresh at a time renews the pair and saves it before anyone uses it; two at once would retire each other's tokens and sign the person out. A sign-in ends only when GitHub refuses the refresh (AGENTS.md, "iOS App"). Revyl's App Review account holds a token Revyl lends it instead, which only Revyl renews and which is never saved; each renewal retires the token before it, so those also run one at a time (AGENTS.md, "Revyl Sign-In").
 actor GitHubAccessTokenVault {
     private static let refreshMarginSeconds: TimeInterval = 5 * 60
+    private static let appReviewRenewalMarginSeconds: TimeInterval = 30 * 60
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "sign-in")
 
     private struct TokenRotation {
@@ -12,33 +13,42 @@ actor GitHubAccessTokenVault {
     }
 
     private var tokens: GitHubUserAccessTokens
-    private var inFlightRefresh: Task<GitHubUserAccessTokens, Error>?
+    private var inFlightRenewal: Task<GitHubUserAccessTokens, Error>?
     // GitHub honors only this pair's refresh token once it's issued, so a pair the Keychain failed to save is saved again instead of refreshing anew.
     private var unsavedRotation: TokenRotation?
+    private nonisolated let appReviewRevylAPIKey: String?
     private let shipTokAPI = RevylShipTokAPI()
+
+    nonisolated var isAppReview: Bool { appReviewRevylAPIKey != nil }
 
     init(tokens: GitHubUserAccessTokens) {
         self.tokens = tokens
+        appReviewRevylAPIKey = nil
+    }
+
+    init(appReviewTokens: GitHubUserAccessTokens, revylAPIKey: String) {
+        tokens = appReviewTokens
+        appReviewRevylAPIKey = revylAPIKey
     }
 
     func validAccessToken() async throws -> String {
-        guard tokens.refreshToken != nil,
+        guard isAppReview || tokens.refreshToken != nil,
               let accessTokenExpiresAt = tokens.accessTokenExpiresAt,
-              accessTokenExpiresAt.timeIntervalSinceNow <= Self.refreshMarginSeconds
+              accessTokenExpiresAt.timeIntervalSinceNow <= (isAppReview ? Self.appReviewRenewalMarginSeconds : Self.refreshMarginSeconds)
         else {
             return tokens.accessToken
         }
-        return try await refreshedTokens().accessToken
+        return try await renewedTokens(rejectedAccessToken: nil).accessToken
     }
 
     func accessTokenReplacing(rejectedAccessToken: String) async throws -> String {
         if tokens.accessToken != rejectedAccessToken {
             return tokens.accessToken
         }
-        guard tokens.refreshToken != nil else {
+        guard isAppReview || tokens.refreshToken != nil else {
             throw GitHubAPIError.accessTokenRejected
         }
-        return try await refreshedTokens().accessToken
+        return try await renewedTokens(rejectedAccessToken: rejectedAccessToken).accessToken
     }
 
     // Revyl checks the GitHub token on every request, so a token another refresh just retired is renewed once and the request tried again.
@@ -52,16 +62,19 @@ actor GitHubAccessTokenVault {
     }
 
     // Saved inside the task, so every caller waits for the save and the rotated pair reaches the Keychain even if they've all gone away.
-    private func refreshedTokens() async throws -> GitHubUserAccessTokens {
-        if let inFlightRefresh {
-            return try await inFlightRefresh.value
+    private func renewedTokens(rejectedAccessToken: String?) async throws -> GitHubUserAccessTokens {
+        if let inFlightRenewal {
+            return try await inFlightRenewal.value
         }
-        let refreshTask = Task { try await rotateAndSaveTokens() }
-        inFlightRefresh = refreshTask
-        defer { inFlightRefresh = nil }
-        let savedTokens = try await refreshTask.value
-        tokens = savedTokens
-        return savedTokens
+        let renewalTask = Task {
+            guard let appReviewRevylAPIKey else { return try await rotateAndSaveTokens() }
+            return try await requestAppReviewTokens(revylAPIKey: appReviewRevylAPIKey, rejectedAccessToken: rejectedAccessToken)
+        }
+        inFlightRenewal = renewalTask
+        defer { inFlightRenewal = nil }
+        let newTokens = try await renewalTask.value
+        tokens = newTokens
+        return newTokens
     }
 
     private func rotateAndSaveTokens() async throws -> GitHubUserAccessTokens {
@@ -91,6 +104,18 @@ actor GitHubAccessTokenVault {
             return rotation.rotatedTokens
         case .signInEnded:
             throw CancellationError()
+        }
+    }
+
+    // Revyl stops lending the token once the account is no longer its App Review account, which ends this GitHub sign-in as GitHub refusing it would.
+    private func requestAppReviewTokens(revylAPIKey: String, rejectedAccessToken: String?) async throws -> GitHubUserAccessTokens {
+        do {
+            let appReviewTokens = try await shipTokAPI.requestAppReviewGitHubAccessTokens(revylAPIKey: revylAPIKey, rejectedAccessToken: rejectedAccessToken)
+            Self.logger.info("Renewed the App Review GitHub access")
+            return appReviewTokens
+        } catch RevylShipTokAPIError.appReviewAccountRequired {
+            Self.logger.error("Revyl no longer lends this Revyl account App Review GitHub access")
+            throw GitHubAPIError.accessTokenRejected
         }
     }
 }

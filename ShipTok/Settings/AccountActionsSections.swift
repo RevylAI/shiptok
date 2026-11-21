@@ -12,9 +12,10 @@ struct AccountActionsSections: View {
     private var isDeletingRevylAccount: Bool { signInSession.isDeletingRevylAccount }
     private var isChangingSignIn: Bool { isDeletingData || isDeletingRevylAccount || signInSession.isSigningOut || signInSession.isConnectingGitHub }
 
+    // Revyl's App Review account never connects a GitHub account, so it has no ShipTok data of its own to delete.
     private var hasConnectedGitHub: Bool {
-        guard case .signedIn = signInSession.phase else { return false }
-        return true
+        guard case .signedIn(let teammate) = signInSession.phase else { return false }
+        return !teammate.accessTokenVault.isAppReview
     }
 
     var body: some View {

@@ -34,9 +34,11 @@ enum RevylShipTokAPIError: LocalizedError {
     case revylOrganizationRequired
     case revylSignInExpired
     case githubAccountNotConnected
+    case appReviewAccountRequired
     case revylAccountOwnsOrganization(revylMessage: String)
     case organizationJoinRequestEmailInvalid
     case organizationJoinRequestRateLimited
+    case unavailable(operationName: String)
     case unexpectedResponse(operationName: String, statusCode: Int)
     case responseUnreadable(operationName: String)
 
@@ -54,12 +56,16 @@ enum RevylShipTokAPIError: LocalizedError {
             "That Revyl sign-in expired before ShipTok could finish it. Sign in to Revyl again."
         case .githubAccountNotConnected:
             "Your GitHub account isn't connected to your Revyl account. Connect GitHub to see your team's repositories."
+        case .appReviewAccountRequired:
+            "Connect GitHub to see your team's repositories."
         case .revylAccountOwnsOrganization(let revylMessage):
             revylMessage
         case .organizationJoinRequestEmailInvalid:
             "That doesn't look like an email address. Check it and try again."
         case .organizationJoinRequestRateLimited:
             "Too many requests from here. Try again in a minute."
+        case .unavailable(let operationName):
+            "Revyl couldn't finish \(operationName) just now. Try again in a minute."
         case .unexpectedResponse(let operationName, let statusCode):
             "Revyl answered \(statusCode) to \(operationName)."
         case .responseUnreadable(let operationName):
@@ -68,7 +74,7 @@ enum RevylShipTokAPIError: LocalizedError {
     }
 }
 
-// Revyl's backend signs people in to Revyl, connects their GitHub account to their Revyl account, redeems and refreshes GitHub sign-ins, since both need its GitHub App's client secret, keeps each person's settings, and takes requests to join an organization. It never sees a person's GitHub reads or writes: the app calls GitHub directly.
+// Revyl's backend signs people in to Revyl, connects their GitHub account to their Revyl account, redeems and refreshes GitHub sign-ins, since both need its GitHub App's client secret, keeps each person's settings, takes requests to join an organization and lends Revyl's App Review account GitHub access. It never sees a person's GitHub reads or writes: the app calls GitHub directly.
 struct RevylShipTokAPI: Sendable {
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "revyl-backend")
     private static let urlSession: URLSession = {
@@ -151,6 +157,19 @@ struct RevylShipTokAPI: Sendable {
             path: "github-sign-in/user-access-token-refreshes",
             jsonBody: ["refresh_token": refreshToken],
             operationName: "the GitHub sign-in refresh"
+        )
+        return response.tokens(receivedAt: Date())
+    }
+
+    // Only Revyl's App Review account gets GitHub access this way, which Revyl alone renews; every other account gets appReviewAccountRequired. A rejected token makes Revyl renew instead of answering with it again, and each renewal retires the token before it (AGENTS.md, "Revyl Sign-In").
+    func requestAppReviewGitHubAccessTokens(revylAPIKey: String, rejectedAccessToken: String?) async throws -> GitHubUserAccessTokens {
+        let jsonBody: [String: String]? = rejectedAccessToken.map { ["rejected_github_access_token": $0] }
+        let response: UserAccessTokensResponse = try await send(
+            "POST",
+            path: "app-review/github-user-access-tokens",
+            jsonBody: jsonBody,
+            bearerToken: revylAPIKey,
+            operationName: "getting your GitHub access"
         )
         return response.tokens(receivedAt: Date())
     }
@@ -239,6 +258,10 @@ struct RevylShipTokAPI: Sendable {
             throw RevylShipTokAPIError.githubSignInRejected(operationName: operationName)
         case "github_account_not_connected"?:
             throw RevylShipTokAPIError.githubAccountNotConnected
+        case "app_review_account_required"?:
+            throw RevylShipTokAPIError.appReviewAccountRequired
+        case "unavailable"?:
+            throw RevylShipTokAPIError.unavailable(operationName: operationName)
         case "revyl_account_owns_organization"?:
             guard let revylMessage = refusal?.error else {
                 throw RevylShipTokAPIError.unexpectedResponse(operationName: operationName, statusCode: statusCode)
