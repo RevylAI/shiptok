@@ -30,3 +30,29 @@ test:
           step_description: Tap once in the middle of the video again
         - type: validation
           step_description: The play symbol is gone and the video plays again, its progress line moving on. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: extraction
+          step_description: The title of the pull request on the card
+          variable_name: zoomed-pull-request-title
+        - type: extraction
+          step_description: The number under the heart (like) button on the right rail
+          variable_name: like-count-before-zoom
+        - type: instructions
+          step_description: Pinch outward with two fingers in the middle of the video to zoom in on it
+        - type: validation
+          step_description: The video is zoomed in, a magnified part of it filling the card, and the caption with the pull request's author and title is gone from the bottom left. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: instructions
+          step_description: With one finger, swipe up from the middle of the video
+        - type: validation
+          step_description: The video is still zoomed in and the caption is still gone, so the feed stayed on the same card instead of moving to the next pull request. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: instructions
+          step_description: Double-tap in the middle of the video
+        - type: validation
+          step_description: The video is back at its normal size, the caption at the bottom left shows '{{zoomed-pull-request-title}}' again, and the number under the heart button on the right rail still reads '{{like-count-before-zoom}}'. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: instructions
+          step_description: Pinch outward with two fingers in the middle of the video to zoom in on it again
+        - type: validation
+          step_description: The video is zoomed in again and the caption is gone from the bottom left. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: instructions
+          step_description: Pinch inward with two fingers in the middle of the video to zoom back out
+        - type: validation
+          step_description: The video is back at its normal size and the caption at the bottom left shows '{{zoomed-pull-request-title}}' again. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.

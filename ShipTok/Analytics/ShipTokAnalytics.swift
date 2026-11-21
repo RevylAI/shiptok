@@ -76,6 +76,7 @@ enum ShipTokAnalyticsEvent: Sendable {
     case watchStarted(ShipTokAnalyticsMedia, watchID: UUID)
     case watchCompleted(ShipTokAnalyticsMedia, watchID: UUID, playbackSeconds: Double, mediaSeconds: Double, durationSeconds: Double?, reason: WatchEndReason)
     case playbackFailed(ShipTokAnalyticsMedia)
+    case mediaZoomed(ShipTokAnalyticsMedia)
     case vibeSelected(ShipTokAnalyticsSubject, selectionID: UUID, vibe: PullRequestVibe)
     case vibeCancelled(ShipTokAnalyticsSubject, selectionID: UUID, vibe: PullRequestVibe)
     case mutationRequested(MutationAttempt)
@@ -99,6 +100,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .watchStarted: "shiptok_video_watch_started"
         case .watchCompleted: "shiptok_video_watch_completed"
         case .playbackFailed: "shiptok_video_playback_failed"
+        case .mediaZoomed: "shiptok_media_zoomed"
         case .vibeSelected: "shiptok_vibe_selected"
         case .vibeCancelled: "shiptok_vibe_cancelled"
         case .mutationRequested(let attempt): "shiptok_\(attempt.mutation.rawValue)_change_requested"
@@ -154,7 +156,7 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["played_media_seconds"] = .number(mediaSeconds)
             properties["video_duration_seconds"] = durationSeconds.map(Property.number)
             properties["end_reason"] = .string(reason.rawValue)
-        case .playbackFailed(let media):
+        case .playbackFailed(let media), .mediaZoomed(let media):
             addMedia(media)
         case .vibeSelected(let subject, let selectionID, let vibe), .vibeCancelled(let subject, let selectionID, let vibe):
             addSubject(subject)

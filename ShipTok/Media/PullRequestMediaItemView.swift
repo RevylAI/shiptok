@@ -21,10 +21,12 @@ struct PullRequestMediaItemView: View {
     var pauseToggleTrigger = 0
     var isFastPlaybackHeld = false
     var videoScrubFraction: CGFloat?
+    var heroZoom = MediaZoom.normalFit
     var heroProgressLineInsets = EdgeInsets()
     var wholeHeroMediaInsets = EdgeInsets()
     var heroCaptionBackdrop: FeedCaptionBackdrop?
     let onLoadFailure: (_ wasRefusedToViewer: Bool) -> Void
+    var onNaturalSizeRead: (CGSize) -> Void = { _ in }
     @State private var loadedImage: LoadedPullRequestImage?
     @State private var videoPlayback: LoopingVideoPlayback?
     @State private var hasFailedToLoad = false
@@ -177,6 +179,7 @@ struct PullRequestMediaItemView: View {
         case .deckPage:
             VStack(spacing: 12) {
                 VideoPlayerLayerView(player: videoPlayback.player, contentMode: .fit)
+                    .zoomableMedia(mediaSize: naturalSize, isActive: isDeckPageZoomActive, onZoomIn: { captureZoomIn() })
                     .opacity(isVideoShowing ? 1 : 0)
                     .overlay { pausedGlyph }
                     .overlay(alignment: .bottom) { playbackGestureHint(videoPlayback).padding(.bottom, 12) }
@@ -269,6 +272,7 @@ struct PullRequestMediaItemView: View {
             }
         case (.animatedGIF(let gifData), .deckPage):
             AnimatedGIFView(gifData: gifData, isAnimating: isPlaybackActive, contentMode: .fit)
+                .zoomableMedia(mediaSize: naturalSize, isActive: isDeckPageZoomActive, onZoomIn: { captureZoomIn() })
         case (.still(let stillImage), .hero):
             heroFrame { contentMode in
                 Image(uiImage: stillImage).resizable().aspectRatio(contentMode: contentMode)
@@ -298,10 +302,23 @@ struct PullRequestMediaItemView: View {
                 media(fillsCard ? .fill : .fit)
                     .padding(fillsCard ? EdgeInsets() : wholeHeroMediaInsets)
                     .frame(width: geometry.size.width, height: geometry.size.height)
+                    .scaleEffect(heroZoom.scale)
+                    .offset(heroZoom.offset)
             }
             .clipped()
             .contentShape(Rectangle())
         }
+    }
+
+    // Where heroFrame shows media of this size on a card of this size, which is all a pinch on the hero zooms.
+    static func heroMediaFrame(mediaSize: CGSize, cardSize: CGSize, wholeMediaInsets: EdgeInsets) -> CGRect {
+        guard !heroMediaFillsCard(mediaSize: mediaSize, cardSize: cardSize) else { return CGRect(origin: .zero, size: cardSize) }
+        return AVMakeRect(aspectRatio: mediaSize, insideRect: CGRect(
+            x: wholeMediaInsets.leading,
+            y: wholeMediaInsets.top,
+            width: cardSize.width - wholeMediaInsets.leading - wholeMediaInsets.trailing,
+            height: cardSize.height - wholeMediaInsets.top - wholeMediaInsets.bottom
+        ))
     }
 
     static func heroMediaFillsCard(mediaSize: CGSize?, cardSize: CGSize) -> Bool {
@@ -456,6 +473,17 @@ struct PullRequestMediaItemView: View {
     private func recordNaturalSize(_ resolvedNaturalSize: CGSize) {
         guard naturalSize == nil, resolvedNaturalSize.width > 0, resolvedNaturalSize.height > 0 else { return }
         naturalSize = resolvedNaturalSize
+        onNaturalSizeRead(resolvedNaturalSize)
+    }
+
+    // Only moving to another page resets a deck page's zoom, never the app leaving the foreground, which also stops playback.
+    private var isDeckPageZoomActive: Bool {
+        isPlaybackActive || scenePhase != .active
+    }
+
+    private func captureZoomIn() {
+        guard let analyticsMedia else { return }
+        analytics?.capture(.mediaZoomed(analyticsMedia))
     }
 
     // The card in focus or the deck's current page, in the foreground with nothing over it, so cards beside it, under Settings or outside the deck's page never count.
