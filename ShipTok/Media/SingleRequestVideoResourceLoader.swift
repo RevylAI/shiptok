@@ -56,8 +56,8 @@ final class SingleRequestVideoResourceLoader: NSObject, AVAssetResourceLoaderDel
     private static let maximumHostedVideoRefusalByteCount = 16 * 1024
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
-    // A hosted video plays only for a Revyl account in an organization whose connected GitHub account GitHub lets read its repository, so a teammate's request for one carries their Revyl key. A demo visit sends no credential.
-    init(videoURL: URL, savingInto savedMedia: PullRequestMediaDiskCache, asMediaItemID mediaItemID: String, failureLogLevel: OSLogType, hostedVideoRevylSignIn: HostedVideoRevylSignIn?) {
+    // A hosted video plays only for a Revyl account in an organization whose connected GitHub account GitHub lets read its repository, so a request for one carries the person's Revyl key.
+    init(videoURL: URL, savingInto savedMedia: PullRequestMediaDiskCache, asMediaItemID mediaItemID: String, failureLogLevel: OSLogType, hostedVideoRevylSignIn: HostedVideoRevylSignIn) {
         self.videoURL = videoURL
         self.savedMedia = savedMedia
         videoURLPathExtension = videoURL.pathExtension

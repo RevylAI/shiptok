@@ -9,6 +9,7 @@ struct SettingsView: View {
     let chosenRepositoryFullName: String
     let signInSession: ShipTokSignInSession
     let onChooseRepository: @MainActor (String) async -> Void
+    let onShowFeed: (() -> Void)?
     @Environment(\.shipTokAnalytics) private var analytics
 
     var body: some View {
@@ -66,10 +67,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                HiddenPeopleSection(
-                    hiddenPeopleStore: hiddenPeopleStore,
-                    footerText: "Their pull requests, weekly and feature videos, comments, vibes and media don't show in ShipTok on this iPhone. They aren't told, and nothing changes on GitHub."
-                )
+                HiddenPeopleSection(hiddenPeopleStore: hiddenPeopleStore)
                 GesturesSection()
                 AccountActionsSections(signInSession: signInSession)
             }
@@ -78,6 +76,7 @@ struct SettingsView: View {
             .background(RevylBrandColor.surface)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .backToFeedToolbarItem(onShowFeed)
         }
         .task { await userSettingsStore.refresh() }
         .alert(

@@ -1,6 +1,6 @@
 import Foundation
 
-// The feed's reads and saves for one viewer: a person's own feed once they connect GitHub, or a demo visit. Sign out, Delete my ShipTok data and Delete my Revyl account stop a person's own feed's work and wait for what's running before they go on, so nothing read for a sign-in is saved after it ended (AGENTS.md, "Feed Caching").
+// The feed's reads and saves for one person's own feed. Sign out, Delete my ShipTok data and Delete my Revyl account stop it and wait for what's running before they go on, so nothing read for a sign-in is saved after it ended (AGENTS.md, "Feed Caching").
 @MainActor
 final class FeedViewerWork {
     private var runningTasksByID: [UUID: Task<Void, Never>] = [:]

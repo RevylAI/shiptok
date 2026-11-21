@@ -14,9 +14,14 @@ struct HeartBurstView: View {
             .foregroundStyle(RevylBrandColor.danger)
             .shadow(color: .black.opacity(0.4), radius: 12)
             .keyframeAnimator(initialValue: BurstFrame(), trigger: trigger) { heart, frame in
-                heart
-                    .scaleEffect(frame.scale)
-                    .opacity(frame.opacity)
+                // Built only mid-burst: the feed's accessibilityHidden(false) would expose an invisible heart to VoiceOver, overriding a hidden modifier here.
+                Group {
+                    if frame.opacity > 0 {
+                        heart
+                            .scaleEffect(frame.scale)
+                            .opacity(frame.opacity)
+                    }
+                }
             } keyframes: { _ in
                 KeyframeTrack(\.scale) {
                     SpringKeyframe(1.15, duration: 0.22)

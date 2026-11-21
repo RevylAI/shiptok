@@ -22,10 +22,10 @@ struct ConnectGitHubButton: View {
     }
 }
 
-// Signed in to Revyl without a connected GitHub account while the demo can't open, so connecting GitHub, or trying the demo again, is the way on (AGENTS.md, "Demo Mode").
+// Signed in to Revyl without a connected GitHub account, so connecting GitHub is the only way on (AGENTS.md, "Revyl Sign-In").
 struct ConnectGitHubView: View {
     let signInSession: ShipTokSignInSession
-    let message: String
+    let connectGitHubVisit: ConnectGitHubVisit
     @State private var showsAccount = false
 
     var body: some View {
@@ -45,25 +45,14 @@ struct ConnectGitHubView: View {
                     .font(.subheadline)
                     .foregroundStyle(RevylBrandColor.textMuted)
                     .multilineTextAlignment(.center)
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(RevylBrandColor.warning)
-                    .multilineTextAlignment(.center)
+                if let message = connectGitHubVisit.message {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(RevylBrandColor.warning)
+                        .multilineTextAlignment(.center)
+                }
                 Spacer()
                 ConnectGitHubButton(signInSession: signInSession)
-                Button {
-                    Task { await signInSession.openDemoAgain() }
-                } label: {
-                    HStack(spacing: 10) {
-                        if signInSession.isOpeningDemo {
-                            ProgressView()
-                        }
-                        Text("Try the demo again")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.revylSecondary)
-                .disabled(signInSession.isConnectingGitHub || signInSession.isOpeningDemo || signInSession.isDeletingRevylAccount)
             }
             .frame(maxWidth: 440)
             .padding(28)

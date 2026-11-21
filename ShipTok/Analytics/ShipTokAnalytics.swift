@@ -88,6 +88,12 @@ enum ShipTokAnalyticsEvent: Sendable {
         case revylAccountDeleted = "revyl_account_deleted"
         case failure
     }
+    enum ConnectGitHubShowReason: String, Sendable {
+        case noGitHubSignIn = "no_github_sign_in"
+        case githubConnectionFailed = "github_connection_failed"
+        case githubRejected = "github_rejected"
+        case githubAccountNotConnected = "github_account_not_connected"
+    }
     enum JoinOrganizationShowReason: String, Sendable {
         case chosenOnFirstScreen = "chosen_on_first_screen"
         case revylOrganizationRequired = "revyl_organization_required"
@@ -116,6 +122,7 @@ enum ShipTokAnalyticsEvent: Sendable {
     case watchStarted(ShipTokAnalyticsMedia, watchID: UUID)
     case watchCompleted(ShipTokAnalyticsMedia, watchID: UUID, playbackSeconds: Double, mediaSeconds: Double, durationSeconds: Double?, reason: WatchEndReason)
     case playbackFailed(ShipTokAnalyticsMedia)
+    case mediaZoomed(ShipTokAnalyticsMedia)
     case vibeSelected(ShipTokAnalyticsSubject, selectionID: UUID, vibe: PullRequestVibe)
     case vibeCancelled(ShipTokAnalyticsSubject, selectionID: UUID, vibe: PullRequestVibe)
     case mutationRequested(MutationAttempt)
@@ -133,12 +140,11 @@ enum ShipTokAnalyticsEvent: Sendable {
     case organizationJoinRequestFailed(reason: OrganizationJoinRequestFailureReason)
     case revylAccountDeletionRequested
     case revylAccountDeletionFailed(reason: RevylAccountDeletionFailureReason)
-    case githubSignInStarted(attemptID: UUID, demoVisitID: UUID?)
-    case githubSignInFailed(attemptID: UUID, reason: GitHubSignInFailureReason, demoVisitID: UUID?)
-    case githubSignInCompleted(attemptID: UUID, demoVisitID: UUID?)
+    case connectGitHubShown(reason: ConnectGitHubShowReason)
+    case githubSignInStarted(attemptID: UUID, connectGitHubVisitID: UUID)
+    case githubSignInFailed(attemptID: UUID, reason: GitHubSignInFailureReason, connectGitHubVisitID: UUID)
+    case githubSignInCompleted(attemptID: UUID, connectGitHubVisitID: UUID)
     case signInEnded(reason: SignInEndReason)
-    case demoEntered
-    case demoGitHubConnectionPrompted(DemoGitHubConnectionPromptAction)
     case contentReportOpened(GitHubPostedContent, control: ModerationControl)
     case personHidden(GitHubPostedContent, control: ModerationControl)
     case personUnhidden
@@ -148,6 +154,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .watchStarted: "shiptok_video_watch_started"
         case .watchCompleted: "shiptok_video_watch_completed"
         case .playbackFailed: "shiptok_video_playback_failed"
+        case .mediaZoomed: "shiptok_media_zoomed"
         case .vibeSelected: "shiptok_vibe_selected"
         case .vibeCancelled: "shiptok_vibe_cancelled"
         case .mutationRequested(let attempt): "shiptok_\(attempt.mutation.rawValue)_change_requested"
@@ -165,12 +172,11 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .organizationJoinRequestFailed: "shiptok_organization_join_request_failed"
         case .revylAccountDeletionRequested: "shiptok_revyl_account_deletion_requested"
         case .revylAccountDeletionFailed: "shiptok_revyl_account_deletion_failed"
+        case .connectGitHubShown: "shiptok_connect_github_shown"
         case .githubSignInStarted: "shiptok_github_sign_in_started"
         case .githubSignInFailed: "shiptok_github_sign_in_failed"
         case .githubSignInCompleted: "shiptok_github_sign_in_completed"
         case .signInEnded: "shiptok_sign_in_ended"
-        case .demoEntered: "shiptok_demo_entered"
-        case .demoGitHubConnectionPrompted: "shiptok_demo_github_connection_prompted"
         case .contentReportOpened: "shiptok_content_report_opened"
         case .personHidden: "shiptok_person_hidden"
         case .personUnhidden: "shiptok_person_unhidden"
@@ -212,7 +218,7 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["played_media_seconds"] = .number(mediaSeconds)
             properties["video_duration_seconds"] = durationSeconds.map(Property.number)
             properties["end_reason"] = .string(reason.rawValue)
-        case .playbackFailed(let media):
+        case .playbackFailed(let media), .mediaZoomed(let media):
             addMedia(media)
         case .vibeSelected(let subject, let selectionID, let vibe), .vibeCancelled(let subject, let selectionID, let vibe):
             addSubject(subject)
@@ -249,6 +255,8 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["show_reason"] = .string(reason.rawValue)
         case .joinOrganizationShown(let reason):
             properties["show_reason"] = .string(reason.rawValue)
+        case .connectGitHubShown(let reason):
+            properties["show_reason"] = .string(reason.rawValue)
         case .revylSignInStarted(let attemptID):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
         case .revylSignInFailed(let attemptID, let reason):
@@ -258,22 +266,20 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["failure_reason"] = .string(reason.rawValue)
         case .revylAccountDeletionFailed(let reason):
             properties["failure_reason"] = .string(reason.rawValue)
-        case .githubSignInStarted(let attemptID, let demoVisitID), .githubSignInCompleted(let attemptID, let demoVisitID):
+        case .githubSignInStarted(let attemptID, let connectGitHubVisitID), .githubSignInCompleted(let attemptID, let connectGitHubVisitID):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
-            properties["demo_visit_id"] = demoVisitID.map { .string($0.uuidString) }
-        case .githubSignInFailed(let attemptID, let reason, let demoVisitID):
+            properties["connect_github_visit_id"] = .string(connectGitHubVisitID.uuidString)
+        case .githubSignInFailed(let attemptID, let reason, let connectGitHubVisitID):
             properties["sign_in_attempt_id"] = .string(attemptID.uuidString)
             properties["failure_reason"] = .string(reason.rawValue)
-            properties["demo_visit_id"] = demoVisitID.map { .string($0.uuidString) }
+            properties["connect_github_visit_id"] = .string(connectGitHubVisitID.uuidString)
         case .signInEnded(let reason):
             properties["end_reason"] = .string(reason.rawValue)
         case .contentReportOpened(let postedContent, let control), .personHidden(let postedContent, let control):
             if let subject = postedContent.postedOn { addSubject(subject) }
             properties["content_kind"] = .string(postedContent.kind.rawValue)
             properties["control"] = .string(control.rawValue)
-        case .demoGitHubConnectionPrompted(let action):
-            properties["demo_action"] = .string(action.rawValue)
-        case .personUnhidden, .demoEntered, .revylAccountDeletionRequested:
+        case .personUnhidden, .revylAccountDeletionRequested:
             break
         }
         return properties
@@ -326,9 +332,9 @@ final class ShipTokAnalytics {
         self.init(distinctID: "shiptok-first-screen-visit:\(firstScreenVisitID.uuidString)", visitProperty: ("first_screen_visit_id", firstScreenVisitID))
     }
 
-    // A demo visitor has signed in to Revyl but connected no GitHub account, so a visit's events share its own id, and a GitHub sign-in that starts from it carries the id to its completion.
-    convenience init(demoVisitID: UUID) {
-        self.init(distinctID: "shiptok-demo-visit:\(demoVisitID.uuidString)", visitProperty: ("demo_visit_id", demoVisitID))
+    // Signed in to Revyl with no GitHub account connected, the person is still unknown to the app, so one showing of Connect GitHub has its own id, and a GitHub sign-in that starts from it carries the id to its completion.
+    convenience init(connectGitHubVisitID: UUID) {
+        self.init(distinctID: "shiptok-connect-github-visit:\(connectGitHubVisitID.uuidString)", visitProperty: ("connect_github_visit_id", connectGitHubVisitID))
     }
 
     private init(distinctID: String, visitProperty: (name: String, visitID: UUID)? = nil) {

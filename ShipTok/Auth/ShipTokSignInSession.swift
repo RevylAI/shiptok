@@ -99,16 +99,21 @@ struct FirstScreenVisit {
     let analytics: ShipTokAnalytics
 }
 
-// The sign-in has two parts: Revyl's, without which nothing but the first screen shows, and GitHub's, which the feed reads and writes GitHub with. Signed in to Revyl without a connected GitHub account, the person looks around the demo; with both, their own feed (AGENTS.md, "Revyl Sign-In").
+// One showing of Connect GitHub, with its own analytics identity, since the app learns who is signed in only once a GitHub account connects. The message says why the last connection failed or the feed closed.
+struct ConnectGitHubVisit {
+    let visitID: UUID
+    var message: String?
+    let analytics: ShipTokAnalytics
+}
+
+// The sign-in has two parts: Revyl's, without which nothing but the first screen shows, and GitHub's, which the feed reads and writes GitHub with. Signed in to Revyl without a connected GitHub account, the person gets only Connect GitHub; with both, their own feed (AGENTS.md, "Revyl Sign-In").
 @Observable
 @MainActor
 final class ShipTokSignInSession {
     enum Phase {
         case restoring
         case signedOut(FirstScreenVisit)
-        case exploringDemo(DemoVisitor, githubConnectionFailureMessage: String?)
-        // Signed in to Revyl without a connected GitHub account while the demo can't open.
-        case connectingGitHub(message: String)
+        case connectingGitHub(ConnectGitHubVisit)
         case signedIn(SignedInTeammate)
     }
 
@@ -119,7 +124,6 @@ final class ShipTokSignInSession {
     private(set) var phase: Phase = .restoring
     private(set) var isSigningInToRevyl = false
     private(set) var isConnectingGitHub = false
-    private(set) var isOpeningDemo = false
     private(set) var isSigningOut = false
     private(set) var isDeletingShipTokData = false
     private(set) var isDeletingRevylAccount = false
@@ -127,16 +131,6 @@ final class ShipTokSignInSession {
     private var revylAPIKey: String?
     private var isVerifyingRevylSignIn = false
     private let shipTokAPI = RevylShipTokAPI()
-
-    var githubConnectionFailureMessage: String? {
-        guard case .exploringDemo(_, let githubConnectionFailureMessage) = phase else { return nil }
-        return githubConnectionFailureMessage
-    }
-
-    private var demoVisitor: DemoVisitor? {
-        guard case .exploringDemo(let demoVisitor, _) = phase else { return nil }
-        return demoVisitor
-    }
 
     func restoreSavedSession() async {
         do {
@@ -157,6 +151,20 @@ final class ShipTokSignInSession {
             showFirstScreen(reason: .failure, message: error.localizedDescription)
             return
         }
+        // The app never refreshes a launch sign-in's GitHub token, so a relaunch with the same arguments finds both parts already saved and keeps what the session chose since.
+        if let launchSignIn = LaunchArgumentSignIn.passedSignIn,
+           launchSignIn.revylAPIKey != storedRevylAPIKey || launchSignIn.gitHubUserAccessToken != storedGitHubSignIn?.tokens.accessToken {
+            do {
+                try await LaunchArgumentSignIn.save(launchSignIn)
+            } catch {
+                showFirstScreen(reason: .failure, message: error.localizedDescription)
+                return
+            }
+            revylAPIKey = launchSignIn.revylAPIKey
+            UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
+            await connectStoredGitHubSignInOrShowConnectGitHub(revylAPIKey: launchSignIn.revylAPIKey)
+            return
+        }
         let signedOutReason = UserDefaults.standard.string(forKey: Self.signedOutReasonDefaultsKey)
         guard let storedRevylAPIKey else {
             // A GitHub sign-in without a Revyl one comes from an app that signed in with GitHub alone, or from a Revyl sign-in that ended; the next Revyl sign-in connects it.
@@ -172,7 +180,7 @@ final class ShipTokSignInSession {
         }
         revylAPIKey = storedRevylAPIKey
         guard let storedGitHubSignIn else {
-            await exploreDemo(githubConnectionFailureMessage: signedOutReason)
+            showConnectGitHub(reason: .noGitHubSignIn, message: signedOutReason)
             return
         }
         activate(user: storedGitHubSignIn.user, accessTokenVault: GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens), revylAPIKey: storedRevylAPIKey)
@@ -214,40 +222,35 @@ final class ShipTokSignInSession {
         revylAPIKey = newRevylAPIKey
         UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
         Self.logger.info("Signed in to Revyl")
-        await connectStoredGitHubSignInOrExploreDemo(revylAPIKey: newRevylAPIKey)
+        await connectStoredGitHubSignInOrShowConnectGitHub(revylAPIKey: newRevylAPIKey)
     }
 
-    // Connects GitHub for a person signed in to Revyl: the GitHub sign-in this iPhone holds while GitHub still takes it, else GitHub's own sign-in, and once Revyl connects it the person lands in their own feed. A failed connection keeps them where they were, saying why.
+    // Connects GitHub for a person signed in to Revyl: the GitHub sign-in this iPhone holds while GitHub still takes it, else GitHub's own sign-in, and once Revyl connects it the person lands in their own feed. A failed connection keeps them on Connect GitHub, saying why.
     func connectGitHub(using webAuthenticationSession: WebAuthenticationSession) async {
-        guard let revylAPIKey, !isConnectingGitHub, !isSigningOut, !isDeletingRevylAccount else { return }
-        switch phase {
-        case .exploringDemo, .connectingGitHub: break
-        case .restoring, .signedOut, .signedIn: return
-        }
+        guard case .connectingGitHub(var connectGitHubVisit) = phase, let revylAPIKey, !isConnectingGitHub, !isSigningOut, !isDeletingRevylAccount else { return }
         isConnectingGitHub = true
         defer { isConnectingGitHub = false }
-        let demoVisitor = self.demoVisitor
-        if let demoVisitor {
-            phase = .exploringDemo(demoVisitor, githubConnectionFailureMessage: nil)
-        }
+        connectGitHubVisit.message = nil
+        phase = .connectingGitHub(connectGitHubVisit)
+        let connectGitHubVisitID = connectGitHubVisit.visitID
         do {
             if let storedGitHubSignIn = try ShipTokSignInKeychainStore.loadStoredGitHubSignIn() {
                 let accessTokenVault = GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens)
                 do {
                     try await connectGitHubAccount(using: accessTokenVault, revylAPIKey: revylAPIKey)
-                    finishConnectingGitHub(user: storedGitHubSignIn.user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey, leaving: demoVisitor)
+                    finishConnectingGitHub(user: storedGitHubSignIn.user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey)
                     return
                 } catch where Self.isGitHubSignInRefusal(error) {
                     try ShipTokSignInKeychainStore.deleteStoredGitHubSignIn()
                 }
             }
         } catch {
-            failConnectingGitHub(error, revylAPIKey: revylAPIKey, demoVisitor: demoVisitor)
+            failConnectingGitHub(error, revylAPIKey: revylAPIKey, connectGitHubVisitID: connectGitHubVisitID)
             return
         }
         let signInAttemptID = UUID()
         let signInAttemptAnalytics = ShipTokAnalytics(signInAttemptID: signInAttemptID)
-        signInAttemptAnalytics.capture(.githubSignInStarted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
+        signInAttemptAnalytics.capture(.githubSignInStarted(attemptID: signInAttemptID, connectGitHubVisitID: connectGitHubVisitID))
         do {
             let proofKey = ProofKeyForCodeExchange.generate()
             let signInState = randomURLSafeString(byteCount: 32)
@@ -260,17 +263,12 @@ final class ShipTokSignInSession {
             try ShipTokSignInKeychainStore.saveStoredGitHubSignIn(StoredGitHubSignIn(tokens: tokens, user: user))
             Self.logger.info("Signed in with GitHub")
             try await connectGitHubAccount(using: accessTokenVault, revylAPIKey: revylAPIKey)
-            finishConnectingGitHub(user: user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey, leaving: demoVisitor)?
-                .analytics.capture(.githubSignInCompleted(attemptID: signInAttemptID, demoVisitID: demoVisitor?.visitID))
+            finishConnectingGitHub(user: user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey)?
+                .analytics.capture(.githubSignInCompleted(attemptID: signInAttemptID, connectGitHubVisitID: connectGitHubVisitID))
         } catch {
-            signInAttemptAnalytics.capture(.githubSignInFailed(attemptID: signInAttemptID, reason: Self.githubSignInFailureReason(for: error), demoVisitID: demoVisitor?.visitID))
-            failConnectingGitHub(error, revylAPIKey: revylAPIKey, demoVisitor: demoVisitor)
+            signInAttemptAnalytics.capture(.githubSignInFailed(attemptID: signInAttemptID, reason: Self.githubSignInFailureReason(for: error), connectGitHubVisitID: connectGitHubVisitID))
+            failConnectingGitHub(error, revylAPIKey: revylAPIKey, connectGitHubVisitID: connectGitHubVisitID)
         }
-    }
-
-    func openDemoAgain() async {
-        guard case .connectingGitHub = phase, !isDeletingRevylAccount else { return }
-        await exploreDemo()
     }
 
     // Revyl may end the sign-in, the account may leave every organization, or its GitHub connection may move to another Revyl account while ShipTok sleeps, so each launch and return to the foreground asks Revyl which GitHub account is connected (AGENTS.md, "Revyl Sign-In").
@@ -292,9 +290,14 @@ final class ShipTokSignInSession {
         guard self.revylAPIKey == revylAPIKey, !isConnectingGitHub, !isSigningOut, !isDeletingShipTokData, !isDeletingRevylAccount else { return }
         switch phase {
         case .signedIn(let teammate) where connectedGitHubUserID != teammate.user.githubUserID:
-            leaveFeedForDemo(teammate, reason: .githubAccountNotConnected, message: RevylShipTokAPIError.githubAccountNotConnected.localizedDescription)
+            leaveFeedForConnectGitHub(
+                teammate,
+                endReason: .githubAccountNotConnected,
+                showReason: .githubAccountNotConnected,
+                message: RevylShipTokAPIError.githubAccountNotConnected.localizedDescription
+            )
         // A connection that went through while its answer was lost leaves the GitHub sign-in on the iPhone already connected.
-        case .exploringDemo(let demoVisitor, _):
+        case .connectingGitHub:
             guard let connectedGitHubUserID,
                   let storedGitHubSignIn = try? ShipTokSignInKeychainStore.loadStoredGitHubSignIn(),
                   storedGitHubSignIn.user.githubUserID == connectedGitHubUserID
@@ -302,10 +305,9 @@ final class ShipTokSignInSession {
             finishConnectingGitHub(
                 user: storedGitHubSignIn.user,
                 accessTokenVault: GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens),
-                revylAPIKey: revylAPIKey,
-                leaving: demoVisitor
+                revylAPIKey: revylAPIKey
             )
-        case .restoring, .signedOut, .connectingGitHub, .signedIn:
+        case .restoring, .signedOut, .signedIn:
             break
         }
     }
@@ -339,18 +341,19 @@ final class ShipTokSignInSession {
     func deleteRevylAccount() async throws {
         guard let revylAPIKey, !isDeletingRevylAccount, !isDeletingShipTokData, !isSigningOut, !isConnectingGitHub else { return }
         let teammate: SignedInTeammate?
+        let viewerAnalytics: ShipTokAnalytics
         switch phase {
         case .signedIn(let signedInTeammate):
             guard !signedInTeammate.feedWork.hasStopped else { return }
             teammate = signedInTeammate
-        case .exploringDemo, .connectingGitHub:
+            viewerAnalytics = signedInTeammate.analytics
+        case .connectingGitHub(let connectGitHubVisit):
             teammate = nil
+            viewerAnalytics = connectGitHubVisit.analytics
         case .restoring, .signedOut:
             return
         }
-        let demoVisitor = self.demoVisitor
-        let viewerAnalytics = teammate?.analytics ?? demoVisitor?.analytics
-        viewerAnalytics?.capture(.revylAccountDeletionRequested)
+        viewerAnalytics.capture(.revylAccountDeletionRequested)
         isDeletingRevylAccount = true
         defer { isDeletingRevylAccount = false }
         do {
@@ -360,7 +363,7 @@ final class ShipTokSignInSession {
             case RevylShipTokAPIError.revylAccountOwnsOrganization: .ownsOrganization
             default: .unavailable
             }
-            viewerAnalytics?.capture(.revylAccountDeletionFailed(reason: failureReason))
+            viewerAnalytics.capture(.revylAccountDeletionFailed(reason: failureReason))
             isDeletingRevylAccount = false
             guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey) else { return }
             throw error
@@ -374,10 +377,8 @@ final class ShipTokSignInSession {
         if let teammate {
             teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
             await teammate.feedWork.stopAndWaitForRunningWork()
-        } else if let demoVisitor {
-            demoVisitor.analytics.capture(.signInEnded(reason: .revylAccountDeleted))
-            demoVisitor.mediaCache.stopDownloadsAndRemoveAllMedia()
-            demoVisitor.feedWork.stop()
+        } else {
+            viewerAnalytics.capture(.signInEnded(reason: .revylAccountDeleted))
         }
         do {
             try await finishDeletingOnThisIPhone(unfinishedDeletion)
@@ -405,12 +406,12 @@ final class ShipTokSignInSession {
         showFirstScreen(reason: .signedOut, message: nil)
     }
 
-    // GitHub refusing the sign-in ends only its GitHub part: the person stays signed in to Revyl and looks around the demo until they connect GitHub again. A rejection ends only the sign-in its request ran for, and deleting the data revokes the GitHub token, so rejections while it runs are its own doing.
+    // GitHub refusing the sign-in ends only its GitHub part: the person stays signed in to Revyl, on Connect GitHub until they connect it again. A rejection ends only the sign-in its request ran for, and deleting the data revokes the GitHub token, so rejections while it runs are its own doing.
     func handleRejectedGitHubAccess(_ githubAPIError: GitHubAPIError, endingSignInID signInID: UUID) {
         guard case .signedIn(let teammate) = phase, teammate.signInID == signInID, !isDeletingShipTokData, !isDeletingRevylAccount, !isSigningOut else { return }
         // GitHub no longer takes this sign-in, so one the Keychain fails to forget is only refused again on the next launch; the store logs the failure.
         try? ShipTokSignInKeychainStore.deleteStoredGitHubSignIn()
-        leaveFeedForDemo(teammate, reason: .githubRejected, message: githubAPIError.localizedDescription)
+        leaveFeedForConnectGitHub(teammate, endReason: .githubRejected, showReason: .githubRejected, message: githubAPIError.localizedDescription)
     }
 
     private func showFirstScreen(reason: ShipTokAnalyticsEvent.FirstScreenShowReason, message: String?, opensJoinOrganization: Bool = false) {
@@ -423,56 +424,32 @@ final class ShipTokSignInSession {
         phase = .signedOut(FirstScreenVisit(visitID: visitID, message: message, opensJoinOrganization: opensJoinOrganization, analytics: analytics))
     }
 
-    // A person signed in to Revyl who hasn't connected GitHub looks around the public demo Revyl's backend serves; one it can't serve leaves only Connect GitHub, saying why (AGENTS.md, "Demo Mode").
-    private func exploreDemo(githubConnectionFailureMessage: String? = nil) async {
-        guard let revylAPIKey, !isOpeningDemo else { return }
-        isOpeningDemo = true
-        defer { isOpeningDemo = false }
-        let demoFeed = ShipTokDemoFeed()
-        let repositoryFullName: String
-        do {
-            repositoryFullName = try await demoFeed.repositoryFullName()
-        } catch {
-            Self.logger.error("Opening the demo feed failed")
-            guard self.revylAPIKey == revylAPIKey else { return }
-            phase = .connectingGitHub(message: [githubConnectionFailureMessage, error.localizedDescription].compactMap { $0 }.joined(separator: " "))
-            return
-        }
-        guard self.revylAPIKey == revylAPIKey else { return }
+    private func showConnectGitHub(reason: ShipTokAnalyticsEvent.ConnectGitHubShowReason, message: String?) {
         let visitID = UUID()
-        let demoVisitor = DemoVisitor(
-            visitID: visitID,
-            repositoryFullName: repositoryFullName,
-            demoFeed: demoFeed,
-            analytics: ShipTokAnalytics(demoVisitID: visitID),
-            hiddenPeopleStore: .forDemoVisit(),
-            mediaCache: FeedViewerMediaCache(savedMedia: .forDemoVisits, hostedVideoRevylSignIn: nil),
-            feedWork: FeedViewerWork()
-        )
-        demoVisitor.analytics.capture(.demoEntered)
-        Self.logger.info("Opened the demo feed")
-        phase = .exploringDemo(demoVisitor, githubConnectionFailureMessage: githubConnectionFailureMessage)
+        let analytics = ShipTokAnalytics(connectGitHubVisitID: visitID)
+        analytics.capture(.connectGitHubShown(reason: reason))
+        phase = .connectingGitHub(ConnectGitHubVisit(visitID: visitID, message: message, analytics: analytics))
     }
 
-    // A GitHub sign-in this iPhone already holds, from an app that signed in with GitHub alone or from a Revyl sign-in that ended, connects to the Revyl account without another trip through GitHub.
-    private func connectStoredGitHubSignInOrExploreDemo(revylAPIKey: String) async {
+    // A GitHub sign-in this iPhone already holds, from an app that signed in with GitHub alone, a Revyl sign-in that ended or a session profile's launch arguments, connects to the Revyl account without another trip through GitHub.
+    private func connectStoredGitHubSignInOrShowConnectGitHub(revylAPIKey: String) async {
         let storedGitHubSignIn: StoredGitHubSignIn?
         do {
             storedGitHubSignIn = try ShipTokSignInKeychainStore.loadStoredGitHubSignIn()
         } catch {
-            await exploreDemo(githubConnectionFailureMessage: error.localizedDescription)
+            showConnectGitHub(reason: .githubConnectionFailed, message: error.localizedDescription)
             return
         }
         guard let storedGitHubSignIn else {
-            await exploreDemo()
+            showConnectGitHub(reason: .noGitHubSignIn, message: nil)
             return
         }
         let accessTokenVault = GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens)
         do {
             try await connectGitHubAccount(using: accessTokenVault, revylAPIKey: revylAPIKey)
         } catch {
-            guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey) else { return }
-            await exploreDemo(githubConnectionFailureMessage: messageAfterFailedGitHubConnection(error))
+            guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey), self.revylAPIKey == revylAPIKey else { return }
+            showConnectGitHub(reason: .githubConnectionFailed, message: messageAfterFailedGitHubConnection(error))
             return
         }
         guard self.revylAPIKey == revylAPIKey else { return }
@@ -487,24 +464,18 @@ final class ShipTokSignInSession {
     }
 
     @discardableResult
-    private func finishConnectingGitHub(user: GitHubUserIdentity, accessTokenVault: GitHubAccessTokenVault, revylAPIKey: String, leaving demoVisitor: DemoVisitor?) -> SignedInTeammate? {
+    private func finishConnectingGitHub(user: GitHubUserIdentity, accessTokenVault: GitHubAccessTokenVault, revylAPIKey: String) -> SignedInTeammate? {
         guard self.revylAPIKey == revylAPIKey else { return nil }
         UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
-        demoVisitor?.feedWork.stop()
         return activate(user: user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey)
     }
 
-    private func failConnectingGitHub(_ error: any Error, revylAPIKey: String, demoVisitor: DemoVisitor?) {
+    private func failConnectingGitHub(_ error: any Error, revylAPIKey: String, connectGitHubVisitID: UUID) {
         guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey), self.revylAPIKey == revylAPIKey, !Self.isWebAuthenticationCancellation(error) else { return }
         let message = messageAfterFailedGitHubConnection(error)
-        switch phase {
-        case .exploringDemo(let shownDemoVisitor, _) where shownDemoVisitor.visitID == demoVisitor?.visitID:
-            phase = .exploringDemo(shownDemoVisitor, githubConnectionFailureMessage: message)
-        case .connectingGitHub:
-            phase = .connectingGitHub(message: message)
-        case .restoring, .signedOut, .exploringDemo, .signedIn:
-            break
-        }
+        guard case .connectingGitHub(var connectGitHubVisit) = phase, connectGitHubVisit.visitID == connectGitHubVisitID else { return }
+        connectGitHubVisit.message = message
+        phase = .connectingGitHub(connectGitHubVisit)
     }
 
     // GitHub refusing the GitHub sign-in this iPhone holds ends it, so the next Connect GitHub goes through GitHub; any other failure keeps it for the next try.
@@ -548,11 +519,15 @@ final class ShipTokSignInSession {
         }
     }
 
-    // The GitHub sign-in stays on the iPhone, so Connect GitHub connects it again in one tap.
-    private func leaveFeedForDemo(_ teammate: SignedInTeammate, reason: ShipTokAnalyticsEvent.SignInEndReason, message: String) {
-        end(teammate, reason: reason, message: message)
-        phase = .restoring
-        Task { await exploreDemo(githubConnectionFailureMessage: message) }
+    // A GitHub sign-in GitHub still takes stays on the iPhone, so Connect GitHub connects it again in one tap.
+    private func leaveFeedForConnectGitHub(
+        _ teammate: SignedInTeammate,
+        endReason: ShipTokAnalyticsEvent.SignInEndReason,
+        showReason: ShipTokAnalyticsEvent.ConnectGitHubShowReason,
+        message: String
+    ) {
+        end(teammate, reason: endReason, message: message)
+        showConnectGitHub(reason: showReason, message: message)
     }
 
     // The reason outlives the process, so a sign-in that ended while the app was in the background still says why on the next launch.
@@ -560,12 +535,10 @@ final class ShipTokSignInSession {
         switch phase {
         case .signedIn(let teammate):
             end(teammate, reason: reason, message: message)
-        case .exploringDemo(let demoVisitor, _):
-            demoVisitor.analytics.capture(.signInEnded(reason: reason))
+        case .connectingGitHub(let connectGitHubVisit):
+            connectGitHubVisit.analytics.capture(.signInEnded(reason: reason))
             UserDefaults.standard.set(message, forKey: Self.signedOutReasonDefaultsKey)
-            demoVisitor.mediaCache.stopDownloadsAndRemoveAllMedia()
-            demoVisitor.feedWork.stop()
-        case .restoring, .signedOut, .connectingGitHub:
+        case .restoring, .signedOut:
             UserDefaults.standard.set(message, forKey: Self.signedOutReasonDefaultsKey)
         }
     }

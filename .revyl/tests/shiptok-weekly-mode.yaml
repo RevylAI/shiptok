@@ -1,0 +1,38 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 30eaa332-3158-459d-af58-5404acc64e95
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T18:58:02Z"
+    checksum: 2418048d71d2e63649d44814b36ab69cad75ddbe0349098d34598ce86c12b981
+test:
+    metadata:
+        name: shiptok-weekly-mode
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: instructions
+          step_description: Tap 'Weekly' in the Open / Merged / Weekly / Features tabs at the top of the feed
+        - type: validation
+          step_description: '''Weekly'' is the selected tab, in bold white, and the card shows a week: a ''ShipTok weekly'' chip with the week''s dates, a title and a short hook at its lower left'
+        - type: instructions
+          step_description: Tap the week's title at the card's lower left
+        - type: validation
+          step_description: The tabs are replaced by a 'Week of' back button with the week's dates at the top left, and the card shows a pull request from that week
+        - type: instructions
+          step_description: Tap the 'Week of' button at the top left
+        - type: validation
+          step_description: The weekly card with its 'ShipTok weekly' chip shows again and 'Weekly' is the selected tab again
+        - type: instructions
+          step_description: Tap 'Merged' in the tabs at the top
+        - type: validation
+          step_description: '''Merged'' is the selected tab and the card shows a pull request with its author and title'

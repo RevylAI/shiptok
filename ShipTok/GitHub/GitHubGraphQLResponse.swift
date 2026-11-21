@@ -107,10 +107,9 @@ struct PullRequestNode: Decodable {
     let number: Int
     let title: String
     let url: URL
-    // Optional because the demo feed's nodes may not carry them (AGENTS.md, "Demo Mode").
-    let state: String?
-    let isDraft: Bool?
-    let updatedAt: Date?
+    let state: String
+    let isDraft: Bool
+    let updatedAt: Date
     let mergedAt: Date?
     let createdAt: Date
     let lastEditedAt: Date?
@@ -134,18 +133,33 @@ struct LabelNode: Decodable {
     let color: String
 }
 
-struct PullRequestConnectionNode: Decodable {
-    let pageInfo: PageInfoNode
-    let nodes: [PullRequestNode?]
+struct MergedPullRequestListPageData: Decodable {
+    struct MergedPullRequestListNode: Decodable {
+        let id: String
+        let number: Int
+        let mergedAt: Date?
+    }
+
+    struct MergedPullRequestListConnectionNode: Decodable {
+        let pageInfo: PageInfoNode
+        let nodes: [MergedPullRequestListNode?]
+    }
+
+    let search: MergedPullRequestListConnectionNode
 }
 
-struct MergedPullRequestSearchPageData: Decodable {
-    let search: PullRequestConnectionNode
-}
+struct OpenPullRequestListPageData: Decodable {
+    struct OpenPullRequestListNode: Decodable {
+        let id: String
+    }
 
-struct OpenPullRequestsPageData: Decodable {
+    struct OpenPullRequestListConnectionNode: Decodable {
+        let pageInfo: PageInfoNode
+        let nodes: [OpenPullRequestListNode?]
+    }
+
     struct RepositoryNode: Decodable {
-        let pullRequests: PullRequestConnectionNode
+        let pullRequests: OpenPullRequestListConnectionNode
     }
 
     let feedRepository: RepositoryNode?
@@ -190,7 +204,7 @@ struct CommentsPageData: Decodable {
     let node: CommentedNode?
 }
 
-// An issue ShipTok may publish as a card, a weekly edition or a feature, as the issues query and the demo feed's issue lists return it.
+// An issue ShipTok may publish as a card, a weekly edition or a feature, as the issue queries return it.
 struct IssueNode: Decodable {
     let id: String
     let number: Int
@@ -198,7 +212,6 @@ struct IssueNode: Decodable {
     let state: String
     let labels: LabelConnectionNode
     let createdAt: Date
-    // A demo feed from before features doesn't send it.
     let closedAt: Date?
     let lastEditedAt: Date?
     let body: String

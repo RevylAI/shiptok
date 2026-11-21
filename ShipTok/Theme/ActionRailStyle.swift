@@ -9,6 +9,10 @@ private extension View {
     }
 }
 
+extension Font {
+    static let actionRailGlyph = Font.system(size: 26, weight: .regular)
+}
+
 extension View {
     func actionRailGlyphStyle() -> some View {
         actionRailShadow()

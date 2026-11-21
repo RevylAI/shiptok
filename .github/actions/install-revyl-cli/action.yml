@@ -6,7 +6,7 @@ runs:
     - name: Download the pinned Revyl CLI
       shell: bash
       env:
-        REVYL_CLI_VERSION: 0.2.18
+        REVYL_CLI_VERSION: 0.2.38
       run: |
         case "$RUNNER_OS-$RUNNER_ARCH" in
           Linux-X64) release_asset=revyl-linux-amd64 ;;

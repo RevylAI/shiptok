@@ -1,0 +1,43 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 3128c456-a818-470d-8383-6339de170df3
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T18:57:59Z"
+    checksum: 0190cd8600a16c73d4d096ca524e1f5778fdaccb06bbaae95d676cda137a1082
+test:
+    metadata:
+        name: shiptok-video-speed-and-scrubbing
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: validation
+          step_description: The card plays a video, a thin progress line runs along the bottom of the card under the caption, and the right rail shows a playback speed button reading 1x. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.
+        - type: instructions
+          step_description: Tap the playback speed button on the right rail
+        - type: validation
+          step_description: The playback speed button reads 1.5x
+        - type: instructions
+          step_description: Tap the playback speed button on the right rail
+        - type: validation
+          step_description: The playback speed button reads 2x
+        - type: instructions
+          step_description: Tap the playback speed button on the right rail
+        - type: validation
+          step_description: The playback speed button reads 1x
+        - type: extraction
+          step_description: The title of the pull request on the card
+          variable_name: scrubbed-pull-request-title
+        - type: instructions
+          step_description: Press on the thin progress line at the bottom of the card a short way in from its left end, not at the screen's edge, and drag sideways to the right along the line to about its middle, then lift
+        - type: validation
+          step_description: The card still shows '{{scrubbed-pull-request-title}}' and the video's progress line is filled to roughly where the drag ended, or a little past it since the video keeps playing. Screens, dialogs and captions drawn inside the video are part of the video, not something to dismiss.

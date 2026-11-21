@@ -13,18 +13,9 @@ struct RootView: View {
             case .signedOut(let firstScreenVisit):
                 FirstScreenView(signInSession: signInSession, firstScreenVisit: firstScreenVisit)
                     .id(firstScreenVisit.visitID)
-            case .exploringDemo(let demoVisitor, _):
-                // The demo has one public repository, so it never chooses another or loses this one.
-                FeedView(
-                    viewer: .demoVisitor(demoVisitor),
-                    repositoryFullName: demoVisitor.repositoryFullName,
-                    signInSession: signInSession,
-                    onChooseRepository: { _ in },
-                    onFeedRepositoryLost: { _ in }
-                )
-                .id(demoVisitor.visitID)
-            case .connectingGitHub(let message):
-                ConnectGitHubView(signInSession: signInSession, message: message)
+            case .connectingGitHub(let connectGitHubVisit):
+                ConnectGitHubView(signInSession: signInSession, connectGitHubVisit: connectGitHubVisit)
+                    .id(connectGitHubVisit.visitID)
             case .signedIn(let teammate):
                 SignedInView(teammate: teammate, signInSession: signInSession)
                     .id(teammate.user.githubUserID)
@@ -57,7 +48,7 @@ private struct SignedInView: View {
     var body: some View {
         if let chosenRepositoryFullName {
             FeedView(
-                viewer: .teammate(teammate),
+                viewer: teammate,
                 repositoryFullName: chosenRepositoryFullName,
                 signInSession: signInSession,
                 onChooseRepository: { self.chosenRepositoryFullName = $0 },

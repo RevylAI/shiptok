@@ -10,13 +10,12 @@ enum GitHubAPIError: LocalizedError {
     case pullRequestNeitherOpenNorMerged(number: Int)
     case weeklyEditionUnreadable(number: Int)
     case featureUnreadable(number: Int)
-    case signInRequired
 
     var rejectsFeedAccess: Bool {
         switch self {
         case .accessTokenRejected, .feedRepositoryNotVisible:
             true
-        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNeitherOpenNorMerged, .weeklyEditionUnreadable, .featureUnreadable, .signInRequired:
+        case .rateLimited, .requestFailed, .graphQLErrors, .responseUnreadable, .pullRequestNeitherOpenNorMerged, .weeklyEditionUnreadable, .featureUnreadable:
             false
         }
     }
@@ -41,8 +40,6 @@ enum GitHubAPIError: LocalizedError {
             "#\(number) isn't a weekly video ShipTok can read."
         case .featureUnreadable(let number):
             "#\(number) isn't a feature video ShipTok can read."
-        case .signInRequired:
-            "Connect GitHub to do that."
         }
     }
 }

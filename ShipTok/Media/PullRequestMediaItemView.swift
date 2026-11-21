@@ -21,7 +21,12 @@ struct PullRequestMediaItemView: View {
     var pauseToggleTrigger = 0
     var isFastPlaybackHeld = false
     var videoScrubFraction: CGFloat?
+    var heroZoom = MediaZoom.normalFit
+    var heroProgressLineInsets = EdgeInsets()
+    var wholeHeroMediaInsets = EdgeInsets()
+    var heroCaptionBackdrop: FeedCaptionBackdrop?
     let onLoadFailure: (_ wasRefusedToViewer: Bool) -> Void
+    var onNaturalSizeRead: (CGSize) -> Void = { _ in }
     @State private var loadedImage: LoadedPullRequestImage?
     @State private var videoPlayback: LoopingVideoPlayback?
     @State private var hasFailedToLoad = false
@@ -39,8 +44,6 @@ struct PullRequestMediaItemView: View {
     @Environment(\.feedViewerMediaCache) private var feedViewerMediaCache
     @Environment(VideoPlaybackRateChoice.self) private var playbackRateChoice
     @Environment(\.scenePhase) private var scenePhase
-    static let heroProgressLineHorizontalInset: CGFloat = 16
-    static let heroProgressLineBottomInset: CGFloat = 15
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
     private static let fastPlaybackRate: Float = 2
     private static let deckPageProgressLineHitSlop: CGFloat = 20
@@ -92,6 +95,8 @@ struct PullRequestMediaItemView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) { heroCaptionBackdrop }
+        .overlay(alignment: .bottom) { heroPlaybackControls }
         .task(id: MediaLoadRequest(mediaURL: mediaItem.url, renewalRequestCount: renewalRequestCount)) { await loadUnlessAlreadyLoaded() }
         .task(id: videoPlayback?.isReadyToPlay == true) { await handleVideoReadyToPlay() }
         .onChange(of: isPlaybackActive) {
@@ -167,20 +172,11 @@ struct PullRequestMediaItemView: View {
                     .overlay(Self.heroBackdropMaterialBlur)
             }
             .overlay { pausedGlyph }
-            .overlay(alignment: .bottom) {
-                if isPlaybackActive {
-                    VStack(spacing: 10) {
-                        playbackGestureHint(videoPlayback)
-                        VideoPlaybackProgressBar(player: videoPlayback.player, thicknessPoints: 2, scrubFraction: activeVideoScrubFraction)
-                    }
-                    .padding(.horizontal, Self.heroProgressLineHorizontalInset)
-                    .padding(.bottom, Self.heroProgressLineBottomInset)
-                }
-            }
             .opacity(isVideoShowing ? 1 : 0)
         case .deckPage:
             VStack(spacing: 12) {
                 VideoPlayerLayerView(player: videoPlayback.player, contentMode: .fit)
+                    .zoomableMedia(mediaSize: naturalSize, isActive: isDeckPageZoomActive, onZoomIn: { captureZoomIn() })
                     .opacity(isVideoShowing ? 1 : 0)
                     .overlay { pausedGlyph }
                     .overlay(alignment: .bottom) { playbackGestureHint(videoPlayback).padding(.bottom, 12) }
@@ -194,6 +190,18 @@ struct PullRequestMediaItemView: View {
                     .padding(.horizontal, 16)
             }
             .padding(.bottom, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var heroPlaybackControls: some View {
+        if presentation == .hero, !isUnloadable, isPlaybackActive, let videoPlayback {
+            VStack(spacing: 10) {
+                playbackGestureHint(videoPlayback)
+                VideoPlaybackProgressBar(player: videoPlayback.player, thicknessPoints: 2, scrubFraction: activeVideoScrubFraction)
+            }
+            .padding(heroProgressLineInsets)
+            .opacity(isVideoShowing ? 1 : 0)
         }
     }
 
@@ -261,6 +269,7 @@ struct PullRequestMediaItemView: View {
             }
         case (.animatedGIF(let gifData), .deckPage):
             AnimatedGIFView(gifData: gifData, isAnimating: isPlaybackActive, contentMode: .fit)
+                .zoomableMedia(mediaSize: naturalSize, isActive: isDeckPageZoomActive, onZoomIn: { captureZoomIn() })
         case (.still(let stillImage), .hero):
             heroFrame { contentMode in
                 Image(uiImage: stillImage).resizable().aspectRatio(contentMode: contentMode)
@@ -273,13 +282,16 @@ struct PullRequestMediaItemView: View {
         }
     }
 
-    // Media within an eighth of the card's shape crops to fill it, as Reels fill a phone with a 9:16 video; any other shape shows whole over a blurred copy of itself (AGENTS.md, "Card Layout").
+    // Media within an eighth of the card's shape crops to fill it, as a 9:16 video fills the folded Duo's card; any other shape shows whole within wholeHeroMediaInsets over a blurred copy of itself.
+    // Zoomed, either kind stays within wholeHeroMediaInsets, clear of the top row and the home indicator (AGENTS.md, "Card Layout" and "Swipe Gestures").
     private func heroFrame<Media: View, Backdrop: View>(
         @ViewBuilder media: @escaping (ContentMode) -> Media,
         @ViewBuilder backdrop: @escaping () -> Backdrop
     ) -> some View {
         GeometryReader { geometry in
             let fillsCard = Self.heroMediaFillsCard(mediaSize: naturalSize, cardSize: geometry.size)
+            let zoomViewportFrame = Self.heroZoomViewportFrame(cardSize: geometry.size, wholeMediaInsets: wholeHeroMediaInsets)
+            let visibleMediaFrame = heroZoom.isZoomed ? zoomViewportFrame : CGRect(origin: .zero, size: geometry.size)
             ZStack {
                 if !fillsCard {
                     backdrop()
@@ -287,11 +299,47 @@ struct PullRequestMediaItemView: View {
                         .clipped()
                         .overlay(Color.black.opacity(Self.heroBackdropDimmingOpacity))
                 }
-                media(fillsCard ? .fill : .fit).frame(width: geometry.size.width, height: geometry.size.height)
+                media(fillsCard ? .fill : .fit)
+                    .padding(fillsCard ? EdgeInsets() : wholeHeroMediaInsets)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .scaleEffect(
+                        heroZoom.scale,
+                        anchor: UnitPoint(x: zoomViewportFrame.midX / max(geometry.size.width, 1), y: zoomViewportFrame.midY / max(geometry.size.height, 1))
+                    )
+                    .offset(heroZoom.offset)
+                    .mask(alignment: .topLeading) {
+                        Rectangle()
+                            .frame(width: visibleMediaFrame.width, height: visibleMediaFrame.height)
+                            .offset(x: visibleMediaFrame.minX, y: visibleMediaFrame.minY)
+                    }
             }
             .clipped()
             .contentShape(Rectangle())
         }
+    }
+
+    struct HeroZoomViewport: Equatable {
+        let frameInCard: CGRect
+        let mediaFrame: CGRect
+    }
+
+    // Where heroFrame zooms media of this size on a card of this size: the part of the card zoomed media stays in, and the media's frame at its normal fit
+    // in that viewport's coordinates, which for media that fills the card reaches past the viewport, under the top row, until it's zoomed.
+    static func heroZoomViewport(mediaSize: CGSize, cardSize: CGSize, wholeMediaInsets: EdgeInsets) -> HeroZoomViewport {
+        let frameInCard = heroZoomViewportFrame(cardSize: cardSize, wholeMediaInsets: wholeMediaInsets)
+        let mediaFrame = heroMediaFillsCard(mediaSize: mediaSize, cardSize: cardSize)
+            ? CGRect(x: -frameInCard.minX, y: -frameInCard.minY, width: cardSize.width, height: cardSize.height)
+            : AVMakeRect(aspectRatio: mediaSize, insideRect: CGRect(origin: .zero, size: frameInCard.size))
+        return HeroZoomViewport(frameInCard: frameInCard, mediaFrame: mediaFrame)
+    }
+
+    private static func heroZoomViewportFrame(cardSize: CGSize, wholeMediaInsets: EdgeInsets) -> CGRect {
+        CGRect(
+            x: wholeMediaInsets.leading,
+            y: wholeMediaInsets.top,
+            width: max(cardSize.width - wholeMediaInsets.leading - wholeMediaInsets.trailing, 0),
+            height: max(cardSize.height - wholeMediaInsets.top - wholeMediaInsets.bottom, 0)
+        )
     }
 
     static func heroMediaFillsCard(mediaSize: CGSize?, cardSize: CGSize) -> Bool {
@@ -445,6 +493,17 @@ struct PullRequestMediaItemView: View {
     private func recordNaturalSize(_ resolvedNaturalSize: CGSize) {
         guard naturalSize == nil, resolvedNaturalSize.width > 0, resolvedNaturalSize.height > 0 else { return }
         naturalSize = resolvedNaturalSize
+        onNaturalSizeRead(resolvedNaturalSize)
+    }
+
+    // Only moving to another page resets a deck page's zoom, never the app leaving the foreground, which also stops playback.
+    private var isDeckPageZoomActive: Bool {
+        isPlaybackActive || scenePhase != .active
+    }
+
+    private func captureZoomIn() {
+        guard let analyticsMedia else { return }
+        analytics?.capture(.mediaZoomed(analyticsMedia))
     }
 
     // An expiring signed URL is renewed by the feed's refetch; any other URL renews by being requested again, once, before the failure is reported. A video refused to this viewer is reported at once, since no renewal changes that answer (AGENTS.md, "Signed Media URLs").
@@ -586,17 +645,19 @@ private struct VideoPlaybackProgressBar: View {
     let player: AVPlayer
     let thicknessPoints: CGFloat
     let scrubFraction: CGFloat?
+    @State private var playedFraction: CGFloat = 0
 
     private static let scrubbingThicknessScale: CGFloat = 3
+    private static let playedTrackColor = Color(rgbHex: 0x9DA6B2)
+    private static let unplayedTrackColor = Color(rgbHex: 0x282F35)
+    private static let playedFractionSamplingInterval: Duration = .milliseconds(100)
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25))
-                    Capsule().fill(.white.opacity(0.9))
-                        .frame(width: geometry.size.width * (scrubFraction ?? playedFraction))
-                }
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Self.unplayedTrackColor)
+                Capsule().fill(Self.playedTrackColor)
+                    .frame(width: geometry.size.width * (scrubFraction ?? playedFraction))
             }
         }
         .frame(height: thicknessPoints)
@@ -604,10 +665,18 @@ private struct VideoPlaybackProgressBar: View {
         .animation(.easeOut(duration: 0.15), value: scrubFraction == nil)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .task { await keepPlayedFractionCurrent() }
     }
 
-    private var playedFraction: CGFloat {
-        guard let durationSeconds = player.currentItem?.duration.seconds, durationSeconds.isFinite, durationSeconds > 0 else { return 0 }
-        return CGFloat(min(max(player.currentTime().seconds / durationSeconds, 0), 1))
+    // The player's time isn't observable, so the line samples it into state, which redraws the line as the video plays.
+    private func keepPlayedFractionCurrent() async {
+        while !Task.isCancelled {
+            if let durationSeconds = player.currentItem?.duration.seconds, durationSeconds.isFinite, durationSeconds > 0 {
+                playedFraction = CGFloat(min(max(player.currentTime().seconds / durationSeconds, 0), 1))
+            } else {
+                playedFraction = 0
+            }
+            try? await Task.sleep(for: Self.playedFractionSamplingInterval)
+        }
     }
 }

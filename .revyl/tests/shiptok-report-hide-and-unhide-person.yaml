@@ -1,0 +1,63 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: b21869b2-3ae8-466a-9c26-23d4ba9a4724
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-20T18:58:11Z"
+    checksum: 58a09db7f67840c4897ff8874d8f5f08d77d76688be4778bbd96fe903c8a1faa
+test:
+    metadata:
+        name: shiptok-report-hide-and-unhide-person
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: extraction
+          step_description: The GitHub login of the pull request's author shown at the card's lower left
+          variable_name: author-login
+        - type: instructions
+          step_description: Tap the More button, the three dots at the bottom of the right rail
+        - type: validation
+          step_description: A menu has a 'Pull request by @{{author-login}}' section offering 'Report on GitHub' and 'Hide @{{author-login}}'
+        - type: instructions
+          step_description: Tap 'Report on GitHub'
+        - type: manual
+          step_type: wait
+          step_description: "3"
+        - type: validation
+          step_description: Safari shows a github.com page for reporting content, or GitHub's sign-in page in front of it, and ShipTok is no longer on screen
+        - type: manual
+          step_type: open_app
+        - type: manual
+          step_type: wait
+          step_description: "3"
+        - type: validation
+          step_description: ShipTok's feed shows a pull request card
+        - type: instructions
+          step_description: Tap the More button on the right rail, then tap 'Hide @{{author-login}}'
+        - type: validation
+          step_description: A confirmation titled 'Hide @{{author-login}}?' says their pull requests, weekly videos, comments, vibes and media won't show in ShipTok on this iPhone, that nothing changes on GitHub, and that they can be unhidden in Settings
+        - type: instructions
+          step_description: Confirm by tapping 'Hide @{{author-login}}'
+        - type: validation
+          step_description: No pull request by {{author-login}} shows in the feed
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: validation
+          step_description: Settings lists @{{author-login}} under 'Hidden people' with an 'Unhide' button
+        - type: instructions
+          step_description: Tap 'Unhide' next to @{{author-login}}
+        - type: validation
+          step_description: '''Hidden people'' says no one is hidden'
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
+        - type: validation
+          step_description: The feed shows pull request cards again, including one by {{author-login}}

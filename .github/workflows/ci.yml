@@ -108,5 +108,4 @@ jobs:
         run: |
           revyl explore run "$REVYL_IOS_APP_ID" --build-id "$REVYL_BUILD_ID" \
             --explorers 1 --max-duration 20m --timeout 45m \
-            --auth-instructions "On ShipTok's first screen, tap Sign in to Revyl, sign in on Revyl's page with the email {{global.shiptok-revyl-sign-in-email}} and the password {{global.shiptok-revyl-sign-in-password}}, and tap Continue to ShipTok." \
-            --instructions "Explore the demo feed that a Revyl sign-in without a connected GitHub account opens. Never connect GitHub or complete a GitHub sign-in, and never sign out, delete data or delete the Revyl account."
+            --instructions "Explore signed out, from the first screen: Sign in to Revyl and Join existing organization. Never complete a Revyl or GitHub sign-in, and never submit a join request."

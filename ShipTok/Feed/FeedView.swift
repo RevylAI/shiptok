@@ -37,6 +37,17 @@ struct FeedView: View {
         case pageSwipe
         case vibeSwipe
         case videoScrub
+        // While the hero is zoomed, one finger pans it instead of swiping (AGENTS.md, "Swipe Gestures").
+        case heroPan(MediaZoomPan)
+        // A drag that a pinch overlaps belongs to the pinch until its finger lifts, so a pinch never swipes.
+        case heroPinch
+    }
+
+    // A zoom never outlives the card and media it was made on.
+    private struct HeroZoomSubject: Equatable {
+        let feedContext: FeedContext
+        let pageID: String
+        let heroMediaItemID: String?
     }
 
     private struct VibeAwaitingFeedback: Identifiable, Equatable {
@@ -50,7 +61,7 @@ struct FeedView: View {
         let id: String
     }
 
-    let viewer: FeedViewer
+    let viewer: SignedInTeammate
     let signInSession: ShipTokSignInSession
     let onChooseRepository: @MainActor (String) -> Void
     private let githubAPIClient: GitHubAPIClient
@@ -58,13 +69,9 @@ struct FeedView: View {
     @State private var weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>
     @State private var featuresStore: PublishedIssuesStore<Feature>
     @State private var vibeOutbox: VibeOutbox
-    // A demo visitor has no inbox or saved settings.
-    @State private var inboxStore: DeveloperInboxStore?
-    @State private var userSettingsStore: UserSettingsStore?
-    @State private var demoGitHubConnectionPromptAction: DemoGitHubConnectionPromptAction?
-    @AppStorage("feed-mode") private var savedFeedMode: FeedMode = .merged
-    @State private var demoVisitFeedMode: FeedMode = .merged
-    @State private var demoVisitShowsOnlyPullRequestsWithVideos = true
+    @State private var inboxStore: DeveloperInboxStore
+    @State private var userSettingsStore: UserSettingsStore
+    @AppStorage("feed-mode") private var feedMode: FeedMode = .merged
     @State private var playbackRateChoice: VideoPlaybackRateChoice
     @State private var openDeckSource: PullRequestDeckSource?
     @State private var openPullRequestsPageIndex = 0
@@ -76,7 +83,11 @@ struct FeedView: View {
     @State private var horizontalDragOffset: CGFloat = 0
     @State private var activeDeckDrag: DeckDrag?
     @State private var videoScrubFraction: CGFloat?
+    @State private var heroZoom = MediaZoom.normalFit
+    @State private var heroPinch: MediaZoom.Pinch?
+    @State private var heroMediaSizes: [String: CGSize] = [:]
     @State private var systemOcclusionFrames: [CGRect] = []
+    @State private var isTabBarShown = true
     @State private var isPageTransitionRunning = false
     @State private var cardEntranceScale: CGFloat = 1
     @State private var likeBurstTriggers: [String: Int] = [:]
@@ -108,22 +119,16 @@ struct FeedView: View {
     private static let tabBarDipIntoBottomSafeArea: CGFloat = 12
     private static let tabPageScrollEndToTabBarSpacing: CGFloat = 12
     private static let minimumKeyboardOverlap: CGFloat = 1
-    private static let feedModeSwitchInsetInCard = CGSize(width: 16, height: 12)
-    private static let feedModeSwitchMinimumGapBelowSafeArea: CGFloat = 6
-    private static let newerPullRequestsButtonGapBelowFeedModeSwitch: CGFloat = 8
-    private static let connectGitHubButtonGapBeforeNewerPullRequestsButton: CGFloat = 8
+    private static let newerPullRequestsButtonGapBelowTopRow: CGFloat = 8
 
     init(
-        viewer: FeedViewer,
+        viewer: SignedInTeammate,
         repositoryFullName: String,
         signInSession: ShipTokSignInSession,
         onChooseRepository: @escaping @MainActor (String) -> Void,
         onFeedRepositoryLost: @escaping @MainActor (String) -> Void
     ) {
-        let githubAPIClient = switch viewer {
-        case .teammate(let teammate): GitHubAPIClient(source: .signedInAccount(teammate.accountAPI), repositoryFullName: repositoryFullName)
-        case .demoVisitor(let demoVisitor): GitHubAPIClient(source: .demoFeed(demoVisitor.demoFeed), repositoryFullName: repositoryFullName)
-        }
+        let githubAPIClient = GitHubAPIClient(accountAPI: viewer.accountAPI, repositoryFullName: repositoryFullName)
         self.viewer = viewer
         self.githubAPIClient = githubAPIClient
         self.signInSession = signInSession
@@ -131,14 +136,14 @@ struct FeedView: View {
         let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void = { githubAPIError in
             if case .feedRepositoryNotVisible = githubAPIError {
                 onFeedRepositoryLost(githubAPIError.localizedDescription)
-            } else if let teammate = viewer.teammate {
-                signInSession.handleRejectedGitHubAccess(githubAPIError, endingSignInID: teammate.signInID)
+            } else {
+                signInSession.handleRejectedGitHubAccess(githubAPIError, endingSignInID: viewer.signInID)
             }
         }
         let feedStore = PullRequestFeedStore(
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
-            viewerGitHubLogin: viewer.githubLogin,
+            viewerGitHubLogin: viewer.user.githubLogin,
             hiddenPeopleStore: viewer.hiddenPeopleStore,
             feedWork: viewer.feedWork,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
@@ -159,33 +164,19 @@ struct FeedView: View {
         _vibeOutbox = State(initialValue: VibeOutbox(
             githubAPIClient: githubAPIClient,
             analytics: viewer.analytics,
-            viewerGitHubLogin: viewer.githubLogin,
+            viewerGitHubLogin: viewer.user.githubLogin,
             feedStore: feedStore,
             weeklyEditionsStore: weeklyEditionsStore,
             featuresStore: featuresStore,
             handleRejectedGitHubAccess: handleRejectedGitHubAccess
         ))
-        _inboxStore = State(initialValue: viewer.teammate.map { teammate in
-            DeveloperInboxStore(viewer: teammate.user, githubAPIClient: githubAPIClient, hiddenPeopleStore: teammate.hiddenPeopleStore)
-        })
-        _userSettingsStore = State(initialValue: viewer.teammate.map { UserSettingsStore(accessTokenVault: $0.accessTokenVault) })
-        _playbackRateChoice = State(initialValue: viewer.teammate == nil ? .forDemoVisit() : .savedOnDevice())
-    }
-
-    // A demo visit's choices last only as long as the visit (AGENTS.md, "Demo Mode").
-    private var feedMode: FeedMode {
-        get { viewer.teammate == nil ? demoVisitFeedMode : savedFeedMode }
-        nonmutating set {
-            if viewer.teammate == nil {
-                demoVisitFeedMode = newValue
-            } else {
-                savedFeedMode = newValue
-            }
-        }
+        _inboxStore = State(initialValue: DeveloperInboxStore(viewer: viewer.user, githubAPIClient: githubAPIClient, hiddenPeopleStore: viewer.hiddenPeopleStore))
+        _userSettingsStore = State(initialValue: UserSettingsStore(accessTokenVault: viewer.accessTokenVault))
+        _playbackRateChoice = State(initialValue: .savedOnDevice())
     }
 
     private var showsOnlyPullRequestsWithVideos: Bool {
-        userSettingsStore?.userSettings.showsOnlyPullRequestsWithVideos ?? demoVisitShowsOnlyPullRequestsWithVideos
+        userSettingsStore.userSettings.showsOnlyPullRequestsWithVideos
     }
 
     private var feedContext: FeedContext {
@@ -274,6 +265,11 @@ struct FeedView: View {
         detailSheetPullRequest != nil || mediaDeckPullRequestID != nil || selectedTab != .feed
     }
 
+    private var heroZoomSubject: HeroZoomSubject {
+        let currentPage = feedPages[clampedPageIndex]
+        return HeroZoomSubject(feedContext: feedContext, pageID: currentPage.id, heroMediaItemID: loadableHeroMediaItem(of: currentPage)?.id)
+    }
+
     private var isHeroOccludedForAnalytics: Bool {
         commentsSheetPullRequest != nil || commentsSheetWeeklyEdition != nil || commentsSheetFeature != nil
     }
@@ -294,23 +290,34 @@ struct FeedView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Pages fill the screen under the status bar, tab bar and home indicator, and each lays its card out between the top of the status bar and the
-            // tab bar; the box rides the keyboard over the card, so the keyboard never relayouts it (AGENTS.md, "Card Layout").
+            // Pages fill the screen under the status bar, tab bar and home indicator, and FeedPageLayout places each card, its rail and the top row in
+            // it; the box rides the keyboard over the card, so the keyboard never relayouts it (AGENTS.md, "Card Layout").
             GeometryReader { safeAreaGeometry in
-                let pageChromeInsets = EdgeInsets(
-                    top: safeAreaGeometry.safeAreaInsets.top,
-                    leading: safeAreaGeometry.safeAreaInsets.leading,
-                    bottom: tabBarBottomGap + AppTabBar.height,
-                    trailing: safeAreaGeometry.safeAreaInsets.trailing
-                )
                 GeometryReader { pageGeometry in
-                    feedContent(pageSize: pageGeometry.size, pageChromeInsets: pageChromeInsets)
+                    let pageLayout = FeedPageLayout.arranged(
+                        pageSize: pageGeometry.size,
+                        safeAreaInsets: safeAreaGeometry.safeAreaInsets,
+                        floatingTabBarHeightWithBottomGap: tabBarBottomGap + AppTabBar.height,
+                        systemOcclusionFrames: systemOcclusionFrames
+                    )
+                    feedContent(pageSize: pageGeometry.size, pageLayout: pageLayout)
                         .overlay(alignment: .topLeading) {
-                            feedModeSwitchAndNewerPullRequestsButton(pageSize: pageGeometry.size, pageChromeInsets: pageChromeInsets)
+                            feedChrome(pageLayout: pageLayout)
+                        }
+                        .overlay(alignment: .top) {
+                            newerPullRequestsButton
+                                .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+                                .offset(
+                                    x: pageLayout.card.midX - pageGeometry.size.width / 2,
+                                    y: pageLayout.topRow.maxY + Self.newerPullRequestsButtonGapBelowTopRow
+                                )
                         }
                         // Read from this full-screen reader, which never moves with a dragged page, so the rail never jumps mid-swipe.
                         .onChange(of: Self.systemOcclusionFrames(in: pageGeometry), initial: true) { _, measuredSystemOcclusionFrames in
                             systemOcclusionFrames = measuredSystemOcclusionFrames
+                        }
+                        .onChange(of: pageLayout.isTabBarShown, initial: true) { _, isTabBarShownInPageLayout in
+                            isTabBarShown = isTabBarShownInPageLayout
                         }
                 }
                 .ignoresSafeArea(.container)
@@ -319,9 +326,10 @@ struct FeedView: View {
                 }
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            .accessibilityHidden(selectedTab != .feed)
             // Scroll content margins rather than safe-area padding, which a List inside the tabs' NavigationStack ignores, leaving its last rows under the pill.
             selectedTabPage
-                .contentMargins(.bottom, AppTabBar.height + tabBarBottomPadding + Self.tabPageScrollEndToTabBarSpacing, for: .scrollContent)
+                .contentMargins(.bottom, isTabBarShown ? AppTabBar.height + tabBarBottomPadding + Self.tabPageScrollEndToTabBarSpacing : 0, for: .scrollContent)
             VStack(spacing: 0) {
                 toastStack
                 vibeFeedbackComposer
@@ -330,14 +338,11 @@ struct FeedView: View {
                     } action: { measuredComposerHeight in
                         vibeFeedbackComposerHeight = measuredComposerHeight
                     }
-                if !isKeyboardShown {
+                if isTabBarShown && !isKeyboardShown {
                     AppTabBar(
-                        selectedTab: Binding(get: { selectedTab }, set: { newSelectedTab in
-                            if newSelectedTab == .inbox, promptsGitHubConnection(for: .inbox) { return }
-                            selectedTab = newSelectedTab
-                        }),
-                        unseenInboxItemCount: inboxStore?.unseenItemCount ?? 0,
-                        viewerAvatarURL: viewer.teammate?.user.githubAvatarURL
+                        selectedTab: $selectedTab,
+                        unseenInboxItemCount: inboxStore.unseenItemCount,
+                        viewerAvatarURL: viewer.user.githubAvatarURL
                     )
                     .frame(maxWidth: .infinity)
                     .ignoresSafeArea(.container, edges: .horizontal)
@@ -361,8 +366,7 @@ struct FeedView: View {
         .sheet(item: $commentsSheetPullRequest) { pullRequest in
             PullRequestCommentsSheet(
                 thread: pullRequest,
-                viewer: viewer.teammate?.user,
-                signInSession: signInSession,
+                viewer: viewer.user,
                 hiddenPeopleStore: viewer.hiddenPeopleStore,
                 githubAPIClient: githubAPIClient,
                 analytics: viewer.analytics,
@@ -376,8 +380,7 @@ struct FeedView: View {
         .sheet(item: $commentsSheetWeeklyEdition) { weeklyEdition in
             PullRequestCommentsSheet(
                 thread: weeklyEdition,
-                viewer: viewer.teammate?.user,
-                signInSession: signInSession,
+                viewer: viewer.user,
                 hiddenPeopleStore: viewer.hiddenPeopleStore,
                 githubAPIClient: githubAPIClient,
                 analytics: viewer.analytics,
@@ -391,8 +394,7 @@ struct FeedView: View {
         .sheet(item: $commentsSheetFeature) { feature in
             PullRequestCommentsSheet(
                 thread: feature,
-                viewer: viewer.teammate?.user,
-                signInSession: signInSession,
+                viewer: viewer.user,
                 hiddenPeopleStore: viewer.hiddenPeopleStore,
                 githubAPIClient: githubAPIClient,
                 analytics: viewer.analytics,
@@ -408,21 +410,20 @@ struct FeedView: View {
                 feedStore: feedStore,
                 vibeOutbox: vibeOutbox,
                 viewer: viewer,
-                signInSession: signInSession,
                 repositoryFullName: githubAPIClient.repositoryFullName,
                 presentedPullRequest: pullRequest
             )
         }
         .fullScreenCover(item: $mediaDeckPullRequestID) { presentedPullRequestID in
-            MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, signInSession: signInSession, pullRequestID: presentedPullRequestID.id)
+            MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, pullRequestID: presentedPullRequestID.id)
         }
         .task(id: onScreenFeedContext) {
             if onScreenFeedContext != nil {
                 await refreshShownFeedContextWhileShown()
             }
         }
-        .task { await inboxStore?.runLiveRefreshLoop() }
-        .task { await userSettingsStore?.refresh() }
+        .task { await inboxStore.runLiveRefreshLoop() }
+        .task { await userSettingsStore.refresh() }
         .onAppear {
             feedStore.changeOnScreenPullRequests(to: onScreenPullRequests)
             focusPage(at: currentPageIndex)
@@ -432,6 +433,10 @@ struct FeedView: View {
         }
         .onChange(of: feedContext) {
             postVibeAwaitingFeedback()
+        }
+        .onChange(of: heroZoomSubject) {
+            heroZoom = .normalFit
+            heroPinch = nil
         }
         .onChange(of: onScreenFeedContext) {
             feedStore.changeOnScreenPullRequests(to: onScreenPullRequests)
@@ -484,8 +489,8 @@ struct FeedView: View {
                 if selectedTab == .feed {
                     Task { await refreshShownFeedContext() }
                 }
-                Task { await inboxStore?.refresh() }
-                Task { await userSettingsStore?.refresh() }
+                Task { await inboxStore.refresh() }
+                Task { await userSettingsStore.refresh() }
             case .background:
                 postVibeAwaitingFeedback()
                 vibeOutbox.postAllQueuedVibesBeforeSuspension()
@@ -498,7 +503,6 @@ struct FeedView: View {
             viewer.hiddenPeopleStore.hide(postedContent.postedBy)
             viewer.analytics.capture(.personHidden(postedContent, control: .feedRail))
         }
-        .demoGitHubConnectionPrompt($demoGitHubConnectionPromptAction, signInSession: signInSession)
         .environment(\.shipTokAnalytics, viewer.analytics)
         .environment(\.feedViewerMediaCache, viewer.mediaCache)
         .environment(playbackRateChoice)
@@ -540,120 +544,100 @@ struct FeedView: View {
         }
     }
 
-    // Its whole 44-point tap target is its frame, like the "new" pill's, so the row under the switch never reaches into the switch's taps.
-    private var connectGitHubButton: some View {
-        Button {
-            _ = promptsGitHubConnection(for: .connectGitHub)
-        } label: {
-            Label("Connect GitHub", systemImage: "link")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Capsule().fill(RevylBrandColor.brand))
-                .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.swipeYielding)
-        .fixedSize()
-    }
-
     @ViewBuilder
     private var selectedTabPage: some View {
         switch selectedTab {
         case .feed:
             EmptyView()
         case .inbox:
-            if let inboxStore {
-                DeveloperInboxView(
-                    store: inboxStore,
-                    onOpenPullRequest: openPullRequest(number:),
-                    onReport: { postedContent in
-                        viewer.analytics.capture(.contentReportOpened(postedContent, control: .inboxRow))
-                        openURL(postedContent.githubReportURL)
-                    },
-                    onHide: { postedContent in
-                        viewer.hiddenPeopleStore.hide(postedContent.postedBy)
-                        viewer.analytics.capture(.personHidden(postedContent, control: .inboxRow))
-                    }
-                )
-            }
+            DeveloperInboxView(
+                store: inboxStore,
+                onOpenPullRequest: openPullRequest(number:),
+                onReport: { postedContent in
+                    viewer.analytics.capture(.contentReportOpened(postedContent, control: .inboxRow))
+                    openURL(postedContent.githubReportURL)
+                },
+                onHide: { postedContent in
+                    viewer.hiddenPeopleStore.hide(postedContent.postedBy)
+                    viewer.analytics.capture(.personHidden(postedContent, control: .inboxRow))
+                },
+                onShowFeed: onShowFeedFromTabPage
+            )
         case .settings:
-            switch viewer {
-            case .teammate(let teammate):
-                if let userSettingsStore {
-                    SettingsView(
-                        viewer: teammate.user,
-                        signInID: teammate.signInID,
-                        userSettingsStore: userSettingsStore,
-                        hiddenPeopleStore: teammate.hiddenPeopleStore,
-                        accountAPI: teammate.accountAPI,
-                        chosenRepositoryFullName: githubAPIClient.repositoryFullName,
-                        signInSession: signInSession,
-                        onChooseRepository: { repositoryFullName in
-                            postVibeAwaitingFeedback()
-                            vibeOutbox.postAllQueuedVibesBeforeSuspension()
-                            await feedStore.saveFeeds()?.value
-                            onChooseRepository(repositoryFullName)
-                        }
-                    )
-                }
-            case .demoVisitor(let demoVisitor):
-                DemoSettingsView(
-                    demoVisitor: demoVisitor,
-                    signInSession: signInSession,
-                    showsOnlyPullRequestsWithVideos: $demoVisitShowsOnlyPullRequestsWithVideos
-                )
-            }
+            SettingsView(
+                viewer: viewer.user,
+                signInID: viewer.signInID,
+                userSettingsStore: userSettingsStore,
+                hiddenPeopleStore: viewer.hiddenPeopleStore,
+                accountAPI: viewer.accountAPI,
+                chosenRepositoryFullName: githubAPIClient.repositoryFullName,
+                signInSession: signInSession,
+                onChooseRepository: { repositoryFullName in
+                    postVibeAwaitingFeedback()
+                    vibeOutbox.postAllQueuedVibesBeforeSuspension()
+                    await feedStore.saveFeeds()?.value
+                    onChooseRepository(repositoryFullName)
+                },
+                onShowFeed: onShowFeedFromTabPage
+            )
         }
     }
 
-    // The switch sits over the card's top left, inside the format's top safe zone and never under the status bar. Under it, clear of the switch's taps,
-    // one row holds a demo visitor's Connect GitHub, so the way to their own feed always shows, and then the "new" pill, so neither covers the switch or the
-    // other however wide the switch grows (AGENTS.md, "Card Layout" and "Demo Mode").
-    private func feedModeSwitchAndNewerPullRequestsButton(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
-        let cardFrame = FeedCardView.cardFrame(in: pageSize, pageChromeInsets: pageChromeInsets).card
-        return VStack(alignment: .leading, spacing: Self.newerPullRequestsButtonGapBelowFeedModeSwitch) {
+    private var onShowFeedFromTabPage: (() -> Void)? {
+        isTabBarShown ? nil : { selectedTab = .feed }
+    }
+
+    // The mode tabs in the top row, centered over the card wherever they fit, and inbox and settings where FeedPageLayout puts them when no tab bar shows
+    // (AGENTS.md, "Card Layout" and "Feed Modes").
+    private func feedChrome(pageLayout: FeedPageLayout) -> some View {
+        let feedModeSwitchArea = pageLayout.feedModeSwitchArea
+        return ZStack(alignment: .topLeading) {
             FeedModeSwitch(
                 feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
                 shownDeckSource: feedContext == .openDeck ? openDeckSource : nil,
-                onCloseDeck: closeDeck
+                onCloseDeck: closeDeck,
+                preferredTabsCenterX: pageLayout.card.midX - feedModeSwitchArea.minX
             )
-            .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
-            HStack(spacing: Self.connectGitHubButtonGapBeforeNewerPullRequestsButton) {
-                if viewer.teammate == nil {
-                    connectGitHubButton
-                        .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
-                }
-                newerPullRequestsButton
-                    .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+            .frame(width: feedModeSwitchArea.width, height: feedModeSwitchArea.height)
+            .offset(x: feedModeSwitchArea.minX, y: feedModeSwitchArea.minY)
+            switch pageLayout.navigationPlacement {
+            case .floatingTabBar:
+                EmptyView()
+            case .topCornerButtons(let row):
+                feedNavigationButtons(style: .topCornerGlyphs)
+                    .frame(width: row.width, height: row.height, alignment: .trailing)
+                    .offset(x: row.minX, y: row.minY)
+            case .statusStripButtons(let column):
+                feedNavigationButtons(style: .statusStripGlyphs)
+                    .frame(width: column.width, height: column.height, alignment: .top)
+                    .offset(x: column.minX, y: column.minY)
             }
         }
-        .offset(
-            x: cardFrame.minX + Self.feedModeSwitchInsetInCard.width,
-            y: max(cardFrame.minY + Self.feedModeSwitchInsetInCard.height, pageChromeInsets.top + Self.feedModeSwitchMinimumGapBelowSafeArea)
-        )
+        .opacity(vibeAwaitingFeedback == nil ? 1 : 0)
+    }
+
+    private func feedNavigationButtons(style: FeedNavigationButtons.Style) -> some View {
+        FeedNavigationButtons(style: style, unseenInboxItemCount: inboxStore.unseenItemCount, onSelectTab: { selectedTab = $0 })
     }
 
     @ViewBuilder
-    private func feedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func feedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         switch feedContext {
         case .pullRequests(let feed):
-            pullRequestsFeedContent(in: feed, pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+            pullRequestsFeedContent(in: feed, pageSize: pageSize, pageLayout: pageLayout)
         case .weeklyEditions:
-            weeklyEditionsFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+            weeklyEditionsFeedContent(pageSize: pageSize, pageLayout: pageLayout)
         case .features:
-            featuresFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+            featuresFeedContent(pageSize: pageSize, pageLayout: pageLayout)
         case .openDeck:
-            openDeckFeedContent(pageSize: pageSize, pageChromeInsets: pageChromeInsets)
+            openDeckFeedContent(pageSize: pageSize, pageLayout: pageLayout)
         }
     }
 
     @ViewBuilder
-    private func weeklyEditionsFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func weeklyEditionsFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         if !weeklyEditionsStore.publishedIssues.isEmpty {
-            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let loadFailureMessage = weeklyEditionsStore.loadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
@@ -674,9 +658,9 @@ struct FeedView: View {
     }
 
     @ViewBuilder
-    private func featuresFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func featuresFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         if !featuresStore.publishedIssues.isEmpty {
-            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let loadFailureMessage = featuresStore.loadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
@@ -697,10 +681,10 @@ struct FeedView: View {
     }
 
     @ViewBuilder
-    private func openDeckFeedContent(pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func openDeckFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         let isWeekDeck = openDeckSource?.feedMode == .weekly
         if !feedStore.openDeckPullRequests.isEmpty {
-            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let openDeckReadFailureMessage = feedStore.openDeckReadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
@@ -724,10 +708,10 @@ struct FeedView: View {
 
     // Until a card shows, the feed keeps reading older pages, so it's loading until GitHub has no more (AGENTS.md, "Feed Order").
     @ViewBuilder
-    private func pullRequestsFeedContent(in feed: PullRequestFeed, pageSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func pullRequestsFeedContent(in feed: PullRequestFeed, pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         let loadedFeed = feedStore.loadedFeed(feed)
         if !feedStore.visiblePullRequests(in: feed).isEmpty {
-            feedDeck(deckSize: pageSize, pageChromeInsets: pageChromeInsets)
+            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let loadFailureMessage = loadedFeed.loadFailureMessage {
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
@@ -758,7 +742,7 @@ struct FeedView: View {
         }
     }
 
-    private func feedDeck(deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func feedDeck(deckSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         let pages = feedPages
         let currentIndex = clampedPageIndex
         let visiblePageEntries = (max(0, currentIndex - 1)...min(pages.count - 1, currentIndex + 1))
@@ -766,7 +750,7 @@ struct FeedView: View {
         return ZStack {
             ForEach(visiblePageEntries, id: \.page.id) { pageEntry in
                 let isCurrentPage = pageEntry.pageIndex == currentIndex
-                pageView(pageEntry.page, isCurrentPage: isCurrentPage, deckSize: deckSize, pageChromeInsets: pageChromeInsets)
+                pageView(pageEntry.page, isCurrentPage: isCurrentPage, deckSize: deckSize, pageLayout: pageLayout)
                     .frame(width: deckSize.width, height: deckSize.height)
                     .scaleEffect(isCurrentPage ? cardEntranceScale : 1)
                     .rotationEffect(.degrees(isCurrentPage ? Double(horizontalDragOffset / max(deckSize.width, 1)) * 12 : 0), anchor: .bottom)
@@ -780,10 +764,22 @@ struct FeedView: View {
         .clipped()
         .overlay(alignment: .top) {
             pullToRefreshIndicator(deckSize: deckSize)
-                .padding(.top, pageChromeInsets.top)
+                .padding(.top, pageLayout.topRow.maxY)
         }
         .contentShape(Rectangle())
-        .gesture(deckDragGesture(deckSize: deckSize, pageChromeInsets: pageChromeInsets))
+        .gesture(deckDragGesture(deckSize: deckSize, pageLayout: pageLayout))
+        .simultaneousGesture(heroPinchGesture(pageLayout: pageLayout))
+        .onChange(of: pageLayout) { previousPageLayout, resizedPageLayout in
+            guard let previousHeroZoomViewport = heroZoomViewport(pageLayout: previousPageLayout),
+                  let resizedHeroZoomViewport = heroZoomViewport(pageLayout: resizedPageLayout)
+            else { return }
+            heroZoom = heroZoom.refitted(
+                from: previousHeroZoomViewport.mediaFrame,
+                in: previousHeroZoomViewport.frameInCard.size,
+                to: resizedHeroZoomViewport.mediaFrame,
+                in: resizedHeroZoomViewport.frameInCard.size
+            )
+        }
     }
 
     @ViewBuilder
@@ -813,7 +809,7 @@ struct FeedView: View {
     }
 
     @ViewBuilder
-    private func pageView(_ page: FeedPage, isCurrentPage: Bool, deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some View {
+    private func pageView(_ page: FeedPage, isCurrentPage: Bool, deckSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         switch page {
         case .pullRequest(let pullRequest):
             feedCard(
@@ -822,7 +818,7 @@ struct FeedView: View {
                 unloadableMediaItemIDs: feedStore.unloadableMediaItemIDs,
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
-                pageChromeInsets: pageChromeInsets,
+                pageLayout: pageLayout,
                 likeUnlessAlreadyLiked: { Task { await feedStore.likeUnlessAlreadyLiked(pullRequestID: pullRequest.id) } },
                 toggleReaction: { reaction in Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) } },
                 openComments: { commentsSheetPullRequest = feedStore.pullRequest(withID: pullRequest.id) ?? pullRequest },
@@ -839,7 +835,7 @@ struct FeedView: View {
                 unloadableMediaItemIDs: weeklyEditionsStore.unloadableMediaItemIDs,
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
-                pageChromeInsets: pageChromeInsets,
+                pageLayout: pageLayout,
                 likeUnlessAlreadyLiked: { Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(publishedIssueID: weeklyEdition.id) } },
                 toggleReaction: { reaction in Task { await weeklyEditionsStore.toggleReaction(reaction, publishedIssueID: weeklyEdition.id) } },
                 openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.publishedIssue(withID: weeklyEdition.id) ?? weeklyEdition },
@@ -856,7 +852,7 @@ struct FeedView: View {
                 unloadableMediaItemIDs: featuresStore.unloadableMediaItemIDs,
                 isCurrentPage: isCurrentPage,
                 deckSize: deckSize,
-                pageChromeInsets: pageChromeInsets,
+                pageLayout: pageLayout,
                 likeUnlessAlreadyLiked: { Task { await featuresStore.likeUnlessAlreadyLiked(publishedIssueID: feature.id) } },
                 toggleReaction: { reaction in Task { await featuresStore.toggleReaction(reaction, publishedIssueID: feature.id) } },
                 openComments: { commentsSheetFeature = featuresStore.publishedIssue(withID: feature.id) ?? feature },
@@ -877,7 +873,7 @@ struct FeedView: View {
         unloadableMediaItemIDs: Set<String>,
         isCurrentPage: Bool,
         deckSize: CGSize,
-        pageChromeInsets: EdgeInsets,
+        pageLayout: FeedPageLayout,
         likeUnlessAlreadyLiked: @escaping () -> Void,
         toggleReaction: @escaping (GitHubReaction) -> Void,
         openComments: @escaping () -> Void,
@@ -898,15 +894,15 @@ struct FeedView: View {
             heroMediaItem: heroMediaItem,
             isHeroMediaUnloadable: heroMediaItem.map { unloadableMediaItemIDs.contains($0.id) } ?? false,
             analyticsSubject: analyticsSubject,
-            pageChromeInsets: pageChromeInsets,
-            systemOcclusionFrames: systemOcclusionFrames,
+            pageLayout: pageLayout,
             videoScrubFraction: isCurrentPage ? videoScrubFraction : nil,
+            heroZoom: isCurrentPage ? heroZoom : .normalFit,
             vibeFeedbackComposerHeight: vibeFeedbackComposerHeight,
             isBehindVibeFeedbackComposer: vibeAwaitingFeedback != nil,
             isKeyboardShown: isKeyboardShown,
             vibes: feedCardVibes(
                 tally: thread.vibeTally(
-                    viewerGitHubLogin: viewer.githubLogin,
+                    viewerGitHubLogin: viewer.user.githubLogin,
                     viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: thread.id)
                 ),
                 target: vibeTarget,
@@ -914,7 +910,7 @@ struct FeedView: View {
             ),
             moderation: feedCardModeration(reportableContents: thread.reportableContents(
                 postedOn: analyticsSubject,
-                excludingContentBy: viewer.githubLogin
+                excludingContentBy: viewer.user.githubLogin
             )),
             deckPullRequestCount: deckSource.flatMap { feedStore.pullRequestCountOfDeckReadInFull(listing: $0.listing) },
             isPlaybackActive: isCurrentPage && scenePhase == .active && !isFeedCovered,
@@ -922,21 +918,20 @@ struct FeedView: View {
             horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
             likeBurstTrigger: likeBurstTriggers[thread.id, default: 0],
             onDoubleTap: {
-                guard !promptsGitHubConnection(for: .like) else { return }
+                if heroZoom.isZoomed {
+                    withAnimation(MediaZoom.settleAnimation) { heroZoom = .normalFit }
+                    return
+                }
                 showLikeBurst(onPostID: thread.id)
                 viewer.analytics.capture(.likeSelected(analyticsSubject, control: .doubleTap, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
                 likeUnlessAlreadyLiked()
             },
             onToggleLike: {
-                guard !promptsGitHubConnection(for: .like) else { return }
                 likeHapticTrigger += 1
                 viewer.analytics.capture(.likeSelected(analyticsSubject, control: .feedRail, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
                 toggleReaction(.heart)
             },
-            onToggleReaction: { reaction in
-                guard !promptsGitHubConnection(for: .reaction) else { return }
-                toggleReaction(reaction)
-            },
+            onToggleReaction: toggleReaction,
             onOpenComments: {
                 openComments()
                 viewer.analytics.capture(.commentsOpened(analyticsSubject))
@@ -944,6 +939,11 @@ struct FeedView: View {
             onOpenDeck: openDeck,
             onTapCaption: tapCaption,
             onHeroMediaLoadFailure: recoverFromHeroMediaLoadFailure,
+            onHeroMediaSizeRead: { heroMediaItem, heroMediaSize in
+                if heroMediaSizes[heroMediaItem.id] != heroMediaSize {
+                    heroMediaSizes[heroMediaItem.id] = heroMediaSize
+                }
+            },
             onTapWhileBehindVibeFeedbackComposer: dismissKeyboard
         )
     }
@@ -963,7 +963,6 @@ struct FeedView: View {
         GitHubPostedContentModeration(
             reportableContents: reportableContents,
             onReport: { postedContent in
-                guard !promptsGitHubConnection(for: .report) else { return }
                 viewer.analytics.capture(.contentReportOpened(postedContent, control: .feedRail))
                 openURL(postedContent.githubReportURL)
             },
@@ -979,7 +978,6 @@ struct FeedView: View {
             FeedEndPageView(
                 feed: feed,
                 repositoryFullName: githubAPIClient.repositoryFullName,
-                isDemoVisit: viewer.teammate == nil,
                 showsOnlyPullRequestsWithVideos: showsOnlyPullRequestsWithVideos,
                 loadFailureMessage: loadedFeed.loadFailureMessage,
                 hasLoadedEveryPullRequest: loadedFeed.hasLoadedEveryPullRequest,
@@ -1133,19 +1131,23 @@ struct FeedView: View {
     }
 
     // A sideways drag from the strip around a video's progress line scrubs it; from anywhere else it casts a vibe (AGENTS.md, "Swipe Gestures").
-    private func deckDragGesture(deckSize: CGSize, pageChromeInsets: EdgeInsets) -> some Gesture {
+    private func deckDragGesture(deckSize: CGSize, pageLayout: FeedPageLayout) -> some Gesture {
         DragGesture(minimumDistance: 14)
             .onChanged { dragValue in
                 guard !isPageTransitionRunning else { return }
-                let cardFrame = FeedCardView.cardFrame(in: deckSize, pageChromeInsets: pageChromeInsets).card
+                if heroPinch != nil {
+                    activeDeckDrag = .heroPinch
+                }
                 if activeDeckDrag == nil {
-                    if abs(dragValue.translation.width) <= abs(dragValue.translation.height) {
-                        activeDeckDrag = .pageSwipe
-                    } else if isHeroLoadableVideo(of: feedPages[clampedPageIndex]),
-                              FeedCardView.videoScrubZone(cardFrame: cardFrame).contains(dragValue.startLocation) {
+                    let isSideways = abs(dragValue.translation.width) > abs(dragValue.translation.height)
+                    if isSideways, isHeroLoadableVideo(of: feedPages[clampedPageIndex]), pageLayout.videoScrubZone.contains(dragValue.startLocation) {
                         activeDeckDrag = .videoScrub
-                    } else {
+                    } else if heroZoom.isZoomed {
+                        activeDeckDrag = .heroPan(MediaZoomPan(startZoom: heroZoom, startTranslation: dragValue.translation))
+                    } else if isSideways {
                         activeDeckDrag = .vibeSwipe
+                    } else {
+                        activeDeckDrag = .pageSwipe
                     }
                 }
                 switch activeDeckDrag {
@@ -1155,8 +1157,15 @@ struct FeedView: View {
                 case .pageSwipe:
                     verticalDragOffset = resistedVerticalDragOffset(dragValue.translation.height)
                 case .videoScrub:
-                    videoScrubFraction = FeedCardView.videoScrubFraction(atX: dragValue.location.x, cardFrame: cardFrame)
-                case nil:
+                    videoScrubFraction = pageLayout.videoScrubFraction(atX: dragValue.location.x)
+                case .heroPan(let heroPan):
+                    guard let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else { return }
+                    heroZoom = heroPan.startZoom.panned(
+                        by: heroPan.translation(from: dragValue.translation),
+                        mediaFrame: zoomViewport.mediaFrame,
+                        in: zoomViewport.frameInCard.size
+                    )
+                case .heroPinch, nil:
                     break
                 }
             }
@@ -1170,21 +1179,102 @@ struct FeedView: View {
                     finishVerticalDrag(dragValue, deckSize: deckSize)
                 case .vibeSwipe:
                     finishHorizontalDrag(dragValue, deckSize: deckSize)
-                case .videoScrub, nil:
+                case .heroPan(let heroPan):
+                    guard let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else { return }
+                    withAnimation(MediaZoom.settleAnimation) {
+                        heroZoom = heroPan.startZoom.panEnded(
+                            by: heroPan.translation(from: dragValue.predictedEndTranslation),
+                            mediaFrame: zoomViewport.mediaFrame,
+                            in: zoomViewport.frameInCard.size
+                        )
+                    }
+                case .videoScrub, .heroPinch, nil:
                     break
                 }
             }
     }
 
-    private func isHeroLoadableVideo(of page: FeedPage) -> Bool {
+    // A pinch on the card zooms its hero around where the fingers met, and whatever the feed's drag had started gives way to it (AGENTS.md, "Swipe Gestures").
+    private func heroPinchGesture(pageLayout: FeedPageLayout) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { magnifyValue in
+                guard !isPageTransitionRunning, let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else { return }
+                let activeHeroPinch = heroPinch ?? MediaZoom.Pinch(
+                    startZoom: heroZoom,
+                    anchor: CGPoint(
+                        x: magnifyValue.startLocation.x - pageLayout.card.minX - zoomViewport.frameInCard.minX,
+                        y: magnifyValue.startLocation.y - pageLayout.card.minY - zoomViewport.frameInCard.minY
+                    )
+                )
+                if heroPinch == nil, activeDeckDrag != nil {
+                    activeDeckDrag = .heroPinch
+                    videoScrubFraction = nil
+                    withAnimation(.spring(duration: 0.3)) {
+                        verticalDragOffset = 0
+                        horizontalDragOffset = 0
+                    }
+                }
+                heroPinch = activeHeroPinch
+                heroZoom = activeHeroPinch.startZoom.pinched(by: magnifyValue.magnification, around: activeHeroPinch.anchor, in: zoomViewport.frameInCard.size)
+            }
+            .onEnded { magnifyValue in
+                guard let endedHeroPinch = heroPinch else { return }
+                heroPinch = nil
+                guard let zoomViewport = heroZoomViewport(pageLayout: pageLayout) else {
+                    heroZoom = .normalFit
+                    return
+                }
+                let settledHeroZoom = endedHeroPinch.startZoom.pinchEnded(
+                    by: magnifyValue.magnification,
+                    around: endedHeroPinch.anchor,
+                    mediaFrame: zoomViewport.mediaFrame,
+                    in: zoomViewport.frameInCard.size
+                )
+                withAnimation(MediaZoom.settleAnimation) { heroZoom = settledHeroZoom }
+                if !endedHeroPinch.startZoom.isZoomed, settledHeroZoom.isZoomed {
+                    captureHeroZoomIn()
+                }
+            }
+    }
+
+    // Where the hero of the card in focus zooms its media, once it has loaded far enough to know its size; a pinch zooms only that.
+    private func heroZoomViewport(pageLayout: FeedPageLayout) -> PullRequestMediaItemView.HeroZoomViewport? {
+        guard let heroMediaItem = loadableHeroMediaItem(of: feedPages[clampedPageIndex]),
+              let heroMediaSize = heroMediaSizes[heroMediaItem.id]
+        else { return nil }
+        return PullRequestMediaItemView.heroZoomViewport(mediaSize: heroMediaSize, cardSize: pageLayout.card.size, wholeMediaInsets: pageLayout.wholeHeroMediaInsets)
+    }
+
+    private func captureHeroZoomIn() {
+        let currentPage = feedPages[clampedPageIndex]
+        guard let heroMediaItem = loadableHeroMediaItem(of: currentPage), let analyticsSubject = currentPage.vibeTarget?.analyticsSubject else { return }
+        let mediaItems: [PullRequestMediaItem] = switch currentPage {
+        case .pullRequest(let pullRequest): pullRequest.mediaItems
+        case .weeklyEdition(let weeklyEdition): weeklyEdition.mediaItems
+        case .feature(let feature): feature.mediaItems
+        case .feedEnd: []
+        }
+        viewer.analytics.capture(.mediaZoomed(ShipTokAnalyticsMedia(
+            subject: analyticsSubject,
+            surface: .feed,
+            mediaItem: heroMediaItem,
+            mediaPosition: mediaItems.firstIndex { $0.id == heroMediaItem.id } ?? 0
+        )))
+    }
+
+    private func loadableHeroMediaItem(of page: FeedPage) -> PullRequestMediaItem? {
         let (heroMediaItem, unloadableMediaItemIDs): (PullRequestMediaItem?, Set<String>) = switch page {
         case .pullRequest(let pullRequest): (feedStore.heroMediaItem(of: pullRequest), feedStore.unloadableMediaItemIDs)
         case .weeklyEdition(let weeklyEdition): (weeklyEditionsStore.heroMediaItem(of: weeklyEdition), weeklyEditionsStore.unloadableMediaItemIDs)
         case .feature(let feature): (featuresStore.heroMediaItem(of: feature), featuresStore.unloadableMediaItemIDs)
         case .feedEnd: (nil, [])
         }
-        guard let heroMediaItem else { return false }
-        return heroMediaItem.kind == .video && !unloadableMediaItemIDs.contains(heroMediaItem.id)
+        guard let heroMediaItem, !unloadableMediaItemIDs.contains(heroMediaItem.id) else { return nil }
+        return heroMediaItem
+    }
+
+    private func isHeroLoadableVideo(of page: FeedPage) -> Bool {
+        loadableHeroMediaItem(of: page)?.kind == .video
     }
 
     // The Duo's status strip, an expanded island included, is an occlusion region from iOS 27.1, and no earlier device has a strip beside the card.
@@ -1324,12 +1414,8 @@ struct FeedView: View {
         feedStore.closeDeck()
     }
 
-    // A vibe from the rail leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
+    // A vibe from VoiceOver's actions leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
     private func flingCard(of vibeTarget: VibeTarget, castingVibe vibe: PullRequestVibe, deckWidth: CGFloat) {
-        guard !promptsGitHubConnection(for: .vibe) else {
-            withAnimation(.spring(duration: 0.3)) { horizontalDragOffset = 0 }
-            return
-        }
         isPageTransitionRunning = true
         let selectionID = UUID()
         viewer.analytics.capture(.vibeSelected(vibeTarget.analyticsSubject,
@@ -1354,7 +1440,7 @@ struct FeedView: View {
     // The feedback box never blocks the swipe (AGENTS.md, "Vibes").
     private func castVibe(_ vibe: PullRequestVibe, on vibeTarget: VibeTarget, selectionID: UUID) {
         postVibeAwaitingFeedback()
-        if userSettingsStore?.showsFeedbackBox(for: vibe) == true {
+        if userSettingsStore.showsFeedbackBox(for: vibe) {
             vibeAwaitingFeedback = VibeAwaitingFeedback(id: selectionID, target: vibeTarget, vibe: vibe)
         } else {
             vibeOutbox.enqueue(VibeOutbox.QueuedVibe(id: selectionID, target: vibeTarget, vibe: vibe, feedbackText: ""))
@@ -1397,14 +1483,6 @@ struct FeedView: View {
         cardEntranceScale = 0.92
         withAnimation(.spring(duration: 0.35, bounce: 0.2)) { cardEntranceScale = 1 }
         isPageTransitionRunning = false
-    }
-
-    // A demo visitor is asked to connect GitHub instead of posting to GitHub; true when that's what happened (AGENTS.md, "Demo Mode").
-    private func promptsGitHubConnection(for action: DemoGitHubConnectionPromptAction) -> Bool {
-        guard case .demoVisitor(let demoVisitor) = viewer else { return false }
-        demoVisitor.analytics.capture(.demoGitHubConnectionPrompted(action))
-        demoGitHubConnectionPromptAction = action
-        return true
     }
 
     private func showLikeBurst(onPostID postID: String) {
@@ -1464,11 +1542,9 @@ struct FeedView: View {
 
 private struct MediaDeckCoverContent: View {
     let feedStore: PullRequestFeedStore
-    let viewer: FeedViewer
-    let signInSession: ShipTokSignInSession
+    let viewer: SignedInTeammate
     let pullRequestID: String
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-    @State private var demoGitHubConnectionPromptAction: DemoGitHubConnectionPromptAction?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
@@ -1485,14 +1561,9 @@ private struct MediaDeckCoverContent: View {
             analyticsSubject: analyticsSubject,
             reportableContent: { mediaItem in
                 guard let pullRequest, let analyticsSubject else { return nil }
-                return pullRequest.reportableContent(of: mediaItem, postedOn: analyticsSubject, excludingContentBy: viewer.githubLogin)
+                return pullRequest.reportableContent(of: mediaItem, postedOn: analyticsSubject, excludingContentBy: viewer.user.githubLogin)
             },
             onReport: { postedContent in
-                if case .demoVisitor(let demoVisitor) = viewer {
-                    demoVisitor.analytics.capture(.demoGitHubConnectionPrompted(.report))
-                    demoGitHubConnectionPromptAction = .report
-                    return
-                }
                 viewer.analytics.capture(.contentReportOpened(postedContent, control: .mediaDeck))
                 openURL(postedContent.githubReportURL)
             },
@@ -1506,19 +1577,16 @@ private struct MediaDeckCoverContent: View {
             viewer.analytics.capture(.personHidden(postedContent, control: .mediaDeck))
             if visiblePullRequest == nil { dismiss() }
         }
-        .demoGitHubConnectionPrompt($demoGitHubConnectionPromptAction, signInSession: signInSession)
     }
 }
 
 private struct DetailSheetContent: View {
     let feedStore: PullRequestFeedStore
     let vibeOutbox: VibeOutbox
-    let viewer: FeedViewer
-    let signInSession: ShipTokSignInSession
+    let viewer: SignedInTeammate
     let repositoryFullName: String
     let presentedPullRequest: PullRequest
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-    @State private var demoGitHubConnectionPromptAction: DemoGitHubConnectionPromptAction?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
@@ -1529,23 +1597,21 @@ private struct DetailSheetContent: View {
             pullRequest: pullRequest,
             repositoryFullName: repositoryFullName,
             vibeTally: pullRequest.vibeTally(
-                viewerGitHubLogin: viewer.githubLogin,
+                viewerGitHubLogin: viewer.user.githubLogin,
                 viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: pullRequest.id)
             ),
             moderation: GitHubPostedContentModeration(
                 reportableContents: pullRequest.reportableContents(
                     postedOn: VibeTarget(pullRequest: pullRequest).analyticsSubject,
-                    excludingContentBy: viewer.githubLogin
+                    excludingContentBy: viewer.user.githubLogin
                 ).filter { $0.kind == .description },
                 onReport: { postedContent in
-                    guard !promptsGitHubConnection(for: .report) else { return }
                     viewer.analytics.capture(.contentReportOpened(postedContent, control: .detailSheet))
                     openURL(postedContent.githubReportURL)
                 },
                 onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent }
             ),
             onToggleReaction: { reaction in
-                guard !promptsGitHubConnection(for: .reaction) else { return }
                 Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) }
             }
         )
@@ -1554,13 +1620,5 @@ private struct DetailSheetContent: View {
             viewer.analytics.capture(.personHidden(postedContent, control: .detailSheet))
             dismiss()
         }
-        .demoGitHubConnectionPrompt($demoGitHubConnectionPromptAction, signInSession: signInSession)
-    }
-
-    private func promptsGitHubConnection(for action: DemoGitHubConnectionPromptAction) -> Bool {
-        guard case .demoVisitor(let demoVisitor) = viewer else { return false }
-        demoVisitor.analytics.capture(.demoGitHubConnectionPrompted(action))
-        demoGitHubConnectionPromptAction = action
-        return true
     }
 }

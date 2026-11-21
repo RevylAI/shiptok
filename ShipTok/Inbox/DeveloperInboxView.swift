@@ -5,18 +5,21 @@ struct DeveloperInboxView: View {
     let onOpenPullRequest: (Int) -> Void
     let onReport: (GitHubPostedContent) -> Void
     let onHide: (GitHubPostedContent) -> Void
+    let onShowFeed: (() -> Void)?
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
 
     init(
         store: DeveloperInboxStore,
         onOpenPullRequest: @escaping (Int) -> Void,
         onReport: @escaping (GitHubPostedContent) -> Void,
-        onHide: @escaping (GitHubPostedContent) -> Void
+        onHide: @escaping (GitHubPostedContent) -> Void,
+        onShowFeed: (() -> Void)?
     ) {
         self.store = store
         self.onOpenPullRequest = onOpenPullRequest
         self.onReport = onReport
         self.onHide = onHide
+        self.onShowFeed = onShowFeed
     }
 
     var body: some View {
@@ -76,6 +79,7 @@ struct DeveloperInboxView: View {
             .background(RevylBrandColor.surface)
             .navigationTitle("Inbox")
             .navigationBarTitleDisplayMode(.inline)
+            .backToFeedToolbarItem(onShowFeed)
         }
         .confirmingHide(of: $postedContentAwaitingHideConfirmation, onHide: onHide)
         .task { await store.refresh() }

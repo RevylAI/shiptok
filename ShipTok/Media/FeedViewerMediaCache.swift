@@ -20,8 +20,7 @@ enum LoadedPullRequestImage {
 @MainActor
 final class FeedViewerMediaCache {
     let savedMedia: PullRequestMediaDiskCache
-    // Nil for a demo visit, so a demo's video requests carry no credential.
-    let hostedVideoRevylSignIn: HostedVideoRevylSignIn?
+    let hostedVideoRevylSignIn: HostedVideoRevylSignIn
     private let stillImagesByMediaItemID = NSCache<NSString, UIImage>()
     private let animatedGIFDataByMediaItemID = NSCache<NSString, NSData>()
     private let videoResourceLoadersByMediaItemID = NSCache<NSString, SingleRequestVideoResourceLoader>()
@@ -32,7 +31,7 @@ final class FeedViewerMediaCache {
     private var hasRemovedAllMedia = false
     private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "pull-request-media")
 
-    init(savedMedia: PullRequestMediaDiskCache, hostedVideoRevylSignIn: HostedVideoRevylSignIn?) {
+    init(savedMedia: PullRequestMediaDiskCache, hostedVideoRevylSignIn: HostedVideoRevylSignIn) {
         self.savedMedia = savedMedia
         self.hostedVideoRevylSignIn = hostedVideoRevylSignIn
     }

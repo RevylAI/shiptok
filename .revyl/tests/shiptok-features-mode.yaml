@@ -1,0 +1,60 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: b5869368-596c-490e-be18-a1b410a216d6
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-20T21:05:28Z"
+    checksum: 91f4f72845aa4aea3b00e0825045aa05455f9fe13dd9d008a2c78147494096e9
+test:
+    metadata:
+        name: shiptok-features-mode
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: module_import
+          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
+          module: shiptok-sign-in-as-test-account
+        - type: instructions
+          step_description: Tap 'Features' in the Open / Merged / Weekly / Features tabs at the top of the feed
+        - type: validation
+          step_description: '''Features'' is the selected tab and the card shows the feature ''Filter the shop by bug family, price band and rarity all at once'': a ''ShipTok feature'' chip with ''shipped <when>'', that title and a short hook at its lower left'
+        - type: validation
+          step_description: The card plays a video, with no play symbol over it
+        - type: instructions
+          step_description: Tap the feature's title at the card's lower left
+        - type: validation
+          step_description: The tabs are replaced by a 'Features' back button with a left chevron at the top left, and the card shows pull request
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: The card shows pull request
+        - type: instructions
+          step_description: Tap the 'Features' back button at the top left
+        - type: validation
+          step_description: '''Features'' is the selected tab again and the card shows the feature ''Filter the shop by bug family, price band and rarity all at once'' with its ''ShipTok feature'' chip'
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: The card shows the feature 'An empty cart points back at the shop' with a 'ShipTok feature' chip
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: The card shows the feature 'Sort the shop by price' with a 'ShipTok feature' chip
+        - type: instructions
+          step_description: Tap the feature's title at the card's lower left
+        - type: validation
+          step_description: A 'Features' back button with a left chevron is at the top left, and the card shows pull request
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: The card shows pull request
+        - type: instructions
+          step_description: Tap the 'Features' back button at the top left
+        - type: validation
+          step_description: '''Features'' is the selected tab again and the card shows the feature ''Sort the shop by price'' with its ''ShipTok feature'' chip'

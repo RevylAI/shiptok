@@ -6,9 +6,7 @@ private let commentsSheetMinimumTapTargetSidePoints: CGFloat = 48
 
 struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
 
-    // A demo visitor has none, and is asked to connect GitHub for anything that posts to GitHub.
-    let viewer: GitHubUserIdentity?
-    private let signInSession: ShipTokSignInSession
+    let viewer: GitHubUserIdentity
     private let hiddenPeopleStore: HiddenPeopleStore
     private let analytics: ShipTokAnalytics
     private let analyticsSubject: ShipTokAnalyticsSubject
@@ -17,7 +15,6 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
     @State private var commentIDAwaitingAction: String?
     @State private var commentAwaitingDeletion: PullRequestComment?
     @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-    @State private var demoGitHubConnectionPromptAction: DemoGitHubConnectionPromptAction?
     @State private var selectedPresentationDetent: PresentationDetent = .fraction(0.72)
     @FocusState private var isComposerFocused: Bool
     @Environment(\.dismiss) private var dismiss
@@ -25,8 +22,7 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
 
     init(
         thread: Thread,
-        viewer: GitHubUserIdentity?,
-        signInSession: ShipTokSignInSession,
+        viewer: GitHubUserIdentity,
         hiddenPeopleStore: HiddenPeopleStore,
         githubAPIClient: GitHubAPIClient,
         analytics: ShipTokAnalytics,
@@ -35,7 +31,6 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
         onThreadChanged: @escaping (Thread) -> Void
     ) {
         self.viewer = viewer
-        self.signInSession = signInSession
         self.hiddenPeopleStore = hiddenPeopleStore
         self.analytics = analytics
         self.analyticsSubject = analyticsSubject
@@ -134,7 +129,6 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
                     onOpenOnGitHub: { openURL(commentAwaitingAction.url) },
                     reportableContent: reportableContent(of: commentAwaitingAction),
                     onReport: { postedContent in
-                        guard viewer != nil else { return promptGitHubConnection(for: .report) }
                         analytics.capture(.contentReportOpened(postedContent, control: .commentActions))
                         openURL(postedContent.githubReportURL)
                     },
@@ -164,7 +158,6 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
             hiddenPeopleStore.hide(postedContent.postedBy)
             analytics.capture(.personHidden(postedContent, control: .commentActions))
         }
-        .demoGitHubConnectionPrompt($demoGitHubConnectionPromptAction, signInSession: signInSession)
         .onChange(of: isComposerFocused) { _, isFocused in
             if isFocused {
                 selectedPresentationDetent = .large
@@ -192,28 +185,7 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
         return "\(commentCountText) · \(vibeCount == 1 ? "1 vibe" : "\(vibeCount) vibes")"
     }
 
-    @ViewBuilder
     private func composer(scrollProxy: ScrollViewProxy) -> some View {
-        if let viewer {
-            signedInComposer(viewer: viewer, scrollProxy: scrollProxy)
-        } else {
-            Button { promptGitHubConnection(for: .comment) } label: {
-                Text("Connect GitHub to comment")
-                    .foregroundStyle(RevylBrandColor.textSubtle)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(RevylBrandColor.surfaceRaised))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
-            .centeredInReadableContentColumn()
-            .padding(.vertical, 11)
-            .background(RevylBrandColor.surfaceFloating)
-        }
-    }
-
-    private func signedInComposer(viewer: GitHubUserIdentity, scrollProxy: ScrollViewProxy) -> some View {
         HStack(alignment: .bottom, spacing: 10) {
             GitHubAvatarView(avatarURL: viewer.githubAvatarURL, diameter: 32)
                 .padding(.bottom, 6)
@@ -259,7 +231,7 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
 
     // Someone else's comment can be reported on GitHub or its author hidden (AGENTS.md, "Report And Hide").
     private func reportableContent(of comment: PullRequestComment) -> GitHubPostedContent? {
-        guard let author = comment.author, !(viewer.map { author.hasLogin($0.githubLogin) } ?? false) else { return nil }
+        guard let author = comment.author, !author.hasLogin(viewer.githubLogin) else { return nil }
         return GitHubPostedContent(kind: .comment, postedBy: author, githubURL: comment.url, postedOn: analyticsSubject)
     }
 
@@ -269,7 +241,6 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
     }
 
     private func startReply(to comment: PullRequestComment) {
-        guard viewer != nil else { return promptGitHubConnection(for: .comment) }
         if let authorLogin = comment.author?.login, !draftBodyMarkdown.hasPrefix("@\(authorLogin) ") {
             draftBodyMarkdown = "@\(authorLogin) " + draftBodyMarkdown
         }
@@ -277,14 +248,7 @@ struct PullRequestCommentsSheet<Thread: GitHubCommentThread>: View {
     }
 
     private func toggleReaction(_ reaction: GitHubReaction, on comment: PullRequestComment) {
-        guard viewer != nil else { return promptGitHubConnection(for: .reaction) }
         Task { await commentsStore.toggleReaction(reaction, onCommentID: comment.id) }
-    }
-
-    private func promptGitHubConnection(for action: DemoGitHubConnectionPromptAction) {
-        isComposerFocused = false
-        analytics.capture(.demoGitHubConnectionPrompted(action))
-        demoGitHubConnectionPromptAction = action
     }
 
     private func postDraft(scrollProxy: ScrollViewProxy) {
