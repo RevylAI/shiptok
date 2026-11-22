@@ -12,8 +12,8 @@ struct AccountActionsSections: View {
     private var isDeletingRevylAccount: Bool { signInSession.isDeletingRevylAccount }
     private var isChangingSignIn: Bool { isDeletingData || isDeletingRevylAccount || signInSession.isSigningOut || signInSession.isConnectingGitHub }
 
-    // Revyl's App Review account never connects a GitHub account, so it has no ShipTok data of its own to delete.
-    private var hasConnectedGitHub: Bool {
+    // Revyl's App Review account uses the GitHub sign-in Revyl holds for it, so signing out leaves GitHub alone, and Delete my ShipTok data, which revokes the GitHub token it sends, isn't offered.
+    private var holdsOwnGitHubSignIn: Bool {
         guard case .signedIn(let teammate) = signInSession.phase else { return false }
         return !teammate.accessTokenVault.isAppReview
     }
@@ -48,9 +48,9 @@ struct AccountActionsSections: View {
                 Text(signOutFailureMessage ?? "")
             }
         } footer: {
-            Text(hasConnectedGitHub ? "Signs this iPhone out of Revyl and GitHub." : "Signs this iPhone out of Revyl.")
+            Text(holdsOwnGitHubSignIn ? "Signs this iPhone out of Revyl and GitHub." : "Signs this iPhone out of Revyl.")
         }
-        if hasConnectedGitHub {
+        if holdsOwnGitHubSignIn {
             Section {
                 Button(role: .destructive) {
                     confirmsDataDeletion = true

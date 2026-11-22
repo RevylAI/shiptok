@@ -162,7 +162,7 @@ final class ShipTokSignInSession {
             }
             revylAPIKey = launchSignIn.revylAPIKey
             UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
-            await connectStoredGitHubSignInOrShowConnectGitHub(revylAPIKey: launchSignIn.revylAPIKey)
+            await openAppReviewFeedOrConnectStoredGitHubSignIn(revylAPIKey: launchSignIn.revylAPIKey, message: nil)
             return
         }
         let signedOutReason = UserDefaults.standard.string(forKey: Self.signedOutReasonDefaultsKey)
@@ -180,7 +180,7 @@ final class ShipTokSignInSession {
         }
         revylAPIKey = storedRevylAPIKey
         guard let storedGitHubSignIn else {
-            await openAppReviewFeedOrShowConnectGitHub(revylAPIKey: storedRevylAPIKey, message: signedOutReason)
+            await openAppReviewFeedOrConnectStoredGitHubSignIn(revylAPIKey: storedRevylAPIKey, message: signedOutReason)
             return
         }
         activate(user: storedGitHubSignIn.user, accessTokenVault: GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens), revylAPIKey: storedRevylAPIKey)
@@ -222,10 +222,10 @@ final class ShipTokSignInSession {
         revylAPIKey = newRevylAPIKey
         UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
         Self.logger.info("Signed in to Revyl")
-        await connectStoredGitHubSignInOrShowConnectGitHub(revylAPIKey: newRevylAPIKey)
+        await openAppReviewFeedOrConnectStoredGitHubSignIn(revylAPIKey: newRevylAPIKey, message: nil)
     }
 
-    // Connects GitHub for a person signed in to Revyl: the GitHub sign-in this iPhone holds while GitHub still takes it, else the GitHub access Revyl lends its App Review account, else GitHub's own sign-in, and once Revyl connects it the person lands in their own feed. A failed connection keeps them on Connect GitHub, saying why.
+    // Connects GitHub for a person signed in to Revyl: the GitHub access Revyl holds for its App Review account, else the GitHub sign-in this iPhone holds while GitHub still takes it, else GitHub's own sign-in, and once Revyl connects it the person lands in their own feed. A failed connection keeps them on Connect GitHub, saying why.
     func connectGitHub(using webAuthenticationSession: WebAuthenticationSession) async {
         guard case .connectingGitHub(var connectGitHubVisit) = phase, let revylAPIKey, !isConnectingGitHub, !isSigningOut, !isDeletingRevylAccount else { return }
         isConnectingGitHub = true
@@ -234,6 +234,7 @@ final class ShipTokSignInSession {
         phase = .connectingGitHub(connectGitHubVisit)
         let connectGitHubVisitID = connectGitHubVisit.visitID
         do {
+            if try await openAppReviewFeed(revylAPIKey: revylAPIKey) { return }
             if let storedGitHubSignIn = try ShipTokSignInKeychainStore.loadStoredGitHubSignIn() {
                 let accessTokenVault = GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens)
                 do {
@@ -244,7 +245,6 @@ final class ShipTokSignInSession {
                     try ShipTokSignInKeychainStore.deleteStoredGitHubSignIn()
                 }
             }
-            if try await openAppReviewFeed(revylAPIKey: revylAPIKey) { return }
         } catch {
             failConnectingGitHub(error, revylAPIKey: revylAPIKey, connectGitHubVisitID: connectGitHubVisitID)
             return
@@ -432,17 +432,20 @@ final class ShipTokSignInSession {
         phase = .connectingGitHub(ConnectGitHubVisit(visitID: visitID, message: message, analytics: analytics))
     }
 
-    // A GitHub sign-in this iPhone already holds, from an app that signed in with GitHub alone, a Revyl sign-in that ended or a session profile's launch arguments, connects to the Revyl account without another trip through GitHub. With none, only Revyl's App Review account skips Connect GitHub.
-    private func connectStoredGitHubSignInOrShowConnectGitHub(revylAPIKey: String) async {
+    // Revyl's App Review account opens its feed before anything else is tried, so no other GitHub account is ever connected to it. Every other account connects a GitHub sign-in this iPhone already holds, from an app that signed in with GitHub alone, a Revyl sign-in that ended or a session profile's launch arguments, without another trip through GitHub, and with none sees Connect GitHub. A failure keeps the Revyl sign-in on Connect GitHub, saying why, and its button tries again.
+    private func openAppReviewFeedOrConnectStoredGitHubSignIn(revylAPIKey: String, message: String?) async {
         let storedGitHubSignIn: StoredGitHubSignIn?
         do {
+            if try await openAppReviewFeed(revylAPIKey: revylAPIKey) { return }
             storedGitHubSignIn = try ShipTokSignInKeychainStore.loadStoredGitHubSignIn()
         } catch {
+            guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey), self.revylAPIKey == revylAPIKey else { return }
             showConnectGitHub(reason: .githubConnectionFailed, message: error.localizedDescription)
             return
         }
+        guard self.revylAPIKey == revylAPIKey else { return }
         guard let storedGitHubSignIn else {
-            await openAppReviewFeedOrShowConnectGitHub(revylAPIKey: revylAPIKey, message: nil)
+            showConnectGitHub(reason: .noGitHubSignIn, message: message)
             return
         }
         let accessTokenVault = GitHubAccessTokenVault(tokens: storedGitHubSignIn.tokens)
@@ -457,20 +460,7 @@ final class ShipTokSignInSession {
         activate(user: storedGitHubSignIn.user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey)
     }
 
-    // A failure keeps the Revyl sign-in on Connect GitHub, saying why, and its button tries again.
-    private func openAppReviewFeedOrShowConnectGitHub(revylAPIKey: String, message: String?) async {
-        do {
-            if try await openAppReviewFeed(revylAPIKey: revylAPIKey) { return }
-        } catch {
-            guard !endRevylSignInIfRefused(error, revylAPIKey: revylAPIKey), self.revylAPIKey == revylAPIKey else { return }
-            showConnectGitHub(reason: .githubConnectionFailed, message: error.localizedDescription)
-            return
-        }
-        guard self.revylAPIKey == revylAPIKey else { return }
-        showConnectGitHub(reason: .noGitHubSignIn, message: message)
-    }
-
-    // Revyl's App Review account, which Apple's reviewers sign in with, has no GitHub account of its own, so Revyl lends it GitHub access and its plain Revyl sign-in opens the feed with no Connect GitHub. The token is never saved or connected, and goes only to GitHub and settings (AGENTS.md, "Revyl Sign-In"). False for every other account.
+    // Revyl's App Review account, which Apple's reviewers sign in with, gets GitHub access from Revyl, which holds the GitHub sign-in of a GitHub account kept for App Review and connects that account to it, so its plain Revyl sign-in opens the feed with no Connect GitHub. The app never saves the token or connects a GitHub account for it, sends the token only to GitHub and settings, and forgets any other GitHub sign-in this iPhone held, so a relaunch can't open another account's feed (AGENTS.md, "Revyl Sign-In"). False for every other account.
     private func openAppReviewFeed(revylAPIKey: String) async throws -> Bool {
         let appReviewTokens: GitHubUserAccessTokens
         do {
@@ -480,6 +470,7 @@ final class ShipTokSignInSession {
         }
         let accessTokenVault = GitHubAccessTokenVault(appReviewTokens: appReviewTokens, revylAPIKey: revylAPIKey)
         let user = try await GitHubAccountAPI(accessTokenVault: accessTokenVault).fetchSignedInUserIdentity()
+        try? ShipTokSignInKeychainStore.deleteStoredGitHubSignIn()
         Self.logger.info("Opened the App Review feed")
         finishConnectingGitHub(user: user, accessTokenVault: accessTokenVault, revylAPIKey: revylAPIKey)
         return true
