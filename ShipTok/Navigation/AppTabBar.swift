@@ -66,7 +66,7 @@ struct AppTabBar: View {
                 }
         case .settings:
             if let viewerAvatarURL {
-                GitHubAvatarView(avatarURL: viewerAvatarURL, diameter: 28)
+                AvatarView(avatarURL: viewerAvatarURL, diameter: 28)
                     .overlay(Circle().stroke(isSelected ? RevylBrandColor.textPrimary : .clear, lineWidth: 2))
             } else {
                 Image(systemName: isSelected ? "person.crop.circle.fill" : "person.crop.circle")

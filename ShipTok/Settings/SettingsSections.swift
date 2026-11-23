@@ -1,23 +1,59 @@
 import SwiftUI
 
+// One switch for the whole organization: whether Revyl's GitHub App keeps a comment on GitHub that sums up each post's feedback (AGENTS.md, "Settings").
+struct OrganizationSettingsSection: View {
+    let store: OrganizationSettingsStore
+    let organizationName: String
+
+    var body: some View {
+        Section {
+            if let organizationSettings = store.organizationSettings {
+                Toggle("Feedback summary on GitHub", isOn: Binding(
+                    get: { organizationSettings.postsFeedbackSummaryCommentsOnGitHub },
+                    set: { postsFeedbackSummaryCommentsOnGitHub in
+                        Task { await store.setPostsFeedbackSummaryCommentsOnGitHub(postsFeedbackSummaryCommentsOnGitHub) }
+                    }
+                ))
+                .disabled(!organizationSettings.viewerCanChange || store.isSaving)
+            } else if let refreshFailureMessage = store.refreshFailureMessage {
+                Label("Couldn't load your organization's settings: \(refreshFailureMessage)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(RevylBrandColor.warning)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            }
+        } header: {
+            Text(verbatim: organizationName)
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Revyl's GitHub App keeps one comment on each pull request and issue with feedback, summing up its likes, reactions, vibes and comments. Turning it off deletes those comments; turning it on posts them again.")
+                if store.organizationSettings?.viewerCanChange == false {
+                    Text("Only your organization's owners and admins can change it.")
+                }
+            }
+        }
+    }
+}
+
 struct HiddenPeopleSection: View {
     let hiddenPeopleStore: HiddenPeopleStore
     @Environment(\.shipTokAnalytics) private var analytics
 
     var body: some View {
         Section {
-            if hiddenPeopleStore.hiddenGitHubLogins.isEmpty {
-                Text("No one. Hide a person from a card's More menu or by pressing and holding their comment.")
+            if hiddenPeopleStore.hiddenPeople.isEmpty {
+                Text("No one. Hide a person from a card's More menu or by pressing and holding their comment or vibe.")
                     .font(.subheadline)
                     .foregroundStyle(RevylBrandColor.textMuted)
             }
-            ForEach(hiddenPeopleStore.hiddenGitHubLogins, id: \.self) { hiddenGitHubLogin in
+            ForEach(hiddenPeopleStore.hiddenPeople) { hiddenPerson in
                 HStack {
-                    Text(verbatim: "@\(hiddenGitHubLogin)")
+                    Text(verbatim: hiddenPerson.displayName)
                         .foregroundStyle(RevylBrandColor.textPrimary)
                     Spacer()
                     Button("Unhide") {
-                        hiddenPeopleStore.unhide(githubLogin: hiddenGitHubLogin)
+                        hiddenPeopleStore.unhide(hiddenPerson)
                         analytics?.capture(.personUnhidden)
                     }
                     .buttonStyle(.borderless)
@@ -26,7 +62,7 @@ struct HiddenPeopleSection: View {
         } header: {
             Text("Hidden people")
         } footer: {
-            Text("Their pull requests, weekly and feature videos, comments, vibes and media don't show in ShipTok on this iPhone. They aren't told, and nothing changes on GitHub.")
+            Text("A hidden GitHub account's pull requests, weekly and feature videos, and a hidden teammate's comments, replies, vibes and notifications don't show in ShipTok on this iPhone. They aren't told.")
         }
     }
 }

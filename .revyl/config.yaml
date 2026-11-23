@@ -33,28 +33,21 @@ pr_review:
       kind: revyl
     system_prompt: >-
       ShipTok is a native SwiftUI iOS app: a vertical, Reels-style feed of the
-      open and merged pull requests with media in one GitHub repository. Prove
-      changes signed in as the GitHub test account revyl-shiptok-tests on the
-      repository RevylAI/kyle-expo. A session you start with revyl device start
-      runs this project's default session profile, signed-in, which opens
-      ShipTok already signed in as revyl-shiptok-tests on RevylAI/kyle-expo's
+      open and merged pull requests with media in one repository, served by
+      Revyl's backend and signed in with a Revyl account. Prove changes signed
+      in as Revyl's test account kyle+bench, in the Revyl Benchmarks
+      organization, on the repository RevylAI/kyle-expo. A session you start
+      with revyl device start runs this project's default session profile,
+      signed-in, which opens ShipTok already signed in on RevylAI/kyle-expo's
       feed. Only if that start fails on the session profile, start the session
-      again with --session-profile none and sign in: run the steps of
-      .revyl/modules/shiptok-sign-in-as-test-account.yaml in order on the device
-      with revyl device instruction and revyl device validation, typing the
-      username and password through the variable references that file uses,
-      never their values. For the authentication code, run revyl device
-      code-execution --file .revyl/scripts/shiptok-github-totp-code.py
-      --variable-name github-totp-code, then type '{{github-totp-code}}' into
-      GitHub's Authentication code field. GitHub accepts each code once and the
-      script waits for a fresh one, so a refused code gets one retry with a new
-      run of the script. Never repeat the password or a code in a comment,
-      report or log. Tap Authorize only if GitHub shows it, and choose
-      RevylAI/kyle-expo if ShipTok asks for a repository. In the feed, swipe up
-      for the next pull request and down for the previous one; a sideways swipe
-      casts a vibe, a double-tap likes, and one tap pauses or resumes a video.
-      The right rail holds like, comments, react, mute, playback speed, the
-      media deck and More; the feed's tabs sit at the top and open on Merged.
+      again with --session-profile none --launch-var
+      SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY --launch-var
+      SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME, which signs the app in
+      the same way. Never type or repeat a key, password or sign-in link. In the
+      feed, swipe up for the next pull request and down for the previous one; a
+      sideways swipe casts a vibe, a double-tap likes, and one tap pauses or
+      resumes a video. The right rail holds like, comments, react, mute,
+      playback speed, the media deck and More; the feed's tabs sit at the top.
       Weekly shows a video per week and Features a video per shipped feature;
       tapping one's title or deck button opens its pull requests, and a 'Week
       of' or 'Features' back button at the top left returns. A pull request with
@@ -64,17 +57,22 @@ pr_review:
       other phones and the folded Duo there is no tab bar, the inbox (a tray)
       and Settings (a gear) sit at the top right or at the top of the folded
       Duo's side strip, and each leads back with a Feed button at its top left.
-      In Settings, Videos only (on by default) limits Open and Merged to pull
-      requests that lead with a video. Likes, reactions, comments and vibes post
-      to GitHub as revyl-shiptok-tests on RevylAI/kyle-expo, so undo every one
-      before finishing: unlike, remove the reaction, delete the comment, and
-      remove a vibe from its Your good vibes or Your bad vibes badge. Report on
-      GitHub opens GitHub's report page in Safari; never submit it. Never tap
-      Sign out or Delete my ShipTok data.
+      Stay on RevylAI/kyle-expo: never like, react, comment, reply or vibe on
+      another repository's pull requests. Likes, reactions, comments, replies
+      and vibes are saved on Revyl for the pull request's developer to see, so
+      undo every one before finishing: unlike, remove the reaction, delete the
+      comment or reply, and remove a vibe from its Your good vibes or Your bad
+      vibes badge. Settings such as Videos only, Feed tabs and Vibe feedback
+      are saved on Revyl for the account, so put back any you change. Report
+      on a pull request opens GitHub's report page in Safari; never submit it.
+      Never report a comment or vibe, never change the organization's
+      Feedback summary on GitHub toggle, and never submit Join existing
+      organization. Never tap Sign out, since it revokes the key every session
+      and test signs in with, and never tap Delete my Revyl account.
     always_verify:
-      - ShipTok shows RevylAI/kyle-expo's feed on a pull request card, signed in as revyl-shiptok-tests
-      - Settings shows @revyl-shiptok-tests and RevylAI/kyle-expo as the Repository
-      - Every like, reaction, comment and vibe the proof posted to GitHub is undone before it finishes
+      - ShipTok shows RevylAI/kyle-expo's feed on a pull request card, signed in as kyle+bench
+      - Settings shows kyle+bench in Revyl Benchmarks and RevylAI/kyle-expo as the Repository
+      - Every like, reaction, comment, reply, vibe and setting the proof changed is undone before it finishes
   workflows:
     enabled: true
     workflow_ids:

@@ -2,11 +2,11 @@ import SwiftUI
 
 @main
 struct ShipTokApp: App {
-    @State private var signInSession = GitHubSignInSession()
+    @UIApplicationDelegateAdaptor(ShipTokAppDelegate.self) private var appDelegate
+    @State private var signInSession = ShipTokSignInSession()
 
     init() {
-        PullRequestMediaDiskCache.removeLongUnusedFilesInBackground()
-        PullRequestFeedCache.removeReplacedSavedFeedsInBackground()
+        PostMediaDiskCache.removeLongUnusedFilesInBackground()
     }
 
     var body: some Scene {

@@ -22,7 +22,7 @@ enum FeedSwipeAction {
     case castGoodVibes
     case castBadVibes
 
-    var castVibe: PullRequestVibe? {
+    var castVibe: ShipTokVibe? {
         switch self {
         case .castGoodVibes: .good
         case .castBadVibes: .bad

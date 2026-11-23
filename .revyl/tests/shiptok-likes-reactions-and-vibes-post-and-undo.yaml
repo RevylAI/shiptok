@@ -16,10 +16,12 @@ test:
         model: iPhone 17 Pro Max
         os_version: iOS 27.0
         orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
     blocks:
-        - type: module_import
-          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
-          module: shiptok-sign-in-as-test-account
+        - type: validation
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
         - type: extraction
           step_description: 'The pull request number on the card, shown after the title at its lower left, such as #126'
           variable_name: vibed-pull-request-number
@@ -42,7 +44,7 @@ test:
         - type: instructions
           step_description: Tap the React button on the right rail, the smiling face below the comments button
         - type: validation
-          step_description: "A grid of GitHub reactions opens next to the rail, including \U0001F389"
+          step_description: "A grid of reactions opens next to the rail, including \U0001F389"
         - type: instructions
           step_description: "Tap \U0001F389 in the grid of reactions"
         - type: instructions
@@ -62,12 +64,12 @@ test:
         - type: instructions
           step_description: Swipe right once across the middle of the card
         - type: validation
-          step_description: A toast near the bottom says 'Good vibes on' a pull request's title and has an 'Undo' button
+          step_description: A toast near the bottom says 'Good vibes on' and a pull request's title and has an 'Undo' button
         - type: manual
           step_type: wait
           step_description: "8"
         - type: instructions
-          step_description: If the card for pull request {{vibed-pull-request-number}} isn't showing, swipe down on the middle of the card until it shows. Swipe only down, never right or left, and never tap 'Undo'. A right or left swipe casts another vibe on GitHub, so never use one to bring back the toast or the card.
+          step_description: If the card for pull request {{vibed-pull-request-number}} isn't showing, swipe down on the middle of the card until it shows. Swipe only down, never right or left, and never tap 'Undo'. A right or left swipe casts another vibe, so never use one to bring back the toast or the card.
         - type: validation
           step_description: The card for pull request {{vibed-pull-request-number}} shows a 'Your good vibes' badge in its caption
         - type: instructions
@@ -88,7 +90,7 @@ test:
           step_type: wait
           step_description: "8"
         - type: instructions
-          step_description: If the card for pull request {{vibed-pull-request-number}} isn't showing, swipe down on the middle of the card until it shows. Swipe only down, never right or left, and never tap 'Undo'. A right or left swipe casts another vibe on GitHub, so never use one to bring back the toast or the card.
+          step_description: If the card for pull request {{vibed-pull-request-number}} isn't showing, swipe down on the middle of the card until it shows. Swipe only down, never right or left, and never tap 'Undo'. A right or left swipe casts another vibe, so never use one to bring back the toast or the card.
         - type: validation
           step_description: The card for pull request {{vibed-pull-request-number}} shows a 'Your bad vibes' badge in its caption
         - type: instructions

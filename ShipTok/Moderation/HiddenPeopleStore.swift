@@ -1,43 +1,70 @@
 import Foundation
 import Observation
 
-// The people the viewer hid, by GitHub login: kept only on this iPhone per signed-in person. Deleting ShipTok data clears them with the rest of the app's defaults (AGENTS.md, "Report And Hide").
+// Someone the viewer hid: a post's GitHub author, by login, or a teammate who comments, by Revyl account.
+struct HiddenPerson: Codable, Hashable, Identifiable, Sendable {
+    enum Account: Codable, Hashable, Sendable {
+        case github(lowercasedLogin: String)
+        case revyl(revylUserID: String)
+    }
+
+    let account: Account
+    let displayName: String
+
+    var id: Account { account }
+
+    init(githubLogin: String) {
+        account = .github(lowercasedLogin: githubLogin.lowercased())
+        displayName = "@\(githubLogin)"
+    }
+
+    init(revylPerson: ShipTokPerson) {
+        account = .revyl(revylUserID: revylPerson.revylUserID)
+        displayName = revylPerson.displayName
+    }
+}
+
+// The people the viewer hid, kept only on this iPhone per Revyl account. Deleting the Revyl account clears them with the rest of the app's defaults (AGENTS.md, "Report And Hide").
 @Observable
 @MainActor
 final class HiddenPeopleStore {
-    private(set) var hiddenGitHubLogins: [String]
-    private var lowercasedHiddenGitHubLogins: Set<String>
-    private let hiddenGitHubLoginsDefaultsKey: String
+    private(set) var hiddenPeople: [HiddenPerson]
+    private var hiddenAccounts: Set<HiddenPerson.Account>
+    private let defaultsKey: String
 
-    init(githubUserID: Int64) {
-        let hiddenGitHubLoginsDefaultsKey = "hidden-people-github-logins-github-\(githubUserID)"
-        let savedHiddenGitHubLogins = UserDefaults.standard.stringArray(forKey: hiddenGitHubLoginsDefaultsKey) ?? []
-        self.hiddenGitHubLoginsDefaultsKey = hiddenGitHubLoginsDefaultsKey
-        hiddenGitHubLogins = savedHiddenGitHubLogins
-        lowercasedHiddenGitHubLogins = Set(savedHiddenGitHubLogins.map { $0.lowercased() })
+    init(revylUserID: String) {
+        let defaultsKey = "hidden-people-revyl-\(revylUserID)"
+        let savedHiddenPeople = UserDefaults.standard.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode([HiddenPerson].self, from: $0) } ?? []
+        self.defaultsKey = defaultsKey
+        hiddenPeople = savedHiddenPeople
+        hiddenAccounts = Set(savedHiddenPeople.map(\.account))
     }
 
     var hasHiddenPeople: Bool {
-        !hiddenGitHubLogins.isEmpty
+        !hiddenPeople.isEmpty
     }
 
-    func isHidden(_ person: GitHubActor?) -> Bool {
-        guard let person else { return false }
-        return lowercasedHiddenGitHubLogins.contains(person.login.lowercased())
+    func isHidden(_ githubAuthor: ShipTokGitHubAuthor) -> Bool {
+        guard let login = githubAuthor.login else { return false }
+        return hiddenAccounts.contains(.github(lowercasedLogin: login.lowercased()))
     }
 
-    func hide(_ person: GitHubActor) {
-        guard !isHidden(person) else { return }
-        saveHiddenGitHubLogins([person.login] + hiddenGitHubLogins)
+    func isHidden(_ revylPerson: ShipTokPerson) -> Bool {
+        hiddenAccounts.contains(.revyl(revylUserID: revylPerson.revylUserID))
     }
 
-    func unhide(githubLogin: String) {
-        saveHiddenGitHubLogins(hiddenGitHubLogins.filter { $0.lowercased() != githubLogin.lowercased() })
+    func hide(_ person: HiddenPerson) {
+        guard !hiddenAccounts.contains(person.account) else { return }
+        saveHiddenPeople([person] + hiddenPeople)
     }
 
-    private func saveHiddenGitHubLogins(_ updatedHiddenGitHubLogins: [String]) {
-        hiddenGitHubLogins = updatedHiddenGitHubLogins
-        lowercasedHiddenGitHubLogins = Set(updatedHiddenGitHubLogins.map { $0.lowercased() })
-        UserDefaults.standard.set(updatedHiddenGitHubLogins, forKey: hiddenGitHubLoginsDefaultsKey)
+    func unhide(_ person: HiddenPerson) {
+        saveHiddenPeople(hiddenPeople.filter { $0.account != person.account })
+    }
+
+    private func saveHiddenPeople(_ updatedHiddenPeople: [HiddenPerson]) {
+        hiddenPeople = updatedHiddenPeople
+        hiddenAccounts = Set(updatedHiddenPeople.map(\.account))
+        UserDefaults.standard.set(try? JSONEncoder().encode(updatedHiddenPeople), forKey: defaultsKey)
     }
 }

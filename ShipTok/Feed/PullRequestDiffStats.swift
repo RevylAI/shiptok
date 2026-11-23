@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PullRequestDiffStats: View {
-    let pullRequest: PullRequest
+    let pullRequest: ShipTokPullRequestDetails
 
     var body: some View {
         HStack(spacing: 10) {

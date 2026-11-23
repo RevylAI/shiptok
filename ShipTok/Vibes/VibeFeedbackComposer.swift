@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct VibeFeedbackComposer: View {
-    let vibe: PullRequestVibe
+    let vibe: ShipTokVibe
     let targetTitle: String
     @Binding var feedbackText: String
     let onSend: () -> Void

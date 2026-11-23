@@ -16,10 +16,12 @@ test:
         model: iPhone 17 Pro Max
         os_version: iOS 27.0
         orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
     blocks:
-        - type: module_import
-          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
-          module: shiptok-sign-in-as-test-account
+        - type: validation
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
         - type: extraction
           step_description: The title of the pull request on the card
           variable_name: detailed-pull-request-title

@@ -1,100 +1,69 @@
 import Foundation
 import Observation
+import OSLog
 
-struct DeveloperInboxItem: Identifiable, Equatable, Sendable {
-    enum Action: Equatable, Sendable {
-        case vibe(PullRequestVibe, feedbackText: String)
-        case comment(bodyMarkdown: String)
-        case reaction(GitHubReaction)
-    }
-
-    let id: String
-    let actor: GitHubActor?
-    // Nil for a deleted account's activity, which has nobody to report or hide.
-    let postedContent: GitHubPostedContent?
-    let action: Action
-    let occurredAt: Date
-    let pullRequestNumber: Int
-    let pullRequestTitle: String
-}
-
+// Feedback on the viewer's own posts and replies to their comments, newest first, as Revyl serves it; whether it's read is kept in the Revyl account, so every device agrees (AGENTS.md, "Inbox").
 @Observable
 @MainActor
 final class DeveloperInboxStore {
     private static let refreshIntervalSeconds = 15
-    // GitHub search can't ask for open or merged in one query, so the viewer's open and merged pull requests are two searches; one closed without merging is in neither.
-    private static let viewerPullRequestActivityQuery = """
-    query DeveloperInboxViewerPullRequestActivity($openSearchQuery: String!, $mergedSearchQuery: String!) {
-      openPullRequests: search(query: $openSearchQuery, type: ISSUE, first: 20) {
-        nodes { ...DeveloperInboxPullRequestActivity }
-      }
-      mergedPullRequests: search(query: $mergedSearchQuery, type: ISSUE, first: 20) {
-        nodes { ...DeveloperInboxPullRequestActivity }
-      }
-    }
+    private static let logger = Logger(subsystem: "ai.revyl.shiptok", category: "inbox")
 
-    fragment DeveloperInboxPullRequestActivity on PullRequest {
-      number
-      title
-      reactions(last: 20) {
-        nodes { id content createdAt user { login avatarUrl } }
-      }
-      comments(last: 20) {
-        nodes { id body createdAt url viewerCanDelete author { __typename login avatarUrl } }
-      }
-    }
-    """
-
-    private var fetchedInboxItems: [DeveloperInboxItem] = []
+    private var fetchedItems: [ShipTokInboxItem] = []
+    private var nextCursor: String?
+    private var loadedPageCount = 0
+    private var revylUnreadCount = 0
+    // Items Revyl marked unread before this device marked the inbox read through this time read as read at once.
+    private var readThroughCreatedAt: Date?
     private(set) var hasLoaded = false
     private(set) var errorMessage: String?
-    private(set) var lastSeenOccurredAt: Date
-    private let viewer: GitHubUserIdentity
-    private let githubAPIClient: GitHubAPIClient
+    private(set) var isLoadingMore = false
+    private let api: RevylShipTokAPI
     private let hiddenPeopleStore: HiddenPeopleStore
-    private let lastSeenOccurredAtDefaultsKey: String
 
-    init(viewer: GitHubUserIdentity, githubAPIClient: GitHubAPIClient, hiddenPeopleStore: HiddenPeopleStore) {
-        self.viewer = viewer
-        self.githubAPIClient = githubAPIClient
+    init(api: RevylShipTokAPI, hiddenPeopleStore: HiddenPeopleStore) {
+        self.api = api
         self.hiddenPeopleStore = hiddenPeopleStore
-        lastSeenOccurredAtDefaultsKey = "developer-inbox-last-seen-occurred-at-github-\(viewer.githubUserID)-\(githubAPIClient.repositoryFullName.lowercased())"
-        lastSeenOccurredAt = UserDefaults.standard.object(forKey: lastSeenOccurredAtDefaultsKey) as? Date ?? .distantPast
     }
 
     // People the viewer hid never reach the inbox (AGENTS.md, "Report And Hide").
-    var inboxItems: [DeveloperInboxItem] {
-        fetchedInboxItems.filter { !hiddenPeopleStore.isHidden($0.actor) }
+    var items: [ShipTokInboxItem] {
+        fetchedItems.filter { !hiddenPeopleStore.isHidden($0.actor) }
     }
 
-    var unseenItemCount: Int {
-        inboxItems.filter { $0.occurredAt > lastSeenOccurredAt }.count
+    var hasMorePages: Bool {
+        nextCursor != nil
     }
 
+    // Revyl's count, less the unread items of people the viewer hid that are loaded here.
+    var unreadCount: Int {
+        let hiddenUnreadCount = fetchedItems.filter { isUnread($0) && hiddenPeopleStore.isHidden($0.actor) }.count
+        return max(revylUnreadCount - hiddenUnreadCount, 0)
+    }
+
+    func isUnread(_ item: ShipTokInboxItem) -> Bool {
+        item.isUnread && readThroughCreatedAt.map { item.createdAt > $0 } != false
+    }
+
+    // Reads the newest page again. Older pages already loaded stay below it, so a refresh never moves the list under the viewer.
     func refresh() async {
         do {
-            let viewerPullRequestsSearchQuery = "repo:\(githubAPIClient.repositoryFullName) is:pr author:\(viewer.githubLogin) sort:updated-desc"
-            let activityResponse: ViewerPullRequestActivityResponse = try await githubAPIClient.sendGraphQLQuery(
-                Self.viewerPullRequestActivityQuery,
-                variables: [
-                    "openSearchQuery": "\(viewerPullRequestsSearchQuery) is:open",
-                    "mergedSearchQuery": "\(viewerPullRequestsSearchQuery) is:merged",
-                ]
-            )
-            // A pull request merged between the two searches can be in both.
-            var seenPullRequestNumbers: Set<Int> = []
-            let fetchedItems = (activityResponse.openPullRequests.nodes + activityResponse.mergedPullRequests.nodes)
-                .compactMap { $0 }
-                .filter { seenPullRequestNumbers.insert($0.number).inserted }
-                .flatMap(inboxItemsFromOtherPeople(on:))
-                .sorted { $0.occurredAt > $1.occurredAt }
-            if fetchedItems != fetchedInboxItems {
-                fetchedInboxItems = fetchedItems
+            let newestPage = try await api.fetchInboxPage(cursor: nil)
+            revylUnreadCount = newestPage.unreadCount
+            if loadedPageCount <= 1 {
+                fetchedItems = newestPage.items
+                nextCursor = newestPage.nextCursor
+                loadedPageCount = 1
+            } else {
+                let newestPageItemIDs = Set(newestPage.items.map(\.id))
+                let oldestNewestPageCreatedAt = newestPage.items.last?.createdAt ?? .distantFuture
+                fetchedItems = newestPage.items + fetchedItems.filter { !newestPageItemIDs.contains($0.id) && $0.createdAt < oldestNewestPageCreatedAt }
             }
             errorMessage = nil
             hasLoaded = true
         } catch {
             if Task.isCancelled { return }
+            Self.logger.error("Reading the inbox failed: \(error.publicLogDescription, privacy: .public)")
             errorMessage = error.localizedDescription
         }
     }
@@ -106,105 +75,37 @@ final class DeveloperInboxStore {
         }
     }
 
-    func markAllItemsSeen() {
-        guard let newestOccurredAt = inboxItems.map(\.occurredAt).max(), newestOccurredAt > lastSeenOccurredAt else { return }
-        lastSeenOccurredAt = newestOccurredAt
-        UserDefaults.standard.set(newestOccurredAt, forKey: lastSeenOccurredAtDefaultsKey)
-    }
-
-    private func inboxItemsFromOtherPeople(on pullRequestNode: ViewerPullRequestActivityResponse.PullRequestNode) -> [DeveloperInboxItem] {
-        let pullRequestTitle = PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(pullRequestNode.title)
-        let commentItems = pullRequestNode.comments.nodes.compactMap { $0 }.compactMap { commentNode -> DeveloperInboxItem? in
-            let comment = PullRequestComment(
-                id: commentNode.id,
-                author: commentNode.author.map { GitHubActor(login: $0.login, avatarURL: $0.avatarUrl, isBot: $0.typename == "Bot") },
-                bodyMarkdown: commentNode.body,
-                createdAt: commentNode.createdAt,
-                url: commentNode.url,
-                viewerCanDelete: commentNode.viewerCanDelete,
-                reactions: GitHubReactionSummary(countsByReaction: [:], viewerReactions: [])
-            )
-            guard comment.isWrittenByPerson, comment.author?.hasLogin(viewer.githubLogin) != true else { return nil }
-            let action: DeveloperInboxItem.Action = PullRequestVibeComment(comment: comment)
-                .map { .vibe($0.vibe, feedbackText: $0.feedbackText) } ?? .comment(bodyMarkdown: comment.bodyMarkdown)
-            return DeveloperInboxItem(
-                id: comment.id,
-                actor: comment.author,
-                postedContent: comment.author.map { GitHubPostedContent(kind: .comment, postedBy: $0, githubURL: comment.url, postedOn: nil) },
-                action: action,
-                occurredAt: comment.createdAt,
-                pullRequestNumber: pullRequestNode.number,
-                pullRequestTitle: pullRequestTitle
-            )
+    func loadMore() async {
+        guard let nextCursor, !isLoadingMore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let olderPage = try await api.fetchInboxPage(cursor: nextCursor)
+            let loadedItemIDs = Set(fetchedItems.map(\.id))
+            fetchedItems += olderPage.items.filter { !loadedItemIDs.contains($0.id) }
+            self.nextCursor = olderPage.nextCursor
+            loadedPageCount += 1
+            errorMessage = nil
+        } catch {
+            if Task.isCancelled { return }
+            errorMessage = error.localizedDescription
         }
-        let reactionItems = pullRequestNode.reactions.nodes.compactMap { $0 }.compactMap { reactionNode -> DeveloperInboxItem? in
-            guard let reactorNode = reactionNode.user, let reaction = GitHubReaction(rawValue: reactionNode.content) else { return nil }
-            let reactor = GitHubActor(login: reactorNode.login, avatarURL: reactorNode.avatarUrl, isBot: reactorNode.login.hasSuffix("[bot]"))
-            guard !reactor.isBot, !reactor.hasLogin(viewer.githubLogin) else { return nil }
-            return DeveloperInboxItem(
-                id: reactionNode.id,
-                actor: reactor,
-                postedContent: GitHubPostedContent(
-                    kind: .reaction,
-                    postedBy: reactor,
-                    githubURL: githubAPIClient.pullRequestURL(number: pullRequestNode.number),
-                    postedOn: nil
-                ),
-                action: .reaction(reaction),
-                occurredAt: reactionNode.createdAt,
-                pullRequestNumber: pullRequestNode.number,
-                pullRequestTitle: pullRequestTitle
-            )
+    }
+
+    // Marks the inbox read through its newest item, in Revyl's own spelling of that item's time, so nothing newer is marked by accident.
+    func markAllItemsRead() async {
+        guard let newestItem = fetchedItems.first, fetchedItems.contains(where: { isUnread($0) }) || revylUnreadCount > 0 else { return }
+        do {
+            revylUnreadCount = try await api.markInboxRead(throughCreatedAtText: newestItem.createdAtText)
+            readThroughCreatedAt = max(readThroughCreatedAt ?? .distantPast, newestItem.createdAt)
+        } catch {
+            Self.logger.error("Marking the inbox read failed: \(error.publicLogDescription, privacy: .public)")
         }
-        return commentItems + reactionItems
-    }
-}
-
-private struct ViewerPullRequestActivityResponse: Decodable {
-    let openPullRequests: Search
-    let mergedPullRequests: Search
-
-    // GitHub returns null for a node it can't resolve, such as a comment deleted while the query ran.
-    struct Search: Decodable {
-        let nodes: [PullRequestNode?]
     }
 
-    struct PullRequestNode: Decodable {
-        let number: Int
-        let title: String
-        let reactions: Connection<ReactionNode>
-        let comments: Connection<CommentNode>
-    }
-
-    struct Connection<Node: Decodable>: Decodable {
-        let nodes: [Node?]
-    }
-
-    struct ReactionNode: Decodable {
-        let id: String
-        let content: String
-        let createdAt: Date
-        let user: ActorNode?
-    }
-
-    struct CommentNode: Decodable {
-        let id: String
-        let body: String
-        let createdAt: Date
-        let url: URL
-        let viewerCanDelete: Bool
-        let author: ActorNode?
-    }
-
-    struct ActorNode: Decodable {
-        let typename: String?
-        let login: String
-        let avatarUrl: URL?
-
-        enum CodingKeys: String, CodingKey {
-            case typename = "__typename"
-            case login
-            case avatarUrl
-        }
+    // A comment or reply goes to the organization's owners and admins; anything else can only be hidden.
+    func report(_ reportableContent: ReportableContent) async throws {
+        guard let commentID = reportableContent.commentID else { return }
+        try await api.reportComment(commentID: commentID, postID: reportableContent.postID)
     }
 }

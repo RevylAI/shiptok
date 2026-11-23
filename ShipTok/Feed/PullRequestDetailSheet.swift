@@ -1,31 +1,32 @@
 import SwiftUI
 
 struct PullRequestDetailSheet: View {
-    let pullRequest: PullRequest
-    let repositoryFullName: String
-    let vibeTally: PullRequestVibeTally
-    let moderation: GitHubPostedContentModeration
-    let onToggleReaction: (GitHubReaction) -> Void
+    let post: ShipTokPost
+    let vibeTally: VibeTally
+    let moderation: ContentModeration
+    let onToggleReaction: (ShipTokReaction) -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text(pullRequest.title)
+                    Text(verbatim: post.title)
                         .font(.title2.bold())
                         .foregroundStyle(RevylBrandColor.textPrimary)
                     HStack(spacing: 10) {
-                        GitHubAvatarView(avatarURL: pullRequest.author?.avatarURL, diameter: 32)
+                        AvatarView(avatarURL: post.githubAuthor.avatarURL, diameter: 32)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(verbatim: "@\(pullRequest.author?.login ?? "ghost")")
+                            Text(verbatim: "@\(post.githubAuthor.login ?? "ghost")")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(RevylBrandColor.textPrimary)
                             Group {
-                                if let mergedAt = pullRequest.mergedAt {
-                                    Text("Merged \(mergedAt.formatted(date: .abbreviated, time: .shortened))")
-                                } else {
-                                    Text("\(pullRequest.isDraft ? "Draft" : "Open") · Updated \(pullRequest.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                if let pullRequest = post.pullRequest {
+                                    if let mergedAt = pullRequest.mergedAt {
+                                        Text("Merged \(mergedAt.formatted(date: .abbreviated, time: .shortened))")
+                                    } else {
+                                        Text("\(pullRequest.state == .closed ? "Closed" : pullRequest.isDraft ? "Draft" : "Open") · Updated \(pullRequest.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                                    }
                                 }
                             }
                                 .font(.caption)
@@ -33,24 +34,26 @@ struct PullRequestDetailSheet: View {
                         }
                     }
                     HStack(spacing: 10) {
-                        Text(verbatim: "\(repositoryFullName)#\(pullRequest.number)")
+                        Text(verbatim: "\(post.githubRepositoryFullName)#\(post.githubIssueNumber)")
                             .foregroundStyle(RevylBrandColor.textMuted)
-                        PullRequestDiffStats(pullRequest: pullRequest)
+                        if let pullRequest = post.pullRequest {
+                            PullRequestDiffStats(pullRequest: pullRequest)
+                        }
                     }
                     .font(.caption.monospacedDigit())
                     labelChips
                     vibeAndReactionCounts
-                    Link(destination: pullRequest.url) {
+                    Link(destination: post.githubURL) {
                         Label("Open on GitHub", systemImage: "arrow.up.right.square")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.revylPrimary)
-                    if MarkdownSummaryParser.blocks(from: pullRequest.descriptionMarkdown).isEmpty {
+                    if MarkdownSummaryParser.blocks(from: post.descriptionMarkdown).isEmpty {
                         Text("No description.")
                             .font(.subheadline)
                             .foregroundStyle(RevylBrandColor.textMuted)
                     } else {
-                        MarkdownSummaryView(markdown: pullRequest.descriptionMarkdown)
+                        MarkdownSummaryView(markdown: post.descriptionMarkdown)
                     }
                 }
                 .padding(20)
@@ -58,16 +61,16 @@ struct PullRequestDetailSheet: View {
                 .centeredInReadableContentColumn()
             }
             .background(RevylBrandColor.surface)
-            .navigationTitle(Text(verbatim: "#\(pullRequest.number)"))
+            .navigationTitle(Text(verbatim: "#\(post.githubIssueNumber)"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if !moderation.reportableContents.isEmpty {
-                        GitHubPostedContentModerationMenu(moderation: moderation) {
+                        ContentModerationMenu(moderation: moderation) {
                             Image(systemName: "ellipsis.circle")
                         }
                         .accessibilityLabel("More")
-                        .accessibilityHint("Report on GitHub or hide a person")
+                        .accessibilityHint("Report or hide a person")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -80,20 +83,20 @@ struct PullRequestDetailSheet: View {
 
     @ViewBuilder
     private var labelChips: some View {
-        if !pullRequest.labels.isEmpty {
-            PullRequestLabelChips(labels: pullRequest.labels)
+        if let labels = post.pullRequest?.labels, !labels.isEmpty {
+            PullRequestLabelChips(labels: labels)
         }
     }
 
     @ViewBuilder
     private var vibeAndReactionCounts: some View {
-        let reactionCounts = GitHubReaction.allCases
-            .map { (reaction: $0, count: pullRequest.reactions.count(of: $0)) }
+        let reactionCounts = ShipTokReaction.allCases
+            .map { (reaction: $0, count: post.reactions.count(of: $0)) }
             .filter { $0.count > 0 }
             .sorted { $0.count > $1.count }
         if vibeTally.goodVibeCount + vibeTally.badVibeCount > 0 || !reactionCounts.isEmpty {
             WrappingHorizontalLayout(horizontalSpacing: 6, verticalSpacing: 6) {
-                ForEach([PullRequestVibe.good, .bad], id: \.self) { vibe in
+                ForEach([ShipTokVibe.good, .bad], id: \.self) { vibe in
                     if vibeTally.count(of: vibe) > 0 {
                         vibeCountChip(vibe)
                     }
@@ -105,7 +108,7 @@ struct PullRequestDetailSheet: View {
         }
     }
 
-    private func vibeCountChip(_ vibe: PullRequestVibe) -> some View {
+    private func vibeCountChip(_ vibe: ShipTokVibe) -> some View {
         let isViewerVibe = vibeTally.viewerVibe == vibe
         return Text("\(vibe.displayName) \(FeedCardView.compactCount(vibeTally.count(of: vibe)))")
             .font(.caption.weight(.bold))
@@ -117,8 +120,8 @@ struct PullRequestDetailSheet: View {
             .accessibilityLabel("\(vibe.displayName): \(vibeTally.count(of: vibe))\(isViewerVibe ? ", including yours" : "")")
     }
 
-    private func reactionChip(_ reaction: GitHubReaction, count: Int) -> some View {
-        let viewerReacted = pullRequest.reactions.viewerReactions.contains(reaction)
+    private func reactionChip(_ reaction: ShipTokReaction, count: Int) -> some View {
+        let viewerReacted = post.reactions.viewerReactions.contains(reaction)
         return Button {
             onToggleReaction(reaction)
         } label: {

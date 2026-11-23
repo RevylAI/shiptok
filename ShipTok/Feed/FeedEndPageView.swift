@@ -1,12 +1,12 @@
 import SwiftUI
 
-// The page after a feed's last card: older pull requests loading, a failed load to retry, or the end of the repository's history (AGENTS.md, "Feed Order").
+// The page after a feed's last card: older posts loading, a failed load to retry, or the end of the repository's history (AGENTS.md, "Feed Order").
 struct FeedEndPageView: View {
-    let feed: PullRequestFeed
+    let feedMode: FeedMode
     let repositoryFullName: String
-    let showsOnlyPullRequestsWithVideos: Bool
+    let showsOnlyPostsWithVideos: Bool
     let loadFailureMessage: String?
-    let hasLoadedEveryPullRequest: Bool
+    let hasLoadedEveryPost: Bool
     let onRetry: () -> Void
 
     var body: some View {
@@ -14,15 +14,15 @@ struct FeedEndPageView: View {
             if let loadFailureMessage {
                 RevylContentUnavailableView(
                     systemImageName: "exclamationmark.triangle",
-                    title: Text(feed == .merged ? "Couldn't load older merged PRs" : "Couldn't load more open PRs"),
+                    title: Text("Couldn't load more \(morePostsName)"),
                     message: Text(verbatim: loadFailureMessage),
                     actionTitle: Text("Try again"),
                     action: onRetry
                 )
-            } else if !hasLoadedEveryPullRequest {
-                FeedLoadingView(message: feed == .merged ? "Loading older merged PRs…" : "Loading more open PRs…")
+            } else if !hasLoadedEveryPost {
+                FeedLoadingView(message: "Loading more \(morePostsName)…")
             } else {
-                switch feed {
+                switch feedMode {
                 case .open:
                     RevylContentUnavailableView(
                         systemImageName: "checkmark.seal.fill",
@@ -35,13 +35,34 @@ struct FeedEndPageView: View {
                         title: Text("That's every merged PR"),
                         message: Text("You've seen every pull request merged into \(repositoryFullName) \(shownMediaDescription).")
                     )
+                case .weekly:
+                    RevylContentUnavailableView(
+                        systemImageName: "checkmark.seal.fill",
+                        title: Text("That's every weekly video"),
+                        message: Text("A new one lands after each week ends, Monday to Sunday.")
+                    )
+                case .features:
+                    RevylContentUnavailableView(
+                        systemImageName: "checkmark.seal.fill",
+                        title: Text("That's every feature video"),
+                        message: Text("A new one lands when its issue closes.")
+                    )
                 }
             }
         }
         .background(RevylBrandColor.canvas)
     }
 
+    private var morePostsName: String {
+        switch feedMode {
+        case .open: "open PRs"
+        case .merged: "merged PRs"
+        case .weekly: "weekly videos"
+        case .features: "feature videos"
+        }
+    }
+
     private var shownMediaDescription: String {
-        showsOnlyPullRequestsWithVideos ? "that leads with a video" : "with a video, screenshot or GIF"
+        showsOnlyPostsWithVideos ? "that leads with a video" : "with a video, screenshot or GIF"
     }
 }

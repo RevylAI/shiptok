@@ -2,32 +2,24 @@ import SwiftUI
 
 struct FeedView: View {
     private enum FeedContext: Hashable {
-        case pullRequests(PullRequestFeed)
-        case weeklyEditions
-        case features
+        case feed(FeedMode)
         case openDeck
     }
 
     private enum FeedPage: Identifiable {
-        case pullRequest(PullRequest)
-        case weeklyEdition(WeeklyEdition)
-        case feature(Feature)
+        case post(ShipTokPost)
         case feedEnd
 
         var id: String {
             switch self {
-            case .pullRequest(let pullRequest): pullRequest.id
-            case .weeklyEdition(let weeklyEdition): weeklyEdition.id
-            case .feature(let feature): feature.id
+            case .post(let post): post.id
             case .feedEnd: "feed-end"
             }
         }
 
         var vibeTarget: VibeTarget? {
             switch self {
-            case .pullRequest(let pullRequest): VibeTarget(pullRequest: pullRequest)
-            case .weeklyEdition(let weeklyEdition): VibeTarget(weeklyEdition: weeklyEdition)
-            case .feature(let feature): VibeTarget(feature: feature)
+            case .post(let post): VibeTarget(post: post)
             case .feedEnd: nil
             }
         }
@@ -53,31 +45,37 @@ struct FeedView: View {
     private struct VibeAwaitingFeedback: Identifiable, Equatable {
         let id: UUID
         let target: VibeTarget
-        let vibe: PullRequestVibe
+        let vibe: ShipTokVibe
         var feedbackText = ""
     }
 
-    private struct PresentedPullRequestID: Identifiable {
+    private struct CommentsSheetRequest: Identifiable {
+        let id = UUID()
+        let post: ShipTokPost
+        let focusedCommentID: String?
+    }
+
+    // An inbox item or a notification can name a post that isn't loaded yet, so its comments open once its card has been read.
+    private struct PendingCommentsOpening: Equatable {
+        let postID: String
+        let focusedCommentID: String?
+    }
+
+    private struct PresentedPostID: Identifiable {
         let id: String
     }
 
     let viewer: SignedInTeammate
-    let signInSession: GitHubSignInSession
-    let onChooseRepository: @MainActor (String) -> Void
-    private let githubAPIClient: GitHubAPIClient
-    @State private var feedStore: PullRequestFeedStore
-    @State private var weeklyEditionsStore: PublishedIssuesStore<WeeklyEdition>
-    @State private var featuresStore: PublishedIssuesStore<Feature>
+    let repository: FeedRepositoryChoice
+    let signInSession: ShipTokSignInSession
+    let onChooseRepository: @MainActor (ShipTokRepository) -> Void
+    @State private var feedStore: PostFeedStore
     @State private var vibeOutbox: VibeOutbox
     @State private var inboxStore: DeveloperInboxStore
     @State private var userSettingsStore: UserSettingsStore
     @AppStorage("feed-mode") private var feedMode: FeedMode = .merged
     @State private var playbackRateChoice: VideoPlaybackRateChoice
-    @State private var openDeckSource: PullRequestDeckSource?
-    @State private var openPullRequestsPageIndex = 0
-    @State private var mergedPullRequestsPageIndex = 0
-    @State private var weeklyEditionsPageIndex = 0
-    @State private var featuresPageIndex = 0
+    @State private var pageIndexByFeedMode: [FeedMode: Int] = [:]
     @State private var openDeckPageIndex = 0
     @State private var verticalDragOffset: CGFloat = 0
     @State private var horizontalDragOffset: CGFloat = 0
@@ -92,12 +90,11 @@ struct FeedView: View {
     @State private var cardEntranceScale: CGFloat = 1
     @State private var likeBurstTriggers: [String: Int] = [:]
     @State private var vibeAwaitingFeedback: VibeAwaitingFeedback?
-    @State private var commentsSheetPullRequest: PullRequest?
-    @State private var commentsSheetWeeklyEdition: WeeklyEdition?
-    @State private var commentsSheetFeature: Feature?
-    @State private var detailSheetPullRequest: PullRequest?
-    @State private var mediaDeckPullRequestID: PresentedPullRequestID?
-    @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
+    @State private var commentsSheetRequest: CommentsSheetRequest?
+    @State private var pendingCommentsOpening: PendingCommentsOpening?
+    @State private var detailSheetPostID: PresentedPostID?
+    @State private var mediaDeckPostID: PresentedPostID?
+    @State private var contentAwaitingHideConfirmation: ReportableContent?
     @State private var selectedTab: AppTab = .feed
     @State private var goodVibesHapticTrigger = 0
     @State private var badVibesHapticTrigger = 0
@@ -119,85 +116,57 @@ struct FeedView: View {
     private static let tabBarDipIntoBottomSafeArea: CGFloat = 12
     private static let tabPageScrollEndToTabBarSpacing: CGFloat = 12
     private static let minimumKeyboardOverlap: CGFloat = 1
-    private static let newerPullRequestsButtonGapBelowTopRow: CGFloat = 8
+    private static let newerPostsButtonGapBelowTopRow: CGFloat = 8
 
     init(
         viewer: SignedInTeammate,
-        repositoryFullName: String,
-        signInSession: GitHubSignInSession,
-        onChooseRepository: @escaping @MainActor (String) -> Void,
-        onFeedRepositoryLost: @escaping @MainActor (String) -> Void
+        repository: FeedRepositoryChoice,
+        signInSession: ShipTokSignInSession,
+        onChooseRepository: @escaping @MainActor (ShipTokRepository) -> Void,
+        onRepositoryLost: @escaping @MainActor (String) -> Void
     ) {
-        let githubAPIClient = GitHubAPIClient(accountAPI: viewer.accountAPI, repositoryFullName: repositoryFullName)
         self.viewer = viewer
-        self.githubAPIClient = githubAPIClient
+        self.repository = repository
         self.signInSession = signInSession
         self.onChooseRepository = onChooseRepository
-        let handleRejectedGitHubAccess: @MainActor (GitHubAPIError) -> Void = { githubAPIError in
-            if case .feedRepositoryNotVisible = githubAPIError {
-                onFeedRepositoryLost(githubAPIError.localizedDescription)
-            } else {
-                signInSession.handleRejectedGitHubAccess(githubAPIError, endingSignInID: viewer.signInID)
-            }
-        }
-        let feedStore = PullRequestFeedStore(
-            githubAPIClient: githubAPIClient,
+        let feedStore = PostFeedStore(
+            api: viewer.api,
+            repositoryID: repository.githubRepositoryID,
             analytics: viewer.analytics,
-            viewerGitHubLogin: viewer.user.githubLogin,
+            revylUserID: viewer.account.revylUserID,
             hiddenPeopleStore: viewer.hiddenPeopleStore,
             feedWork: viewer.feedWork,
-            handleRejectedGitHubAccess: handleRejectedGitHubAccess
-        )
-        let weeklyEditionsStore = PublishedIssuesStore<WeeklyEdition>(
-            githubAPIClient: githubAPIClient,
-            analytics: viewer.analytics,
-            handleRejectedGitHubAccess: handleRejectedGitHubAccess
+            onRepositoryLost: onRepositoryLost
         )
         _feedStore = State(initialValue: feedStore)
-        let featuresStore = PublishedIssuesStore<Feature>(
-            githubAPIClient: githubAPIClient,
-            analytics: viewer.analytics,
-            handleRejectedGitHubAccess: handleRejectedGitHubAccess
-        )
-        _weeklyEditionsStore = State(initialValue: weeklyEditionsStore)
-        _featuresStore = State(initialValue: featuresStore)
-        _vibeOutbox = State(initialValue: VibeOutbox(
-            githubAPIClient: githubAPIClient,
-            analytics: viewer.analytics,
-            viewerGitHubLogin: viewer.user.githubLogin,
-            feedStore: feedStore,
-            weeklyEditionsStore: weeklyEditionsStore,
-            featuresStore: featuresStore,
-            handleRejectedGitHubAccess: handleRejectedGitHubAccess
-        ))
-        _inboxStore = State(initialValue: DeveloperInboxStore(viewer: viewer.user, githubAPIClient: githubAPIClient, hiddenPeopleStore: viewer.hiddenPeopleStore))
-        _userSettingsStore = State(initialValue: UserSettingsStore(accessTokenVault: viewer.accessTokenVault))
+        _vibeOutbox = State(initialValue: VibeOutbox(api: viewer.api, analytics: viewer.analytics, feedStore: feedStore))
+        _inboxStore = State(initialValue: DeveloperInboxStore(api: viewer.api, hiddenPeopleStore: viewer.hiddenPeopleStore))
+        _userSettingsStore = State(initialValue: UserSettingsStore(api: viewer.api))
         _playbackRateChoice = State(initialValue: .savedOnDevice())
     }
 
-    private var showsOnlyPullRequestsWithVideos: Bool {
-        userSettingsStore.userSettings.showsOnlyPullRequestsWithVideos
+    private var showsOnlyPostsWithVideos: Bool {
+        userSettingsStore.userSettings.showsOnlyPostsWithVideos
     }
 
+    // A week's or a feature's deck shows over its own mode; a deck of one post, opened from the inbox or a notification, shows over whichever mode is selected (AGENTS.md, "Pull Request Decks").
     private var feedContext: FeedContext {
-        switch feedMode {
-        case .open: .pullRequests(.open)
-        case .merged: .pullRequests(.merged)
-        case .weekly: openDeckSource?.feedMode == .weekly ? .openDeck : .weeklyEditions
-        case .features: openDeckSource?.feedMode == .features ? .openDeck : .features
+        guard let openDeckSource = feedStore.openDeckSource, openDeckSource.feedMode == nil || openDeckSource.feedMode == feedMode else {
+            return .feed(feedMode)
         }
+        return .openDeck
     }
 
-    private var shownPullRequestFeed: PullRequestFeed? {
-        guard case .pullRequests(let feed) = onScreenFeedContext else { return nil }
-        return feed
+    private var shownFeedMode: FeedMode? {
+        guard case .feed(let shownFeedMode) = onScreenFeedContext else { return nil }
+        return shownFeedMode
     }
 
-    private var onScreenPullRequests: OnScreenPullRequests? {
+    private var onScreenPosts: OnScreenPosts? {
         switch onScreenFeedContext {
-        case .pullRequests(let feed): .feed(feed)
+        case .feed(let shownFeedMode): .feed(shownFeedMode)
         case .openDeck: .openDeck
-        case .weeklyEditions, .features, nil: nil
+        case nil: nil
         }
     }
 
@@ -206,39 +175,29 @@ struct FeedView: View {
         selectedTab == .feed ? feedContext : nil
     }
 
-    // What people the viewer hid wrote or posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
-    private var visibleWeeklyEditions: [WeeklyEdition] {
-        weeklyEditionsStore.publishedIssues.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
-    }
-
-    private var visibleFeatures: [Feature] {
-        featuresStore.publishedIssues.compactMap { $0.withoutHiddenPeople(viewer.hiddenPeopleStore) }
-    }
-
+    // What people the viewer hid posted leaves every page, so page indexes count only what's shown (AGENTS.md, "Report And Hide").
     private var feedPages: [FeedPage] {
         switch feedContext {
-        case .pullRequests(let feed): feedStore.visiblePullRequests(in: feed).map(FeedPage.pullRequest) + [.feedEnd]
-        case .weeklyEditions: visibleWeeklyEditions.map(FeedPage.weeklyEdition) + [.feedEnd]
-        case .features: visibleFeatures.map(FeedPage.feature) + [.feedEnd]
-        case .openDeck: feedStore.visibleOpenDeckPullRequests.map(FeedPage.pullRequest) + [.feedEnd]
+        case .feed(let feedMode): feedStore.visiblePosts(in: feedMode).map(FeedPage.post) + [.feedEnd]
+        case .openDeck: feedStore.visibleOpenDeckPosts.map(FeedPage.post) + [.feedEnd]
         }
+    }
+
+    private var visiblePostIDsByFeedMode: [FeedMode: [String]] {
+        Dictionary(uniqueKeysWithValues: FeedMode.allCases.map { feedMode in (feedMode, feedStore.visiblePosts(in: feedMode).map(\.id)) })
     }
 
     // Each context keeps its own place, so switching modes or closing a deck returns to the card the viewer left.
     private var currentPageIndex: Int {
         get {
             switch feedContext {
-            case .pullRequests(let feed): pageIndex(in: feed)
-            case .weeklyEditions: weeklyEditionsPageIndex
-            case .features: featuresPageIndex
+            case .feed(let feedMode): pageIndexByFeedMode[feedMode, default: 0]
             case .openDeck: openDeckPageIndex
             }
         }
         nonmutating set {
             switch feedContext {
-            case .pullRequests(let feed): setPageIndex(newValue, in: feed)
-            case .weeklyEditions: weeklyEditionsPageIndex = newValue
-            case .features: featuresPageIndex = newValue
+            case .feed(let feedMode): pageIndexByFeedMode[feedMode] = newValue
             case .openDeck: openDeckPageIndex = newValue
             }
         }
@@ -250,9 +209,7 @@ struct FeedView: View {
 
     private var isPullToRefreshRunning: Bool {
         switch feedContext {
-        case .pullRequests(let feed): feedStore.loadedFeed(feed).isPullToRefreshRunning
-        case .weeklyEditions: weeklyEditionsStore.isPullToRefreshRunning
-        case .features: featuresStore.isPullToRefreshRunning
+        case .feed(let feedMode): feedStore.loadedFeed(feedMode).isPullToRefreshRunning
         case .openDeck: feedStore.isOpenDeckPullToRefreshRunning
         }
     }
@@ -262,7 +219,7 @@ struct FeedView: View {
     }
 
     private var isFeedCovered: Bool {
-        detailSheetPullRequest != nil || mediaDeckPullRequestID != nil || selectedTab != .feed
+        detailSheetPostID != nil || mediaDeckPostID != nil || selectedTab != .feed
     }
 
     private var heroZoomSubject: HeroZoomSubject {
@@ -271,7 +228,7 @@ struct FeedView: View {
     }
 
     private var isHeroOccludedForAnalytics: Bool {
-        commentsSheetPullRequest != nil || commentsSheetWeeklyEdition != nil || commentsSheetFeature != nil
+        commentsSheetRequest != nil
     }
 
     // Read from the keyboard's effect on the safe area rather than show and hide notifications, which can arrive unpaired when an iPhone Duo rotates.
@@ -305,11 +262,11 @@ struct FeedView: View {
                             feedChrome(pageLayout: pageLayout)
                         }
                         .overlay(alignment: .top) {
-                            newerPullRequestsButton
-                                .animation(.snappy, value: shownPullRequestFeed.map { feedStore.loadedFeed($0).unseenNewerPullRequestIDs.isEmpty } ?? true)
+                            newerPostsButton
+                                .animation(.snappy, value: shownFeedMode.map { feedStore.loadedFeed($0).unseenNewerPostIDs.isEmpty } ?? true)
                                 .offset(
                                     x: pageLayout.card.midX - pageGeometry.size.width / 2,
-                                    y: pageLayout.topRow.maxY + Self.newerPullRequestsButtonGapBelowTopRow
+                                    y: pageLayout.topRow.maxY + Self.newerPostsButtonGapBelowTopRow
                                 )
                         }
                         // Read from this full-screen reader, which never moves with a dragged page, so the rail never jumps mid-swipe.
@@ -341,8 +298,8 @@ struct FeedView: View {
                 if isTabBarShown && !isKeyboardShown {
                     AppTabBar(
                         selectedTab: $selectedTab,
-                        unseenInboxItemCount: inboxStore.unseenItemCount,
-                        viewerAvatarURL: viewer.user.githubAvatarURL
+                        unseenInboxItemCount: inboxStore.unreadCount,
+                        viewerAvatarURL: viewer.account.avatarURL
                     )
                     .frame(maxWidth: .infinity)
                     .ignoresSafeArea(.container, edges: .horizontal)
@@ -363,59 +320,24 @@ struct FeedView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: likeHapticTrigger)
         .sensoryFeedback(.selection, trigger: pageChangeHapticTrigger)
         .sensoryFeedback(.impact(weight: .medium), trigger: pullToRefreshHapticTrigger)
-        .sheet(item: $commentsSheetPullRequest) { pullRequest in
-            PullRequestCommentsSheet(
-                thread: pullRequest,
-                viewer: viewer.user,
+        .sheet(item: $commentsSheetRequest) { commentsSheetRequest in
+            let postID = commentsSheetRequest.post.id
+            PostCommentsSheet(
+                post: commentsSheetRequest.post,
+                viewer: viewer.account,
                 hiddenPeopleStore: viewer.hiddenPeopleStore,
-                githubAPIClient: githubAPIClient,
+                api: viewer.api,
                 analytics: viewer.analytics,
-                analyticsSubject: VibeTarget(pullRequest: pullRequest).analyticsSubject,
-                fetchLatestThread: { [githubAPIClient = githubAPIClient] number in
-                    try await githubAPIClient.fetchPullRequest(number: number)
-                },
-                onThreadChanged: { changedPullRequest in feedStore.applyFetchedPullRequest(changedPullRequest) }
+                focusedCommentID: commentsSheetRequest.focusedCommentID,
+                onCommentCountChange: { commentCountChange in feedStore.changeCommentCount(by: commentCountChange, onPostID: postID) },
+                onVibeDeleted: { Task { await feedStore.rereadPost(postID: postID) } }
             )
         }
-        .sheet(item: $commentsSheetWeeklyEdition) { weeklyEdition in
-            PullRequestCommentsSheet(
-                thread: weeklyEdition,
-                viewer: viewer.user,
-                hiddenPeopleStore: viewer.hiddenPeopleStore,
-                githubAPIClient: githubAPIClient,
-                analytics: viewer.analytics,
-                analyticsSubject: VibeTarget(weeklyEdition: weeklyEdition).analyticsSubject,
-                fetchLatestThread: { [githubAPIClient = githubAPIClient] number in
-                    try await githubAPIClient.fetchWeeklyEdition(number: number)
-                },
-                onThreadChanged: { changedWeeklyEdition in weeklyEditionsStore.applyFetchedPublishedIssue(changedWeeklyEdition) }
-            )
+        .sheet(item: $detailSheetPostID) { presentedPostID in
+            DetailSheetContent(feedStore: feedStore, vibeOutbox: vibeOutbox, viewer: viewer, postID: presentedPostID.id)
         }
-        .sheet(item: $commentsSheetFeature) { feature in
-            PullRequestCommentsSheet(
-                thread: feature,
-                viewer: viewer.user,
-                hiddenPeopleStore: viewer.hiddenPeopleStore,
-                githubAPIClient: githubAPIClient,
-                analytics: viewer.analytics,
-                analyticsSubject: VibeTarget(feature: feature).analyticsSubject,
-                fetchLatestThread: { [githubAPIClient = githubAPIClient] number in
-                    try await githubAPIClient.fetchFeature(number: number)
-                },
-                onThreadChanged: { changedFeature in featuresStore.applyFetchedPublishedIssue(changedFeature) }
-            )
-        }
-        .sheet(item: $detailSheetPullRequest) { pullRequest in
-            DetailSheetContent(
-                feedStore: feedStore,
-                vibeOutbox: vibeOutbox,
-                viewer: viewer,
-                repositoryFullName: githubAPIClient.repositoryFullName,
-                presentedPullRequest: pullRequest
-            )
-        }
-        .fullScreenCover(item: $mediaDeckPullRequestID) { presentedPullRequestID in
-            MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, pullRequestID: presentedPullRequestID.id)
+        .fullScreenCover(item: $mediaDeckPostID) { presentedPostID in
+            MediaDeckCoverContent(feedStore: feedStore, viewer: viewer, postID: presentedPostID.id)
         }
         .task(id: onScreenFeedContext) {
             if onScreenFeedContext != nil {
@@ -425,7 +347,7 @@ struct FeedView: View {
         .task { await inboxStore.runLiveRefreshLoop() }
         .task { await userSettingsStore.refresh() }
         .onAppear {
-            feedStore.changeOnScreenPullRequests(to: onScreenPullRequests)
+            feedStore.changeOnScreenPosts(to: onScreenPosts)
             focusPage(at: currentPageIndex)
         }
         .onChange(of: currentPageIndex) { _, newPageIndex in
@@ -439,49 +361,53 @@ struct FeedView: View {
             heroPinch = nil
         }
         .onChange(of: onScreenFeedContext) {
-            feedStore.changeOnScreenPullRequests(to: onScreenPullRequests)
+            feedStore.changeOnScreenPosts(to: onScreenPosts)
             focusPage(at: currentPageIndex)
         }
         .onChange(of: selectedTab) { _, newSelectedTab in
             if newSelectedTab != .feed { postVibeAwaitingFeedback() }
         }
-        .onChange(of: feedStore.visiblePullRequests(in: .open).map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
-            keepPullRequestsPageInPlace(in: .open, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
+        .onChange(of: visiblePostIDsByFeedMode) { previousPostIDsByFeedMode, currentPostIDsByFeedMode in
+            for feedMode in FeedMode.allCases where previousPostIDsByFeedMode[feedMode] != currentPostIDsByFeedMode[feedMode] {
+                keepPostsPageInPlace(
+                    in: feedMode,
+                    previousPostIDs: previousPostIDsByFeedMode[feedMode] ?? [],
+                    currentPostIDs: currentPostIDsByFeedMode[feedMode] ?? []
+                )
+            }
         }
-        .onChange(of: feedStore.visiblePullRequests(in: .merged).map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
-            keepPullRequestsPageInPlace(in: .merged, previousPullRequestIDs: previousPullRequestIDs, currentPullRequestIDs: currentPullRequestIDs)
-        }
-        .onChange(of: feedStore.visibleOpenDeckPullRequests.map(\.id)) { previousPullRequestIDs, currentPullRequestIDs in
-            let previouslyShownPullRequestID = previousPullRequestIDs.indices.contains(openDeckPageIndex) ? previousPullRequestIDs[openDeckPageIndex] : nil
-            if let previouslyShownPullRequestID, let movedPageIndex = currentPullRequestIDs.firstIndex(of: previouslyShownPullRequestID), movedPageIndex != openDeckPageIndex {
+        .onChange(of: feedStore.visibleOpenDeckPosts.map(\.id)) { previousPostIDs, currentPostIDs in
+            let previouslyShownPostID = previousPostIDs.indices.contains(openDeckPageIndex) ? previousPostIDs[openDeckPageIndex] : nil
+            if let previouslyShownPostID, let movedPageIndex = currentPostIDs.firstIndex(of: previouslyShownPostID), movedPageIndex != openDeckPageIndex {
                 openDeckPageIndex = movedPageIndex
                 return
             }
-            // A viewer on the end page goes to the first card added, since a pull request read again after a failure can join anywhere in the deck.
-            if previouslyShownPullRequestID == nil, let addedPageIndex = currentPullRequestIDs.firstIndex(where: { !previousPullRequestIDs.contains($0) }), addedPageIndex != openDeckPageIndex {
-                openDeckPageIndex = addedPageIndex
-                return
-            }
             // The page stayed but its card changed: the first card arrived, or the one under the viewer left, so the store's focus follows while the deck is on screen, never landing on a mode's card at the same index.
-            let shownPullRequestID = currentPullRequestIDs.indices.contains(openDeckPageIndex) ? currentPullRequestIDs[openDeckPageIndex] : nil
-            if shownPullRequestID != previouslyShownPullRequestID, onScreenFeedContext == .openDeck {
+            let shownPostID = currentPostIDs.indices.contains(openDeckPageIndex) ? currentPostIDs[openDeckPageIndex] : nil
+            if shownPostID != previouslyShownPostID, onScreenFeedContext == .openDeck {
                 focusPage(at: openDeckPageIndex)
             }
         }
-        .onChange(of: visibleWeeklyEditions.map(\.id)) { previousWeeklyEditionIDs, currentWeeklyEditionIDs in
-            guard previousWeeklyEditionIDs.indices.contains(weeklyEditionsPageIndex),
-                  let movedPageIndex = currentWeeklyEditionIDs.firstIndex(of: previousWeeklyEditionIDs[weeklyEditionsPageIndex])
-            else { return }
-            weeklyEditionsPageIndex = movedPageIndex
+        // Revyl leaves out of Open and Merged what Videos only hides, so the feeds follow the setting Revyl has saved, not a toggle still saving (AGENTS.md, "Feed Order").
+        .onChange(of: userSettingsStore.savedUserSettings?.showsOnlyPostsWithVideos, initial: true) { _, savedShowsOnlyPostsWithVideos in
+            if let savedShowsOnlyPostsWithVideos {
+                feedStore.applyShowsOnlyPostsWithVideos(savedShowsOnlyPostsWithVideos)
+            }
         }
-        .onChange(of: visibleFeatures.map(\.id)) { previousFeatureIDs, currentFeatureIDs in
-            guard previousFeatureIDs.indices.contains(featuresPageIndex),
-                  let movedPageIndex = currentFeatureIDs.firstIndex(of: previousFeatureIDs[featuresPageIndex])
-            else { return }
-            featuresPageIndex = movedPageIndex
+        // A mode whose tab the viewer turned off gives way to the first tab still on (AGENTS.md, "Feed Modes").
+        .onChange(of: userSettingsStore.feedModesWithShownTabs, initial: true) { _, feedModesWithShownTabs in
+            if !feedModesWithShownTabs.contains(feedMode), let firstShownFeedMode = feedModesWithShownTabs.first {
+                feedMode = firstShownFeedMode
+            }
         }
-        .onChange(of: showsOnlyPullRequestsWithVideos, initial: true) { _, newShowsOnlyPullRequestsWithVideos in
-            feedStore.showsOnlyPullRequestsWithVideos = newShowsOnlyPullRequestsWithVideos
+        .onChange(of: pendingCommentsOpening.flatMap { feedStore.post(withID: $0.postID) }?.id) {
+            guard let pendingCommentsOpening, let post = feedStore.post(withID: pendingCommentsOpening.postID) else { return }
+            self.pendingCommentsOpening = nil
+            commentsSheetRequest = CommentsSheetRequest(post: post, focusedCommentID: pendingCommentsOpening.focusedCommentID)
+        }
+        .onChange(of: ShipTokPushNotifications.shared.openedNotification?.id, initial: true) {
+            guard let openedNotification = ShipTokPushNotifications.shared.takeOpenedNotification() else { return }
+            openPost(postID: openedNotification.postID, opensComments: openedNotification.opensComments, focusedCommentID: openedNotification.commentID)
         }
         .onChange(of: scenePhase) { _, newScenePhase in
             switch newScenePhase {
@@ -499,9 +425,9 @@ struct FeedView: View {
                 break
             }
         }
-        .confirmingHide(of: $postedContentAwaitingHideConfirmation) { postedContent in
-            viewer.hiddenPeopleStore.hide(postedContent.postedBy)
-            viewer.analytics.capture(.personHidden(postedContent, control: .feedRail))
+        .confirmingHide(of: $contentAwaitingHideConfirmation) { hiddenContent in
+            viewer.hiddenPeopleStore.hide(hiddenContent.poster)
+            viewer.analytics.capture(.personHidden(hiddenContent, control: .feedRail))
         }
         .environment(\.shipTokAnalytics, viewer.analytics)
         .environment(\.feedViewerMediaCache, viewer.mediaCache)
@@ -509,26 +435,30 @@ struct FeedView: View {
     }
 
     @ViewBuilder
-    private var newerPullRequestsButton: some View {
-        if let shownPullRequestFeed {
-            newerPullRequestsButton(in: shownPullRequestFeed)
+    private var newerPostsButton: some View {
+        if let shownFeedMode {
+            newerPostsButton(in: shownFeedMode)
         }
     }
 
     @ViewBuilder
-    private func newerPullRequestsButton(in feed: PullRequestFeed) -> some View {
-        let visiblePullRequests = feedStore.visiblePullRequests(in: feed)
-        let unseenNewerPullRequestIDs = feedStore.loadedFeed(feed).unseenNewerPullRequestIDs
-        let unseenNewerPageIndexes = visiblePullRequests.indices.filter { unseenNewerPullRequestIDs.contains(visiblePullRequests[$0].id) }
+    private func newerPostsButton(in feedMode: FeedMode) -> some View {
+        let visiblePosts = feedStore.visiblePosts(in: feedMode)
+        let unseenNewerPostIDs = feedStore.loadedFeed(feedMode).unseenNewerPostIDs
+        let unseenNewerPageIndexes = visiblePosts.indices.filter { unseenNewerPostIDs.contains(visiblePosts[$0].id) }
         if let firstUnseenNewerPageIndex = unseenNewerPageIndexes.first, firstUnseenNewerPageIndex < currentPageIndex {
-            let unseenNewerPullRequestCount = unseenNewerPageIndexes.count
-            let unseenNewerPullRequestsDescription = feed == .merged
-                ? (unseenNewerPullRequestCount == 1 ? "newly merged PR" : "newly merged PRs")
-                : (unseenNewerPullRequestCount == 1 ? "newly updated open PR" : "newly updated open PRs")
+            let unseenNewerPostCount = unseenNewerPageIndexes.count
+            let isOne = unseenNewerPostCount == 1
+            let unseenNewerPostsDescription = switch feedMode {
+            case .open: isOne ? "newly updated open PR" : "newly updated open PRs"
+            case .merged: isOne ? "newly merged PR" : "newly merged PRs"
+            case .weekly: isOne ? "new weekly video" : "new weekly videos"
+            case .features: isOne ? "new feature video" : "new feature videos"
+            }
             Button {
                 withAnimation(.spring(duration: 0.35)) { currentPageIndex = firstUnseenNewerPageIndex }
             } label: {
-                Label("\(unseenNewerPullRequestCount) new", systemImage: "arrow.up")
+                Label("\(unseenNewerPostCount) new", systemImage: "arrow.up")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
@@ -539,7 +469,7 @@ struct FeedView: View {
                     .contentShape(Rectangle())
             }
             .fixedSize()
-            .accessibilityLabel("\(unseenNewerPullRequestCount) \(unseenNewerPullRequestsDescription) above")
+            .accessibilityLabel("\(unseenNewerPostCount) \(unseenNewerPostsDescription) above")
             .transition(.scale.combined(with: .opacity))
         }
     }
@@ -552,31 +482,26 @@ struct FeedView: View {
         case .inbox:
             DeveloperInboxView(
                 store: inboxStore,
-                onOpenPullRequest: openPullRequest(number:),
-                onReport: { postedContent in
-                    viewer.analytics.capture(.contentReportOpened(postedContent, control: .inboxRow))
-                    openURL(postedContent.githubReportURL)
+                onOpenItem: { inboxItem in
+                    openPost(postID: inboxItem.post.postID, opensComments: inboxItem.kind != .reaction, focusedCommentID: inboxItem.commentID)
                 },
-                onHide: { postedContent in
-                    viewer.hiddenPeopleStore.hide(postedContent.postedBy)
-                    viewer.analytics.capture(.personHidden(postedContent, control: .inboxRow))
+                onHide: { hiddenContent in
+                    viewer.hiddenPeopleStore.hide(hiddenContent.poster)
+                    viewer.analytics.capture(.personHidden(hiddenContent, control: .inboxRow))
                 },
                 onShowFeed: onShowFeedFromTabPage
             )
         case .settings:
             SettingsView(
-                viewer: viewer.user,
-                signInID: viewer.signInID,
+                viewer: viewer,
                 userSettingsStore: userSettingsStore,
-                hiddenPeopleStore: viewer.hiddenPeopleStore,
-                accountAPI: viewer.accountAPI,
-                chosenRepositoryFullName: githubAPIClient.repositoryFullName,
+                chosenRepository: repository,
                 signInSession: signInSession,
-                onChooseRepository: { repositoryFullName in
+                onChooseRepository: { chosenRepository in
                     postVibeAwaitingFeedback()
                     vibeOutbox.postAllQueuedVibesBeforeSuspension()
                     await feedStore.saveFeeds()?.value
-                    onChooseRepository(repositoryFullName)
+                    onChooseRepository(chosenRepository)
                 },
                 onShowFeed: onShowFeedFromTabPage
             )
@@ -594,7 +519,8 @@ struct FeedView: View {
         return ZStack(alignment: .topLeading) {
             FeedModeSwitch(
                 feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
-                shownDeckSource: feedContext == .openDeck ? openDeckSource : nil,
+                feedModesWithShownTabs: userSettingsStore.feedModesWithShownTabs,
+                shownDeckSource: feedContext == .openDeck ? feedStore.openDeckSource : nil,
                 onCloseDeck: closeDeck,
                 preferredTabsCenterX: pageLayout.card.midX - feedModeSwitchArea.minX
             )
@@ -617,126 +543,134 @@ struct FeedView: View {
     }
 
     private func feedNavigationButtons(style: FeedNavigationButtons.Style) -> some View {
-        FeedNavigationButtons(style: style, unseenInboxItemCount: inboxStore.unseenItemCount, onSelectTab: { selectedTab = $0 })
+        FeedNavigationButtons(style: style, unseenInboxItemCount: inboxStore.unreadCount, onSelectTab: { selectedTab = $0 })
     }
 
     @ViewBuilder
     private func feedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         switch feedContext {
-        case .pullRequests(let feed):
-            pullRequestsFeedContent(in: feed, pageSize: pageSize, pageLayout: pageLayout)
-        case .weeklyEditions:
-            weeklyEditionsFeedContent(pageSize: pageSize, pageLayout: pageLayout)
-        case .features:
-            featuresFeedContent(pageSize: pageSize, pageLayout: pageLayout)
+        case .feed(let feedMode):
+            modeFeedContent(in: feedMode, pageSize: pageSize, pageLayout: pageLayout)
         case .openDeck:
             openDeckFeedContent(pageSize: pageSize, pageLayout: pageLayout)
         }
     }
 
+    // Until a card shows, the feed keeps reading older pages, so it's loading until Revyl has no more (AGENTS.md, "Feed Order").
     @ViewBuilder
-    private func weeklyEditionsFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
-        if !weeklyEditionsStore.publishedIssues.isEmpty {
+    private func modeFeedContent(in feedMode: FeedMode, pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
+        let loadedFeed = feedStore.loadedFeed(feedMode)
+        if !feedStore.visiblePosts(in: feedMode).isEmpty {
             feedDeck(deckSize: pageSize, pageLayout: pageLayout)
-        } else if let loadFailureMessage = weeklyEditionsStore.loadFailureMessage {
+        } else if let loadFailureMessage = loadedFeed.loadFailureMessage {
+            let failureTitle = switch feedMode {
+            case .open: "Couldn't load open PRs"
+            case .merged: "Couldn't load merged PRs"
+            case .weekly: "Couldn't load the weekly videos"
+            case .features: "Couldn't load the feature videos"
+            }
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
-                title: Text("Couldn't load the weekly videos"),
+                title: Text(failureTitle),
                 message: Text(verbatim: loadFailureMessage),
                 actionTitle: Text("Try again"),
-                action: { Task { await weeklyEditionsStore.refresh() } }
+                action: { Task { await feedStore.loadOlderPosts(in: feedMode) } }
             )
-        } else if !weeklyEditionsStore.isLoaded {
-            FeedLoadingView(message: "Finding the weekly videos…")
+        } else if !loadedFeed.hasLoadedEveryPost {
+            let loadingMessage = switch feedMode {
+            case .open: "Finding open PRs with \(showsOnlyPostsWithVideos ? "videos" : "videos and screenshots")…"
+            case .merged: "Finding merged PRs with \(showsOnlyPostsWithVideos ? "videos" : "videos and screenshots")…"
+            case .weekly: "Finding the weekly videos…"
+            case .features: "Finding the feature videos…"
+            }
+            FeedLoadingView(message: loadingMessage)
         } else {
-            RevylContentUnavailableView(
-                systemImageName: "calendar",
-                title: Text("No weekly videos yet"),
-                message: Text("Each week's video is a closed issue labeled \(WeeklyEditionFormat.labelName) in \(githubAPIClient.repositoryFullName). None is posted yet.")
-            )
+            emptyFeedView(of: feedMode)
         }
     }
 
     @ViewBuilder
-    private func featuresFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
-        if !featuresStore.publishedIssues.isEmpty {
-            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
-        } else if let loadFailureMessage = featuresStore.loadFailureMessage {
+    private func emptyFeedView(of feedMode: FeedMode) -> some View {
+        let shownMediaDescription = showsOnlyPostsWithVideos ? "lead with a video" : "carry a video, screenshot or GIF"
+        let videosOnlyHint = showsOnlyPostsWithVideos ? " Turn off Videos only in Settings to see ones with only screenshots or GIFs." : ""
+        switch feedMode {
+        case .open:
             RevylContentUnavailableView(
-                systemImageName: "exclamationmark.triangle",
-                title: Text("Couldn't load the feature videos"),
-                message: Text(verbatim: loadFailureMessage),
-                actionTitle: Text("Try again"),
-                action: { Task { await featuresStore.refresh() } }
+                systemImageName: "film.stack",
+                title: Text(showsOnlyPostsWithVideos ? "No open PRs with videos" : "No open PRs with media"),
+                message: Text("ShipTok shows open pull requests in \(repository.fullName), drafts included, that \(shownMediaDescription). None do right now.\(videosOnlyHint)")
             )
-        } else if !featuresStore.isLoaded {
-            FeedLoadingView(message: "Finding the feature videos…")
-        } else {
+        case .merged:
+            RevylContentUnavailableView(
+                systemImageName: "film.stack",
+                title: Text(showsOnlyPostsWithVideos ? "No merged PRs with videos yet" : "No merged PRs with media yet"),
+                message: Text("ShipTok shows pull requests merged into \(repository.fullName) that \(shownMediaDescription). None do yet.\(videosOnlyHint)")
+            )
+        case .weekly:
+            RevylContentUnavailableView(
+                systemImageName: "calendar",
+                title: Text("No weekly videos yet"),
+                message: Text("Each week's video is a closed issue labeled shiptok-weekly in \(repository.fullName). None is posted yet.")
+            )
+        case .features:
             RevylContentUnavailableView(
                 systemImageName: "sparkles.rectangle.stack",
                 title: Text("No feature videos yet"),
-                message: Text("Each feature's video is a closed issue labeled \(FeatureFormat.labelName) in \(githubAPIClient.repositoryFullName). None is posted yet.")
+                message: Text("Each feature's video is a closed issue labeled shiptok-feature in \(repository.fullName). None is posted yet.")
             )
         }
     }
 
     @ViewBuilder
     private func openDeckFeedContent(pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
-        let isWeekDeck = openDeckSource?.feedMode == .weekly
-        if !feedStore.openDeckPullRequests.isEmpty {
+        let deckFeedMode = feedStore.openDeckSource?.feedMode
+        if !feedStore.visibleOpenDeckPosts.isEmpty {
             feedDeck(deckSize: pageSize, pageLayout: pageLayout)
         } else if let openDeckReadFailureMessage = feedStore.openDeckReadFailureMessage {
+            let failureTitle = switch deckFeedMode {
+            case .weekly: "Couldn't load this week's pull requests"
+            case .features: "Couldn't load this feature's pull requests"
+            case .open, .merged, nil: "Couldn't load this post"
+            }
             RevylContentUnavailableView(
                 systemImageName: "exclamationmark.triangle",
-                title: Text(isWeekDeck ? "Couldn't load this week's pull requests" : "Couldn't load this feature's pull requests"),
+                title: Text(failureTitle),
                 message: Text(verbatim: openDeckReadFailureMessage),
                 actionTitle: Text("Try again"),
-                action: { feedStore.retryOpenDeckReads() }
+                action: { feedStore.retryOpenDeckRead() }
             )
-        } else if !feedStore.openDeckPullRequestNumbersToRead.isEmpty {
-            FeedLoadingView(message: isWeekDeck ? "Loading the week's pull requests…" : "Loading the feature's pull requests…")
+        } else if !feedStore.isOpenDeckRead {
+            let loadingMessage = switch deckFeedMode {
+            case .weekly: "Loading the week's pull requests…"
+            case .features: "Loading the feature's pull requests…"
+            case .open, .merged, nil: "Loading the post…"
+            }
+            FeedLoadingView(message: loadingMessage)
         } else {
-            RevylContentUnavailableView(
-                systemImageName: "rectangle.stack",
-                title: Text(isWeekDeck ? "None of this week's pull requests could be read" : "None of this feature's pull requests could be read"),
-                message: Text("They may be private to you, or closed without being merged."),
-                actionTitle: Text(isWeekDeck ? "Back to weekly videos" : "Back to feature videos"),
-                action: closeDeck
-            )
-        }
-    }
-
-    // Until a card shows, the feed keeps reading older pages, so it's loading until GitHub has no more (AGENTS.md, "Feed Order").
-    @ViewBuilder
-    private func pullRequestsFeedContent(in feed: PullRequestFeed, pageSize: CGSize, pageLayout: FeedPageLayout) -> some View {
-        let loadedFeed = feedStore.loadedFeed(feed)
-        if !feedStore.visiblePullRequests(in: feed).isEmpty {
-            feedDeck(deckSize: pageSize, pageLayout: pageLayout)
-        } else if let loadFailureMessage = loadedFeed.loadFailureMessage {
-            RevylContentUnavailableView(
-                systemImageName: "exclamationmark.triangle",
-                title: Text(feed == .merged ? "Couldn't load merged PRs" : "Couldn't load open PRs"),
-                message: Text(verbatim: loadFailureMessage),
-                actionTitle: Text("Try again"),
-                action: { Task { await feedStore.loadOlderPullRequests(in: feed) } }
-            )
-        } else if !loadedFeed.hasLoadedEveryPullRequest {
-            FeedLoadingView(message: "Finding \(feed == .merged ? "merged" : "open") PRs with \(showsOnlyPullRequestsWithVideos ? "videos" : "videos and screenshots")…")
-        } else {
-            let shownMediaDescription = showsOnlyPullRequestsWithVideos ? "lead with a video" : "carry a video, screenshot or GIF"
-            let videosOnlyHint = showsOnlyPullRequestsWithVideos ? " Turn off Videos only in Settings to see ones with only screenshots or GIFs." : ""
-            switch feed {
-            case .open:
+            switch deckFeedMode {
+            case .weekly:
                 RevylContentUnavailableView(
-                    systemImageName: "film.stack",
-                    title: Text(showsOnlyPullRequestsWithVideos ? "No open PRs with videos" : "No open PRs with media"),
-                    message: Text("ShipTok shows open pull requests in \(githubAPIClient.repositoryFullName), drafts included, that \(shownMediaDescription). None do right now.\(videosOnlyHint)")
+                    systemImageName: "rectangle.stack",
+                    title: Text("No pull requests to show for this week"),
+                    message: Text("A week's deck leaves out pull requests closed without merging, ones with no video, screenshot or GIF, and ones by people you hid."),
+                    actionTitle: Text("Back to weekly videos"),
+                    action: closeDeck
                 )
-            case .merged:
+            case .features:
                 RevylContentUnavailableView(
-                    systemImageName: "film.stack",
-                    title: Text(showsOnlyPullRequestsWithVideos ? "No merged PRs with videos yet" : "No merged PRs with media yet"),
-                    message: Text("ShipTok shows pull requests merged into \(githubAPIClient.repositoryFullName) that \(shownMediaDescription). None do yet.\(videosOnlyHint)")
+                    systemImageName: "rectangle.stack",
+                    title: Text("No pull requests to show for this feature"),
+                    message: Text("A feature's deck leaves out pull requests closed without merging and ones by people you hid."),
+                    actionTitle: Text("Back to feature videos"),
+                    action: closeDeck
+                )
+            case .open, .merged, nil:
+                RevylContentUnavailableView(
+                    systemImageName: "eye.slash",
+                    title: Text("This post is hidden"),
+                    message: Text("It's by someone you hid. Unhide them in Settings to see it."),
+                    actionTitle: Text("Back"),
+                    action: closeDeck
                 )
             }
         }
@@ -811,88 +745,22 @@ struct FeedView: View {
     @ViewBuilder
     private func pageView(_ page: FeedPage, isCurrentPage: Bool, deckSize: CGSize, pageLayout: FeedPageLayout) -> some View {
         switch page {
-        case .pullRequest(let pullRequest):
-            feedCard(
-                .pullRequest(pullRequest),
-                heroMediaItem: feedStore.heroMediaItem(of: pullRequest),
-                unloadableMediaItemIDs: feedStore.unloadableMediaItemIDs,
-                isCurrentPage: isCurrentPage,
-                deckSize: deckSize,
-                pageLayout: pageLayout,
-                likeUnlessAlreadyLiked: { Task { await feedStore.likeUnlessAlreadyLiked(pullRequestID: pullRequest.id) } },
-                toggleReaction: { reaction in Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) } },
-                openComments: { commentsSheetPullRequest = feedStore.pullRequest(withID: pullRequest.id) ?? pullRequest },
-                openDeck: { mediaDeckPullRequestID = PresentedPullRequestID(id: pullRequest.id) },
-                tapCaption: { detailSheetPullRequest = pullRequest },
-                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
-                    feedStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, onPullRequestID: pullRequest.id, wasRefusedToViewer: wasRefusedToViewer)
-                }
-            )
-        case .weeklyEdition(let weeklyEdition):
-            feedCard(
-                .weeklyEdition(weeklyEdition),
-                heroMediaItem: weeklyEditionsStore.heroMediaItem(of: weeklyEdition),
-                unloadableMediaItemIDs: weeklyEditionsStore.unloadableMediaItemIDs,
-                isCurrentPage: isCurrentPage,
-                deckSize: deckSize,
-                pageLayout: pageLayout,
-                likeUnlessAlreadyLiked: { Task { await weeklyEditionsStore.likeUnlessAlreadyLiked(publishedIssueID: weeklyEdition.id) } },
-                toggleReaction: { reaction in Task { await weeklyEditionsStore.toggleReaction(reaction, publishedIssueID: weeklyEdition.id) } },
-                openComments: { commentsSheetWeeklyEdition = weeklyEditionsStore.publishedIssue(withID: weeklyEdition.id) ?? weeklyEdition },
-                openDeck: { openDeck(of: .weeklyEdition(weeklyEdition)) },
-                tapCaption: { openDeck(of: .weeklyEdition(weeklyEdition)) },
-                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
-                    Task { await weeklyEditionsStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, wasRefusedToViewer: wasRefusedToViewer) }
-                }
-            )
-        case .feature(let feature):
-            feedCard(
-                .feature(feature),
-                heroMediaItem: featuresStore.heroMediaItem(of: feature),
-                unloadableMediaItemIDs: featuresStore.unloadableMediaItemIDs,
-                isCurrentPage: isCurrentPage,
-                deckSize: deckSize,
-                pageLayout: pageLayout,
-                likeUnlessAlreadyLiked: { Task { await featuresStore.likeUnlessAlreadyLiked(publishedIssueID: feature.id) } },
-                toggleReaction: { reaction in Task { await featuresStore.toggleReaction(reaction, publishedIssueID: feature.id) } },
-                openComments: { commentsSheetFeature = featuresStore.publishedIssue(withID: feature.id) ?? feature },
-                openDeck: { openDeck(of: .feature(feature)) },
-                tapCaption: { openDeck(of: .feature(feature)) },
-                recoverFromHeroMediaLoadFailure: { failedHeroMediaItem, wasRefusedToViewer in
-                    Task { await featuresStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, wasRefusedToViewer: wasRefusedToViewer) }
-                }
-            )
+        case .post(let post):
+            feedCard(post, isCurrentPage: isCurrentPage, deckSize: deckSize, pageLayout: pageLayout)
         case .feedEnd:
             feedEndPage
         }
     }
 
-    private func feedCard(
-        _ post: FeedCardPost,
-        heroMediaItem: PullRequestMediaItem?,
-        unloadableMediaItemIDs: Set<String>,
-        isCurrentPage: Bool,
-        deckSize: CGSize,
-        pageLayout: FeedPageLayout,
-        likeUnlessAlreadyLiked: @escaping () -> Void,
-        toggleReaction: @escaping (GitHubReaction) -> Void,
-        openComments: @escaping () -> Void,
-        openDeck: @escaping () -> Void,
-        tapCaption: @escaping () -> Void,
-        recoverFromHeroMediaLoadFailure: @escaping (PullRequestMediaItem, _ wasRefusedToViewer: Bool) -> Void
-    ) -> FeedCardView {
-        let thread = post.thread
-        let vibeTarget = post.vibeTarget
+    private func feedCard(_ post: ShipTokPost, isCurrentPage: Bool, deckSize: CGSize, pageLayout: FeedPageLayout) -> FeedCardView {
+        let vibeTarget = VibeTarget(post: post)
         let analyticsSubject = vibeTarget.analyticsSubject
-        let deckSource: PullRequestDeckSource? = switch post {
-        case .pullRequest: nil
-        case .weeklyEdition(let weeklyEdition): .weeklyEdition(weeklyEdition)
-        case .feature(let feature): .feature(feature)
-        }
+        let heroMediaItem = feedStore.heroMediaItem(of: post)
+        let postID = post.id
         return FeedCardView(
             post: post,
             heroMediaItem: heroMediaItem,
-            isHeroMediaUnloadable: heroMediaItem.map { unloadableMediaItemIDs.contains($0.id) } ?? false,
+            isHeroMediaUnloadable: heroMediaItem.map { feedStore.unloadableMediaItemIDs.contains($0.id) } ?? false,
             analyticsSubject: analyticsSubject,
             pageLayout: pageLayout,
             videoScrubFraction: isCurrentPage ? videoScrubFraction : nil,
@@ -901,44 +769,50 @@ struct FeedView: View {
             isBehindVibeFeedbackComposer: vibeAwaitingFeedback != nil,
             isKeyboardShown: isKeyboardShown,
             vibes: feedCardVibes(
-                tally: thread.vibeTally(
-                    viewerGitHubLogin: viewer.user.githubLogin,
-                    viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: thread.id)
-                ),
+                tally: post.feedback.vibeTally(showingPendingVibe: vibeOutbox.pendingVibe(forPostID: postID)),
                 target: vibeTarget,
                 deckWidth: deckSize.width
             ),
-            moderation: feedCardModeration(reportableContents: thread.reportableContents(
-                postedOn: analyticsSubject,
-                excludingContentBy: viewer.user.githubLogin
-            )),
-            deckPullRequestCount: deckSource.flatMap { feedStore.pullRequestCountOfDeckReadInFull(listing: $0.listing) },
+            moderation: feedCardModeration(of: post),
+            deckPullRequestCount: post.kind == .pullRequest ? nil : feedStore.postCountOfDeckRead(deckPostID: postID),
             isPlaybackActive: isCurrentPage && scenePhase == .active && !isFeedCovered,
             isOccludedForAnalytics: isHeroOccludedForAnalytics,
             horizontalDragProgress: isCurrentPage ? horizontalDragOffset / max(deckSize.width, 1) : 0,
-            likeBurstTrigger: likeBurstTriggers[thread.id, default: 0],
+            likeBurstTrigger: likeBurstTriggers[postID, default: 0],
             onDoubleTap: {
                 if heroZoom.isZoomed {
                     withAnimation(MediaZoom.settleAnimation) { heroZoom = .normalFit }
                     return
                 }
-                showLikeBurst(onPostID: thread.id)
-                viewer.analytics.capture(.likeSelected(analyticsSubject, control: .doubleTap, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
-                likeUnlessAlreadyLiked()
+                showLikeBurst(onPostID: postID)
+                viewer.analytics.capture(.likeSelected(analyticsSubject, control: .doubleTap, wasLiked: post.reactions.viewerReactions.contains(.heart)))
+                Task { await feedStore.likeUnlessAlreadyLiked(postID: postID) }
             },
             onToggleLike: {
                 likeHapticTrigger += 1
-                viewer.analytics.capture(.likeSelected(analyticsSubject, control: .feedRail, wasLiked: thread.reactions.viewerReactions.contains(.heart)))
-                toggleReaction(.heart)
+                viewer.analytics.capture(.likeSelected(analyticsSubject, control: .feedRail, wasLiked: post.reactions.viewerReactions.contains(.heart)))
+                Task { await feedStore.toggleReaction(.heart, postID: postID) }
             },
-            onToggleReaction: toggleReaction,
+            onToggleReaction: { reaction in Task { await feedStore.toggleReaction(reaction, postID: postID) } },
             onOpenComments: {
-                openComments()
+                commentsSheetRequest = CommentsSheetRequest(post: feedStore.post(withID: postID) ?? post, focusedCommentID: nil)
                 viewer.analytics.capture(.commentsOpened(analyticsSubject))
             },
-            onOpenDeck: openDeck,
-            onTapCaption: tapCaption,
-            onHeroMediaLoadFailure: recoverFromHeroMediaLoadFailure,
+            onOpenDeck: {
+                switch post.kind {
+                case .pullRequest: mediaDeckPostID = PresentedPostID(id: postID)
+                case .weeklyEdition, .feature: openDeck(.pullRequestsOf(post))
+                }
+            },
+            onTapCaption: {
+                switch post.kind {
+                case .pullRequest: detailSheetPostID = PresentedPostID(id: postID)
+                case .weeklyEdition, .feature: openDeck(.pullRequestsOf(post))
+                }
+            },
+            onHeroMediaLoadFailure: { failedHeroMediaItem in
+                feedStore.recoverFromMediaLoadFailure(of: failedHeroMediaItem, onPostID: postID)
+            },
             onHeroMediaSizeRead: { heroMediaItem, heroMediaSize in
                 if heroMediaSizes[heroMediaItem.id] != heroMediaSize {
                     heroMediaSizes[heroMediaItem.id] = heroMediaSize
@@ -948,7 +822,7 @@ struct FeedView: View {
         )
     }
 
-    private func feedCardVibes(tally: PullRequestVibeTally, target: VibeTarget, deckWidth: CGFloat) -> FeedCardVibes {
+    private func feedCardVibes(tally: VibeTally, target: VibeTarget, deckWidth: CGFloat) -> FeedCardVibes {
         FeedCardVibes(
             tally: tally,
             onCast: { vibe in
@@ -959,86 +833,62 @@ struct FeedView: View {
         )
     }
 
-    private func feedCardModeration(reportableContents: [GitHubPostedContent]) -> GitHubPostedContentModeration {
-        GitHubPostedContentModeration(
-            reportableContents: reportableContents,
-            onReport: { postedContent in
-                viewer.analytics.capture(.contentReportOpened(postedContent, control: .feedRail))
-                openURL(postedContent.githubReportURL)
+    // A post is GitHub's, so its report opens GitHub's own form (AGENTS.md, "Report And Hide").
+    private func feedCardModeration(of post: ShipTokPost) -> ContentModeration {
+        ContentModeration(
+            reportableContents: ReportableContent(post: post).map { [$0] } ?? [],
+            onReport: { reportedContent in
+                guard let githubReportURL = reportedContent.githubReportURL else { return }
+                viewer.analytics.capture(.contentReportOpened(reportedContent, control: .feedRail))
+                openURL(githubReportURL)
             },
-            onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent }
+            onHide: { contentToHide in contentAwaitingHideConfirmation = contentToHide }
         )
     }
 
     @ViewBuilder
     private var feedEndPage: some View {
         switch feedContext {
-        case .pullRequests(let feed):
-            let loadedFeed = feedStore.loadedFeed(feed)
+        case .feed(let feedMode):
+            let loadedFeed = feedStore.loadedFeed(feedMode)
             FeedEndPageView(
-                feed: feed,
-                repositoryFullName: githubAPIClient.repositoryFullName,
-                showsOnlyPullRequestsWithVideos: showsOnlyPullRequestsWithVideos,
+                feedMode: feedMode,
+                repositoryFullName: repository.fullName,
+                showsOnlyPostsWithVideos: showsOnlyPostsWithVideos,
                 loadFailureMessage: loadedFeed.loadFailureMessage,
-                hasLoadedEveryPullRequest: loadedFeed.hasLoadedEveryPullRequest,
-                onRetry: { Task { await feedStore.loadOlderPullRequests(in: feed) } }
+                hasLoadedEveryPost: loadedFeed.hasLoadedEveryPost,
+                onRetry: { Task { await feedStore.loadOlderPosts(in: feedMode) } }
             )
-        case .weeklyEditions:
-            RevylContentUnavailableView(
-                systemImageName: "checkmark.seal.fill",
-                title: Text("That's every weekly video"),
-                message: Text("A new one lands after each week ends, Monday to Sunday.")
-            )
-            .background(RevylBrandColor.canvas)
-        case .features:
-            RevylContentUnavailableView(
-                systemImageName: "checkmark.seal.fill",
-                title: Text("That's every feature video"),
-                message: Text("A new one lands when its issue closes.")
-            )
-            .background(RevylBrandColor.canvas)
         case .openDeck:
-            // While a pull request the deck lists is still unread after a failed read, its end page offers to try again rather than saying the viewer saw them all (AGENTS.md, "Pull Request Decks").
-            let isWeekDeck = openDeckSource?.feedMode == .weekly
-            if let openDeckReadFailureMessage = feedStore.openDeckReadFailureMessage {
-                let unreadPullRequestCount = feedStore.openDeckPullRequestNumbersToRead.count
-                RevylContentUnavailableView(
-                    systemImageName: "exclamationmark.triangle",
-                    title: Text(isWeekDeck
-                        ? "Couldn't load \(unreadPullRequestCount) of this week's pull requests"
-                        : "Couldn't load \(unreadPullRequestCount) of this feature's pull requests"),
-                    message: Text(verbatim: openDeckReadFailureMessage),
-                    actionTitle: Text("Try again"),
-                    action: { feedStore.retryOpenDeckReads() }
-                )
-                .background(RevylBrandColor.canvas)
-            } else if !feedStore.openDeckPullRequestNumbersToRead.isEmpty {
-                FeedLoadingView(message: isWeekDeck ? "Loading the rest of the week…" : "Loading the rest of the feature…")
-                    .background(RevylBrandColor.canvas)
-            } else {
-                switch openDeckSource {
-                case .weeklyEdition(let weeklyEdition):
+            Group {
+                switch feedStore.openDeckSource {
+                case .pullRequestsOf(let deckPost) where deckPost.kind == .weeklyEdition:
                     RevylContentUnavailableView(
                         systemImageName: "checkmark.seal.fill",
-                        title: Text("That's the week of \(weeklyEdition.weekDatesText)"),
+                        title: Text("That's the week of \(deckPost.weekDatesText ?? "#\(deckPost.githubIssueNumber)")"),
                         message: Text("You've seen every pull request in this week's video."),
                         actionTitle: Text("Back to weekly videos"),
                         action: closeDeck
                     )
-                    .background(RevylBrandColor.canvas)
-                case .feature(let feature):
+                case .pullRequestsOf(let deckPost):
                     RevylContentUnavailableView(
                         systemImageName: "checkmark.seal.fill",
-                        title: Text("That's “\(feature.title)”"),
+                        title: Text("That's “\(deckPost.title)”"),
                         message: Text("You've seen every pull request behind this feature."),
                         actionTitle: Text("Back to feature videos"),
                         action: closeDeck
                     )
-                    .background(RevylBrandColor.canvas)
-                case nil:
-                    EmptyView()
+                case .post, nil:
+                    RevylContentUnavailableView(
+                        systemImageName: "checkmark.seal.fill",
+                        title: Text("That's this post"),
+                        message: Text("Go back for the rest of the feed."),
+                        actionTitle: Text("Back to the feed"),
+                        action: closeDeck
+                    )
                 }
             }
+            .background(RevylBrandColor.canvas)
         }
     }
 
@@ -1069,20 +919,6 @@ struct FeedView: View {
                     onDismiss: { feedStore.transientErrorMessage = nil }
                 )
             }
-            if let weeklyTransientErrorMessage = weeklyEditionsStore.transientErrorMessage {
-                FeedToastView(
-                    message: weeklyTransientErrorMessage,
-                    tint: RevylBrandColor.warning,
-                    onDismiss: { weeklyEditionsStore.transientErrorMessage = nil }
-                )
-            }
-            if let featuresTransientErrorMessage = featuresStore.transientErrorMessage {
-                FeedToastView(
-                    message: featuresTransientErrorMessage,
-                    tint: RevylBrandColor.warning,
-                    onDismiss: { featuresStore.transientErrorMessage = nil }
-                )
-            }
         }
         .frame(maxWidth: Self.toastMaximumWidth)
         .padding(.leading, 16)
@@ -1091,8 +927,6 @@ struct FeedView: View {
         .animation(.snappy, value: vibeOutbox.undoableVibe?.id)
         .animation(.snappy, value: vibeOutbox.failedVibe?.id)
         .animation(.snappy, value: feedStore.transientErrorMessage)
-        .animation(.snappy, value: weeklyEditionsStore.transientErrorMessage)
-        .animation(.snappy, value: featuresStore.transientErrorMessage)
     }
 
     private var vibeFeedbackComposer: some View {
@@ -1129,7 +963,6 @@ struct FeedView: View {
             }
         )
     }
-
     // A sideways drag from the strip around a video's progress line scrubs it; from anywhere else it casts a vibe (AGENTS.md, "Swipe Gestures").
     private func deckDragGesture(deckSize: CGSize, pageLayout: FeedPageLayout) -> some Gesture {
         DragGesture(minimumDistance: 14)
@@ -1238,20 +1071,18 @@ struct FeedView: View {
     }
 
     // Where the hero of the card in focus zooms its media, once it has loaded far enough to know its size; a pinch zooms only that.
-    private func heroZoomViewport(pageLayout: FeedPageLayout) -> PullRequestMediaItemView.HeroZoomViewport? {
+    private func heroZoomViewport(pageLayout: FeedPageLayout) -> PostMediaView.HeroZoomViewport? {
         guard let heroMediaItem = loadableHeroMediaItem(of: feedPages[clampedPageIndex]),
               let heroMediaSize = heroMediaSizes[heroMediaItem.id]
         else { return nil }
-        return PullRequestMediaItemView.heroZoomViewport(mediaSize: heroMediaSize, cardSize: pageLayout.card.size, wholeMediaInsets: pageLayout.wholeHeroMediaInsets)
+        return PostMediaView.heroZoomViewport(mediaSize: heroMediaSize, cardSize: pageLayout.card.size, wholeMediaInsets: pageLayout.wholeHeroMediaInsets)
     }
 
     private func captureHeroZoomIn() {
         let currentPage = feedPages[clampedPageIndex]
         guard let heroMediaItem = loadableHeroMediaItem(of: currentPage), let analyticsSubject = currentPage.vibeTarget?.analyticsSubject else { return }
-        let mediaItems: [PullRequestMediaItem] = switch currentPage {
-        case .pullRequest(let pullRequest): pullRequest.mediaItems
-        case .weeklyEdition(let weeklyEdition): weeklyEdition.mediaItems
-        case .feature(let feature): feature.mediaItems
+        let mediaItems: [ShipTokPostMedia] = switch currentPage {
+        case .post(let post): post.media
         case .feedEnd: []
         }
         viewer.analytics.capture(.mediaZoomed(ShipTokAnalyticsMedia(
@@ -1262,14 +1093,10 @@ struct FeedView: View {
         )))
     }
 
-    private func loadableHeroMediaItem(of page: FeedPage) -> PullRequestMediaItem? {
-        let (heroMediaItem, unloadableMediaItemIDs): (PullRequestMediaItem?, Set<String>) = switch page {
-        case .pullRequest(let pullRequest): (feedStore.heroMediaItem(of: pullRequest), feedStore.unloadableMediaItemIDs)
-        case .weeklyEdition(let weeklyEdition): (weeklyEditionsStore.heroMediaItem(of: weeklyEdition), weeklyEditionsStore.unloadableMediaItemIDs)
-        case .feature(let feature): (featuresStore.heroMediaItem(of: feature), featuresStore.unloadableMediaItemIDs)
-        case .feedEnd: (nil, [])
-        }
-        guard let heroMediaItem, !unloadableMediaItemIDs.contains(heroMediaItem.id) else { return nil }
+    private func loadableHeroMediaItem(of page: FeedPage) -> ShipTokPostMedia? {
+        guard case .post(let post) = page, let heroMediaItem = feedStore.heroMediaItem(of: post),
+              !feedStore.unloadableMediaItemIDs.contains(heroMediaItem.id)
+        else { return nil }
         return heroMediaItem
     }
 
@@ -1339,9 +1166,7 @@ struct FeedView: View {
 
     private func refreshFromPull() {
         switch feedContext {
-        case .pullRequests(let feed): Task { await feedStore.refreshFromPull(in: feed) }
-        case .weeklyEditions: Task { await weeklyEditionsStore.refreshFromPull() }
-        case .features: Task { await featuresStore.refreshFromPull() }
+        case .feed(let feedMode): Task { await feedStore.refreshFromPull(in: feedMode) }
         case .openDeck: Task { await feedStore.refreshOpenDeckFromPull() }
         }
     }
@@ -1350,38 +1175,20 @@ struct FeedView: View {
         switch onScreenFeedContext {
         case nil:
             break
-        case .pullRequests(let feed):
-            focusPullRequestsPage(in: feed, at: pageIndex)
-        case .weeklyEditions:
-            Task { await weeklyEditionsStore.refreshIfMediaURLsAreStale() }
-        case .features:
-            Task { await featuresStore.refreshIfMediaURLsAreStale() }
+        case .feed(let feedMode):
+            focusFeedPage(in: feedMode, at: pageIndex)
         case .openDeck:
-            let visibleOpenDeckPullRequests = feedStore.visibleOpenDeckPullRequests
-            feedStore.focusOpenDeckPage(showingPullRequestID: visibleOpenDeckPullRequests.indices.contains(pageIndex) ? visibleOpenDeckPullRequests[pageIndex].id : nil)
+            let visibleOpenDeckPosts = feedStore.visibleOpenDeckPosts
+            feedStore.focusOpenDeckPage(showingPostID: visibleOpenDeckPosts.indices.contains(pageIndex) ? visibleOpenDeckPosts[pageIndex].id : nil)
         }
     }
 
-    private func focusPullRequestsPage(in feed: PullRequestFeed, at pageIndex: Int) {
-        let visiblePullRequests = feedStore.visiblePullRequests(in: feed)
-        feedStore.focusFeedPage(in: feed, showingPullRequestID: visiblePullRequests.indices.contains(pageIndex) ? visiblePullRequests[pageIndex].id : nil)
+    private func focusFeedPage(in feedMode: FeedMode, at pageIndex: Int) {
+        let visiblePosts = feedStore.visiblePosts(in: feedMode)
+        feedStore.focusFeedPage(in: feedMode, showingPostID: visiblePosts.indices.contains(pageIndex) ? visiblePosts[pageIndex].id : nil)
     }
 
-    private func pageIndex(in feed: PullRequestFeed) -> Int {
-        switch feed {
-        case .open: openPullRequestsPageIndex
-        case .merged: mergedPullRequestsPageIndex
-        }
-    }
-
-    private func setPageIndex(_ pageIndex: Int, in feed: PullRequestFeed) {
-        switch feed {
-        case .open: openPullRequestsPageIndex = pageIndex
-        case .merged: mergedPullRequestsPageIndex = pageIndex
-        }
-    }
-
-    // An iOS app shows the newest data it has, so the shown mode reads GitHub again as soon as it shows and every few seconds while it stays (AGENTS.md, "Feed Order").
+    // An iOS app shows the newest data it has, so the shown mode reads Revyl again as soon as it shows and every few seconds while it stays (AGENTS.md, "Feed Order").
     private func refreshShownFeedContextWhileShown() async {
         while !Task.isCancelled {
             await refreshShownFeedContext()
@@ -1395,27 +1202,24 @@ struct FeedView: View {
 
     private func refreshShownFeedContext() async {
         switch feedContext {
-        case .pullRequests(let feed): await feedStore.refreshNewestData(in: feed)
-        case .weeklyEditions: await weeklyEditionsStore.refresh()
-        case .features: await featuresStore.refresh()
+        case .feed(let feedMode): await feedStore.refreshNewestData(in: feedMode)
         case .openDeck: await feedStore.refreshOpenDeck()
         }
     }
 
     // The store holds one deck, so opening a feature's deck closes an open week's and the other way round, and the mode behind the closed one shows its list (AGENTS.md, "Feed Modes").
-    private func openDeck(of deckSource: PullRequestDeckSource) {
+    private func openDeck(_ deckSource: PostDeckSource) {
         openDeckPageIndex = 0
-        openDeckSource = deckSource
-        feedStore.openDeck(listing: deckSource.listing)
+        feedStore.openDeck(deckSource)
     }
 
     private func closeDeck() {
-        withAnimation(.spring(duration: 0.3)) { openDeckSource = nil }
-        feedStore.closeDeck()
+        pendingCommentsOpening = nil
+        withAnimation(.spring(duration: 0.3)) { feedStore.closeDeck() }
     }
 
     // A vibe from VoiceOver's actions leaves the same way as a swipe, toward that vibe's swipe direction, so both ways read as one gesture.
-    private func flingCard(of vibeTarget: VibeTarget, castingVibe vibe: PullRequestVibe, deckWidth: CGFloat) {
+    private func flingCard(of vibeTarget: VibeTarget, castingVibe vibe: ShipTokVibe, deckWidth: CGFloat) {
         isPageTransitionRunning = true
         let selectionID = UUID()
         viewer.analytics.capture(.vibeSelected(vibeTarget.analyticsSubject,
@@ -1438,7 +1242,7 @@ struct FeedView: View {
     }
 
     // The feedback box never blocks the swipe (AGENTS.md, "Vibes").
-    private func castVibe(_ vibe: PullRequestVibe, on vibeTarget: VibeTarget, selectionID: UUID) {
+    private func castVibe(_ vibe: ShipTokVibe, on vibeTarget: VibeTarget, selectionID: UUID) {
         postVibeAwaitingFeedback()
         if userSettingsStore.showsFeedbackBox(for: vibe) {
             vibeAwaitingFeedback = VibeAwaitingFeedback(id: selectionID, target: vibeTarget, vibe: vibe)
@@ -1463,11 +1267,11 @@ struct FeedView: View {
         vibeAwaitingFeedback = nil
         viewer.analytics.capture(.vibeCancelled(cancelledVibe.target.analyticsSubject,
                                                   selectionID: cancelledVibe.id, vibe: cancelledVibe.vibe))
-        showPage(withID: cancelledVibe.target.threadID)
+        showPage(withID: cancelledVibe.target.postID)
     }
 
     private func removeViewerVibe(on vibeTarget: VibeTarget) {
-        if vibeAwaitingFeedback?.target.threadID == vibeTarget.threadID {
+        if vibeAwaitingFeedback?.target.postID == vibeTarget.postID {
             if let pendingVibe = vibeAwaitingFeedback {
                 viewer.analytics.capture(.vibeCancelled(vibeTarget.analyticsSubject,
                                                           selectionID: pendingVibe.id, vibe: pendingVibe.vibe))
@@ -1496,7 +1300,7 @@ struct FeedView: View {
 
     private func undoVibe(_ queuedVibeID: UUID) {
         guard let undoneVibe = vibeOutbox.undo(queuedVibeID) else { return }
-        showPage(withID: undoneVibe.target.threadID)
+        showPage(withID: undoneVibe.target.postID)
     }
 
     // Only a page of the context on screen comes back; a vibe from another mode or deck stays where it was cast.
@@ -1506,119 +1310,127 @@ struct FeedView: View {
     }
 
     // The viewer's card keeps its place as cards arrive or leave around it. At the feed's end the viewer stays just past every card they had, so the first older card that loads is the one they see next (AGENTS.md, "Feed Order").
-    private func keepPullRequestsPageInPlace(in feed: PullRequestFeed, previousPullRequestIDs: [String], currentPullRequestIDs: [String]) {
-        let isShowingFeed = onScreenFeedContext == .pullRequests(feed)
-        let previousPageIndex = pageIndex(in: feed)
+    private func keepPostsPageInPlace(in feedMode: FeedMode, previousPostIDs: [String], currentPostIDs: [String]) {
+        let isShowingFeed = onScreenFeedContext == .feed(feedMode)
+        let previousPageIndex = pageIndexByFeedMode[feedMode, default: 0]
         defer {
-            if isShowingFeed { feedStore.loadOlderPullRequestsIfViewerNearsEnd(in: feed) }
+            if isShowingFeed { feedStore.loadOlderPostsIfViewerNearsEnd(in: feedMode) }
         }
-        guard previousPullRequestIDs.indices.contains(previousPageIndex) else {
-            let previousPullRequestIDSet = Set(previousPullRequestIDs)
-            setPageIndex((currentPullRequestIDs.lastIndex { previousPullRequestIDSet.contains($0) } ?? -1) + 1, in: feed)
-            if isShowingFeed { focusPullRequestsPage(in: feed, at: pageIndex(in: feed)) }
+        guard previousPostIDs.indices.contains(previousPageIndex) else {
+            let previousPostIDSet = Set(previousPostIDs)
+            pageIndexByFeedMode[feedMode] = (currentPostIDs.lastIndex { previousPostIDSet.contains($0) } ?? -1) + 1
+            if isShowingFeed { focusFeedPage(in: feedMode, at: pageIndexByFeedMode[feedMode, default: 0]) }
             return
         }
-        if let movedPageIndex = currentPullRequestIDs.firstIndex(of: previousPullRequestIDs[previousPageIndex]) {
+        if let movedPageIndex = currentPostIDs.firstIndex(of: previousPostIDs[previousPageIndex]) {
             if movedPageIndex != previousPageIndex {
-                setPageIndex(movedPageIndex, in: feed)
+                pageIndexByFeedMode[feedMode] = movedPageIndex
             }
         } else {
-            setPageIndex(min(previousPageIndex, currentPullRequestIDs.count), in: feed)
-            if isShowingFeed { focusPullRequestsPage(in: feed, at: pageIndex(in: feed)) }
+            pageIndexByFeedMode[feedMode] = min(previousPageIndex, currentPostIDs.count)
+            if isShowingFeed { focusFeedPage(in: feedMode, at: pageIndexByFeedMode[feedMode, default: 0]) }
         }
     }
 
-    private func openPullRequest(number: Int) {
-        for feed in [PullRequestFeed.merged, .open] {
-            guard let pageIndex = feedStore.visiblePullRequests(in: feed).firstIndex(where: { $0.number == number }) else { continue }
-            feedMode = FeedMode(feed)
-            selectedTab = .feed
-            setPageIndex(pageIndex, in: feed)
+    // A post in a feed of a mode whose tab shows opens there; any other, from this repository or another, opens on its own (AGENTS.md, "Inbox").
+    private func openPost(postID: String, opensComments: Bool, focusedCommentID: String?) {
+        selectedTab = .feed
+        if let shownFeedMode = userSettingsStore.feedModesWithShownTabs.first(where: { feedStore.visiblePosts(in: $0).contains { $0.id == postID } }),
+           let pageIndex = feedStore.visiblePosts(in: shownFeedMode).firstIndex(where: { $0.id == postID }) {
+            if feedStore.openDeckSource?.feedMode == nil || feedStore.openDeckSource?.feedMode == shownFeedMode {
+                closeDeck()
+            }
+            feedMode = shownFeedMode
+            pageIndexByFeedMode[shownFeedMode] = pageIndex
+        } else {
+            openDeck(.post(postID: postID))
+        }
+        guard opensComments else {
+            pendingCommentsOpening = nil
             return
         }
-        openURL(githubAPIClient.pullRequestURL(number: number))
+        if let post = feedStore.post(withID: postID) {
+            pendingCommentsOpening = nil
+            commentsSheetRequest = CommentsSheetRequest(post: post, focusedCommentID: focusedCommentID)
+        } else {
+            pendingCommentsOpening = PendingCommentsOpening(postID: postID, focusedCommentID: focusedCommentID)
+        }
     }
 }
 
 private struct MediaDeckCoverContent: View {
-    let feedStore: PullRequestFeedStore
+    let feedStore: PostFeedStore
     let viewer: SignedInTeammate
-    let pullRequestID: String
-    @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
+    let postID: String
+    @State private var contentAwaitingHideConfirmation: ReportableContent?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
-    private var visiblePullRequest: PullRequest? {
-        feedStore.pullRequest(withID: pullRequestID)?.withoutHiddenPeople(viewer.hiddenPeopleStore)
+    private var visiblePost: ShipTokPost? {
+        feedStore.post(withID: postID).flatMap { viewer.hiddenPeopleStore.isHidden($0.githubAuthor) ? nil : $0 }
     }
 
     var body: some View {
-        let pullRequest = visiblePullRequest
-        let analyticsSubject = pullRequest.map { VibeTarget(pullRequest: $0).analyticsSubject }
-        PullRequestMediaDeckView(
-            mediaItems: pullRequest?.mediaItems ?? [],
+        let post = visiblePost
+        PostMediaDeckView(
+            mediaItems: post?.media ?? [],
             unloadableMediaItemIDs: feedStore.unloadableMediaItemIDs,
-            analyticsSubject: analyticsSubject,
-            reportableContent: { mediaItem in
-                guard let pullRequest, let analyticsSubject else { return nil }
-                return pullRequest.reportableContent(of: mediaItem, postedOn: analyticsSubject, excludingContentBy: viewer.user.githubLogin)
+            analyticsSubject: post.map(ShipTokAnalyticsSubject.init(post:)),
+            moderation: post.flatMap(ReportableContent.init(post:)).map { reportableContent in
+                ContentModeration(
+                    reportableContents: [reportableContent],
+                    onReport: { reportedContent in
+                        guard let githubReportURL = reportedContent.githubReportURL else { return }
+                        viewer.analytics.capture(.contentReportOpened(reportedContent, control: .mediaDeck))
+                        openURL(githubReportURL)
+                    },
+                    onHide: { contentToHide in contentAwaitingHideConfirmation = contentToHide }
+                )
             },
-            onReport: { postedContent in
-                viewer.analytics.capture(.contentReportOpened(postedContent, control: .mediaDeck))
-                openURL(postedContent.githubReportURL)
-            },
-            onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent },
-            onLoadFailure: { failedMediaItem, wasRefusedToViewer in
-                feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPullRequestID: pullRequestID, wasRefusedToViewer: wasRefusedToViewer)
+            onLoadFailure: { failedMediaItem in
+                feedStore.recoverFromMediaLoadFailure(of: failedMediaItem, onPostID: postID)
             }
         )
-        .confirmingHide(of: $postedContentAwaitingHideConfirmation) { postedContent in
-            viewer.hiddenPeopleStore.hide(postedContent.postedBy)
-            viewer.analytics.capture(.personHidden(postedContent, control: .mediaDeck))
-            if visiblePullRequest == nil { dismiss() }
+        .confirmingHide(of: $contentAwaitingHideConfirmation) { hiddenContent in
+            viewer.hiddenPeopleStore.hide(hiddenContent.poster)
+            viewer.analytics.capture(.personHidden(hiddenContent, control: .mediaDeck))
+            dismiss()
         }
     }
 }
 
 private struct DetailSheetContent: View {
-    let feedStore: PullRequestFeedStore
+    let feedStore: PostFeedStore
     let vibeOutbox: VibeOutbox
     let viewer: SignedInTeammate
-    let repositoryFullName: String
-    let presentedPullRequest: PullRequest
-    @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
+    let postID: String
+    @State private var contentAwaitingHideConfirmation: ReportableContent?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let storedPullRequest = feedStore.pullRequest(withID: presentedPullRequest.id) ?? presentedPullRequest
-        let pullRequest = storedPullRequest.withoutHiddenPeople(viewer.hiddenPeopleStore) ?? storedPullRequest
-        PullRequestDetailSheet(
-            pullRequest: pullRequest,
-            repositoryFullName: repositoryFullName,
-            vibeTally: pullRequest.vibeTally(
-                viewerGitHubLogin: viewer.user.githubLogin,
-                viewerPendingVibe: vibeOutbox.pendingVibe(forThreadID: pullRequest.id)
-            ),
-            moderation: GitHubPostedContentModeration(
-                reportableContents: pullRequest.reportableContents(
-                    postedOn: VibeTarget(pullRequest: pullRequest).analyticsSubject,
-                    excludingContentBy: viewer.user.githubLogin
-                ).filter { $0.kind == .description },
-                onReport: { postedContent in
-                    viewer.analytics.capture(.contentReportOpened(postedContent, control: .detailSheet))
-                    openURL(postedContent.githubReportURL)
-                },
-                onHide: { postedContent in postedContentAwaitingHideConfirmation = postedContent }
-            ),
-            onToggleReaction: { reaction in
-                Task { await feedStore.toggleReaction(reaction, pullRequestID: pullRequest.id) }
+        if let post = feedStore.post(withID: postID) {
+            PullRequestDetailSheet(
+                post: post,
+                vibeTally: post.feedback.vibeTally(showingPendingVibe: vibeOutbox.pendingVibe(forPostID: post.id)),
+                moderation: ContentModeration(
+                    reportableContents: ReportableContent(post: post).map { [$0] } ?? [],
+                    onReport: { reportedContent in
+                        guard let githubReportURL = reportedContent.githubReportURL else { return }
+                        viewer.analytics.capture(.contentReportOpened(reportedContent, control: .detailSheet))
+                        openURL(githubReportURL)
+                    },
+                    onHide: { contentToHide in contentAwaitingHideConfirmation = contentToHide }
+                ),
+                onToggleReaction: { reaction in
+                    Task { await feedStore.toggleReaction(reaction, postID: post.id) }
+                }
+            )
+            .confirmingHide(of: $contentAwaitingHideConfirmation) { hiddenContent in
+                viewer.hiddenPeopleStore.hide(hiddenContent.poster)
+                viewer.analytics.capture(.personHidden(hiddenContent, control: .detailSheet))
+                dismiss()
             }
-        )
-        .confirmingHide(of: $postedContentAwaitingHideConfirmation) { postedContent in
-            viewer.hiddenPeopleStore.hide(postedContent.postedBy)
-            viewer.analytics.capture(.personHidden(postedContent, control: .detailSheet))
-            dismiss()
         }
     }
 }

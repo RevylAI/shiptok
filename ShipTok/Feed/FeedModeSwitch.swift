@@ -1,24 +1,27 @@
 import SwiftUI
 
-enum FeedMode: String, Sendable {
+enum FeedMode: String, CaseIterable, Sendable, Codable {
     case open
     case merged
     case weekly
     case features
 
-    init(_ feed: PullRequestFeed) {
-        switch feed {
-        case .open: self = .open
-        case .merged: self = .merged
+    var tabTitle: String {
+        switch self {
+        case .open: "Open"
+        case .merged: "Merged"
+        case .weekly: "Weekly"
+        case .features: "Features"
         }
     }
 }
 
-// The Open / Merged / Weekly / Features tabs at the top of the feed, plain text like Reels' own; while a week's or a feature's pull requests are open they
-// become the way back to the weeks or features (AGENTS.md, "Card Layout" and "Feed Modes").
+// The tabs at the top of the feed for the modes the person keeps on, in Open / Merged / Weekly / Features order, plain text like Reels' own; while a week's or a
+// feature's pull requests are open they become the way back to the weeks or features (AGENTS.md, "Card Layout" and "Feed Modes").
 struct FeedModeSwitch: View {
     @Binding var feedMode: FeedMode
-    let shownDeckSource: PullRequestDeckSource?
+    let feedModesWithShownTabs: [FeedMode]
+    let shownDeckSource: PostDeckSource?
     let onCloseDeck: () -> Void
     // Where the card's middle falls in the switch's own frame, which the tabs center on whenever they fit there.
     let preferredTabsCenterX: CGFloat
@@ -43,14 +46,13 @@ struct FeedModeSwitch: View {
                     .expandingTapTargetVertically()
                 }
                 .buttonStyle(.swipeYielding)
-                .accessibilityHint(shownDeckSource.feedMode == .weekly ? "Goes back to the weekly videos" : "Goes back to the feature videos")
+                .accessibilityHint(backButtonHint(closing: shownDeckSource))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 FeedModeTabsLayout(spacing: Self.tabSpacing, preferredCenterX: preferredTabsCenterX) {
-                    tab("Open", mode: .open)
-                    tab("Merged", mode: .merged)
-                    tab("Weekly", mode: .weekly)
-                    tab("Features", mode: .features)
+                    ForEach(feedModesWithShownTabs, id: \.self) { mode in
+                        tab(for: mode)
+                    }
                 }
             }
         }
@@ -58,14 +60,23 @@ struct FeedModeSwitch: View {
     }
 
     // A week's dates are short enough to name it; a feature's title can run to 70 characters, so its back button names where it goes back to.
-    private func backButtonTitle(closing deckSource: PullRequestDeckSource) -> String {
+    private func backButtonTitle(closing deckSource: PostDeckSource) -> String {
         switch deckSource {
-        case .weeklyEdition(let weeklyEdition): "Week of \(weeklyEdition.weekDatesText)"
-        case .feature: "Features"
+        case .pullRequestsOf(let deckPost) where deckPost.kind == .weeklyEdition: deckPost.weekDatesText.map { "Week of \($0)" } ?? "Weekly"
+        case .pullRequestsOf: "Features"
+        case .post: "Back"
         }
     }
 
-    private func tab(_ title: String, mode: FeedMode) -> some View {
+    private func backButtonHint(closing deckSource: PostDeckSource) -> String {
+        switch deckSource.feedMode {
+        case .weekly: "Goes back to the weekly videos"
+        case .features: "Goes back to the feature videos"
+        case .open, .merged, nil: "Goes back to the feed"
+        }
+    }
+
+    private func tab(for mode: FeedMode) -> some View {
         let isSelected = feedMode == mode
         return Button {
             let previousMode = feedMode
@@ -74,7 +85,7 @@ struct FeedModeSwitch: View {
                 analytics?.capture(.feedModeChanged(previousMode: previousMode, mode: mode))
             }
         } label: {
-            Text(verbatim: title)
+            Text(verbatim: mode.tabTitle)
                 .font(.title2.weight(.bold))
                 .lineLimit(1)
                 .minimumScaleFactor(Self.tabMinimumScaleFactor)

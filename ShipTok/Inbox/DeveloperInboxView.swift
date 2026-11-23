@@ -2,25 +2,13 @@ import SwiftUI
 
 struct DeveloperInboxView: View {
     let store: DeveloperInboxStore
-    let onOpenPullRequest: (Int) -> Void
-    let onReport: (GitHubPostedContent) -> Void
-    let onHide: (GitHubPostedContent) -> Void
+    let onOpenItem: (ShipTokInboxItem) -> Void
+    let onHide: (ReportableContent) -> Void
     let onShowFeed: (() -> Void)?
-    @State private var postedContentAwaitingHideConfirmation: GitHubPostedContent?
-
-    init(
-        store: DeveloperInboxStore,
-        onOpenPullRequest: @escaping (Int) -> Void,
-        onReport: @escaping (GitHubPostedContent) -> Void,
-        onHide: @escaping (GitHubPostedContent) -> Void,
-        onShowFeed: (() -> Void)?
-    ) {
-        self.store = store
-        self.onOpenPullRequest = onOpenPullRequest
-        self.onReport = onReport
-        self.onHide = onHide
-        self.onShowFeed = onShowFeed
-    }
+    @State private var contentAwaitingHideConfirmation: ReportableContent?
+    @State private var reportConfirmationMessage: String?
+    @State private var reportFailureMessage: String?
+    @Environment(\.shipTokAnalytics) private var analytics
 
     var body: some View {
         NavigationStack {
@@ -35,37 +23,41 @@ struct DeveloperInboxView: View {
                     )
                 } else if !store.hasLoaded {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if store.inboxItems.isEmpty {
+                } else if store.items.isEmpty {
                     RevylContentUnavailableView(
                         systemImageName: "tray",
                         title: Text("Nothing yet"),
-                        message: Text("When teammates vibe, react to or comment on your open or merged pull requests, it lands here.")
+                        message: Text("When teammates like, react to, vibe or comment on your pull requests and videos, or reply to your comments, it lands here.")
                     )
                 } else {
                     List {
                         Section {
                             if let errorMessage = store.errorMessage {
-                                Label("Couldn't refresh from GitHub: \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
+                                Label("Couldn't refresh your inbox: \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
                                     .font(.caption)
                                     .foregroundStyle(RevylBrandColor.warning)
                                     .listRowBackground(RevylBrandColor.surface)
                             }
-                            ForEach(store.inboxItems) { inboxItem in
-                                Button { onOpenPullRequest(inboxItem.pullRequestNumber) } label: {
-                                    DeveloperInboxRow(inboxItem: inboxItem, isUnseen: inboxItem.occurredAt > store.lastSeenOccurredAt)
+                            ForEach(store.items) { inboxItem in
+                                Button { onOpenItem(inboxItem) } label: {
+                                    DeveloperInboxRow(inboxItem: inboxItem, isUnread: store.isUnread(inboxItem))
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
-                                    if let postedContent = inboxItem.postedContent {
-                                        GitHubPostedContentModerationButtons(
-                                            postedContent: postedContent,
-                                            onReport: onReport,
-                                            onHide: { postedContentAwaitingHideConfirmation = $0 }
-                                        )
-                                    }
+                                    ContentModerationButtons(
+                                        reportableContent: ReportableContent(inboxItem: inboxItem),
+                                        onReport: report,
+                                        onHide: { contentAwaitingHideConfirmation = $0 }
+                                    )
                                 }
                                 .listRowBackground(RevylBrandColor.surface)
                                 .listRowSeparatorTint(RevylBrandColor.border)
+                            }
+                            if store.hasMorePages {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                                    .listRowBackground(RevylBrandColor.surface)
+                                    .onAppear { Task { await store.loadMore() } }
                             }
                         }
                         .listSectionSeparator(.hidden)
@@ -81,39 +73,62 @@ struct DeveloperInboxView: View {
             .navigationBarTitleDisplayMode(.inline)
             .backToFeedToolbarItem(onShowFeed)
         }
-        .confirmingHide(of: $postedContentAwaitingHideConfirmation, onHide: onHide)
+        .confirmingHide(of: $contentAwaitingHideConfirmation, onHide: onHide)
+        .alert("Reported", isPresented: Binding(get: { reportConfirmationMessage != nil }, set: { if !$0 { reportConfirmationMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(reportConfirmationMessage ?? "")
+        }
+        .alert("Couldn't report it", isPresented: Binding(get: { reportFailureMessage != nil }, set: { if !$0 { reportFailureMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(reportFailureMessage ?? "")
+        }
+        .onAppear { analytics?.capture(.inboxOpened(unreadCount: store.unreadCount)) }
         .task { await store.refresh() }
-        .onDisappear { store.markAllItemsSeen() }
+        .onDisappear { Task { await store.markAllItemsRead() } }
+    }
+
+    private func report(_ reportableContent: ReportableContent) {
+        Task {
+            do {
+                try await store.report(reportableContent)
+                analytics?.capture(.contentReported(reportableContent, control: .inboxRow))
+                reportConfirmationMessage = "Thanks. Your organization's owners and admins will look at it."
+            } catch {
+                reportFailureMessage = error.localizedDescription
+            }
+        }
     }
 }
 
 private struct DeveloperInboxRow: View {
-    let inboxItem: DeveloperInboxItem
-    let isUnseen: Bool
+    let inboxItem: ShipTokInboxItem
+    let isUnread: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            GitHubAvatarView(avatarURL: inboxItem.actor?.avatarURL, diameter: 36)
+            AvatarView(avatarURL: inboxItem.actor.avatarURL, diameter: 36)
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(Text("@\(inboxItem.actor?.login ?? "ghost")").bold()) \(actionDescription)")
+                Text("\(Text(verbatim: inboxItem.actor.displayName).bold()) \(actionDescription)")
                     .font(.subheadline)
                     .foregroundStyle(RevylBrandColor.textPrimary)
-                if !quotedVisibleMarkdown.isEmpty {
-                    Text(AttributedString("“") + GitHubCommentBodyText.attributedText(fromVisibleMarkdown: quotedVisibleMarkdown) + AttributedString("”"))
+                if let quotedText = inboxItem.text?.trimmingCharacters(in: .whitespacesAndNewlines), !quotedText.isEmpty {
+                    Text(verbatim: "“\(quotedText)”")
                         .font(.subheadline)
                         .foregroundStyle(RevylBrandColor.textBody)
                         .lineLimit(3)
                 }
-                Text(verbatim: "on #\(inboxItem.pullRequestNumber) \(inboxItem.pullRequestTitle)")
+                Text(verbatim: postDescription)
                     .font(.caption)
                     .foregroundStyle(RevylBrandColor.textMuted)
                     .lineLimit(1)
-                LiveRelativeTimeText(date: inboxItem.occurredAt)
+                LiveRelativeTimeText(date: inboxItem.createdAt)
                     .font(.caption2)
                     .foregroundStyle(RevylBrandColor.textSubtle)
             }
             Spacer(minLength: 0)
-            if isUnseen {
+            if isUnread {
                 Circle().fill(RevylBrandColor.brand).frame(width: 8, height: 8).padding(.top, 6)
             }
         }
@@ -122,20 +137,18 @@ private struct DeveloperInboxRow: View {
     }
 
     private var actionDescription: String {
-        switch inboxItem.action {
-        case .vibe(.good, _): "gave it good vibes"
-        case .vibe(.bad, _): "gave it bad vibes"
+        switch inboxItem.kind {
+        case .vibe: inboxItem.vibe == .bad ? "gave it bad vibes" : "gave it good vibes"
         case .comment: "commented"
-        case .reaction(.heart): "liked it"
-        case .reaction(let reaction): "reacted \(reaction.emoji)"
+        case .reply: "replied to your comment"
+        case .reaction: inboxItem.reaction.map { $0 == .heart ? "liked it" : "reacted \($0.emoji)" } ?? "reacted"
         }
     }
 
-    private var quotedVisibleMarkdown: String {
-        switch inboxItem.action {
-        case .vibe(_, let feedbackText): GitHubCommentBodyText.visibleMarkdown(fromBodyMarkdown: feedbackText)
-        case .comment(let bodyMarkdown): GitHubCommentBodyText.visibleMarkdown(fromBodyMarkdown: bodyMarkdown)
-        case .reaction: ""
+    private var postDescription: String {
+        switch inboxItem.post.kind {
+        case .pullRequest: "on #\(inboxItem.post.githubIssueNumber) \(inboxItem.post.title)"
+        case .weeklyEdition, .feature: "on “\(inboxItem.post.title)”"
         }
     }
 }

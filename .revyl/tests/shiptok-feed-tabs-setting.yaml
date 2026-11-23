@@ -1,0 +1,46 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: ae9a7508-a9c6-48bf-ba28-349b6e08c891
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-23T20:48:27Z"
+    checksum: a679c6e2430650820e2be17bf865740a796275e1393fd81272ac236116981efd
+test:
+    metadata:
+        name: shiptok-feed-tabs-setting
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
+    blocks:
+        - type: validation
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: validation
+          step_description: Settings shows a 'Feed tabs' section with Open, Merged, Weekly and Features toggles, all on, and a note that at least one stays on
+        - type: instructions
+          step_description: In the 'Feed tabs' section, tap the Open toggle, then the Merged toggle, then the Weekly toggle
+        - type: validation
+          step_description: In the 'Feed tabs' section, Open, Merged and Weekly are off, and Features is on and dimmed, so it can't be turned off
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
+        - type: validation
+          step_description: The top of the feed shows only the title 'Features', with no Open, Merged or Weekly tabs, and the card shows a feature with a 'ShipTok feature' chip
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: instructions
+          step_description: In the 'Feed tabs' section, tap the Open toggle, then the Merged toggle, then the Weekly toggle
+        - type: validation
+          step_description: In the 'Feed tabs' section, Open, Merged, Weekly and Features are all on
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
+        - type: validation
+          step_description: The top of the feed shows the Open / Merged / Weekly / Features tabs again

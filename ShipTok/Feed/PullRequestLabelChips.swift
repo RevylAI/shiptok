@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PullRequestLabelChips: View {
-    let labels: [GitHubLabel]
+    let labels: [ShipTokLabel]
 
     var body: some View {
         WrappingHorizontalLayout(horizontalSpacing: 6, verticalSpacing: 6) {

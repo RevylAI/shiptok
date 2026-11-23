@@ -4,80 +4,95 @@ import Observation
 struct UserSettings: Codable, Equatable, Sendable {
     var showsGoodVibesFeedbackBox: Bool
     var showsBadVibesFeedbackBox: Bool
-    var showsOnlyPullRequestsWithVideos: Bool
+    var showsOnlyPostsWithVideos: Bool
+    var showsOpenFeedModeTab: Bool
+    var showsMergedFeedModeTab: Bool
+    var showsWeeklyFeedModeTab: Bool
+    var showsFeaturesFeedModeTab: Bool
 
-    static let defaults = UserSettings(showsGoodVibesFeedbackBox: false, showsBadVibesFeedbackBox: true, showsOnlyPullRequestsWithVideos: true)
+    // What Revyl answers for a person who never changed a setting, shown until its first answer arrives.
+    static let defaults = UserSettings(
+        showsGoodVibesFeedbackBox: false,
+        showsBadVibesFeedbackBox: true,
+        showsOnlyPostsWithVideos: true,
+        showsOpenFeedModeTab: true,
+        showsMergedFeedModeTab: true,
+        showsWeeklyFeedModeTab: true,
+        showsFeaturesFeedModeTab: true
+    )
 
-    enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey {
         case showsGoodVibesFeedbackBox = "shows_good_vibes_feedback_box"
         case showsBadVibesFeedbackBox = "shows_bad_vibes_feedback_box"
-        case showsOnlyPullRequestsWithVideos = "shows_only_pull_requests_with_videos"
+        case showsOnlyPostsWithVideos = "shows_only_posts_with_videos"
+        case showsOpenFeedModeTab = "shows_open_feed_mode_tab"
+        case showsMergedFeedModeTab = "shows_merged_feed_mode_tab"
+        case showsWeeklyFeedModeTab = "shows_weekly_feed_mode_tab"
+        case showsFeaturesFeedModeTab = "shows_features_feed_mode_tab"
     }
 }
 
-extension UserSettings {
-    // Revyl's backend may not return Videos only yet, and it's on until the person turns it off (AGENTS.md, "Feed Order").
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        showsGoodVibesFeedbackBox = try container.decode(Bool.self, forKey: .showsGoodVibesFeedbackBox)
-        showsBadVibesFeedbackBox = try container.decode(Bool.self, forKey: .showsBadVibesFeedbackBox)
-        showsOnlyPullRequestsWithVideos = try container.decodeIfPresent(Bool.self, forKey: .showsOnlyPullRequestsWithVideos)
-            ?? Self.defaults.showsOnlyPullRequestsWithVideos
-    }
-}
-
+// A person's settings live in their Revyl account, so every device and the web share them (AGENTS.md, "Settings").
 @Observable
 @MainActor
 final class UserSettingsStore {
     private(set) var refreshFailureMessage: String?
     var saveFailureMessage: String?
-    // What Revyl's backend last confirmed, by a read or a save. The settings shown are these with each setting's newest change still saving on top, so a read never shows an old value over a toggle, and a failed save puts the setting back to what's saved (AGENTS.md, "Feed Order").
-    private var confirmedUserSettings = UserSettings.defaults
+    // What Revyl's backend last confirmed, by a read or a save; nil until the first one. The settings shown are these with each setting's newest change still saving on top, so a read never shows an old value over a toggle, and a failed save puts the setting back to what's saved (AGENTS.md, "Settings").
+    private(set) var savedUserSettings: UserSettings?
     private var pendingChangeBySetting: [WritableKeyPath<UserSettings, Bool>: PendingSettingChange] = [:]
     private var latestChangeRevision = 0
     private var confirmedSaveCount = 0
     private var latestSave: Task<Void, Error>?
-    private let accessTokenVault: GitHubAccessTokenVault
-    private let shipTokAPI = RevylShipTokAPI()
+    private let api: RevylShipTokAPI
 
-    init(accessTokenVault: GitHubAccessTokenVault) {
-        self.accessTokenVault = accessTokenVault
+    init(api: RevylShipTokAPI) {
+        self.api = api
     }
 
     var userSettings: UserSettings {
-        var shownUserSettings = confirmedUserSettings
+        var shownUserSettings = savedUserSettings ?? .defaults
         for (setting, pendingChange) in pendingChangeBySetting {
             shownUserSettings[keyPath: setting] = pendingChange.value
         }
         return shownUserSettings
     }
 
-    func showsFeedbackBox(for vibe: PullRequestVibe) -> Bool {
+    func showsFeedbackBox(for vibe: ShipTokVibe) -> Bool {
         userSettings[keyPath: Self.feedbackBoxSetting(for: vibe)]
+    }
+
+    var feedModesWithShownTabs: [FeedMode] {
+        let shownUserSettings = userSettings
+        return FeedMode.allCases.filter { shownUserSettings[keyPath: Self.feedModeTabSetting(for: $0)] }
     }
 
     // A read that a save overtook holds settings older than that save, so it's dropped.
     func refresh() async {
         let confirmedSaveCountAtFetchStart = confirmedSaveCount
         do {
-            let savedUserSettings = try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
-                try await shipTokAPI.fetchUserSettings(gitHubAccessToken: accessToken)
-            }
+            let fetchedUserSettings = try await api.fetchUserSettings()
             refreshFailureMessage = nil
             guard confirmedSaveCount == confirmedSaveCountAtFetchStart else { return }
-            confirmedUserSettings = savedUserSettings
+            savedUserSettings = fetchedUserSettings
         } catch {
             if Task.isCancelled { return }
             refreshFailureMessage = error.localizedDescription
         }
     }
 
-    func setShowsFeedbackBox(_ showsFeedbackBox: Bool, for vibe: PullRequestVibe) async {
+    func setShowsFeedbackBox(_ showsFeedbackBox: Bool, for vibe: ShipTokVibe) async {
         await setSetting(Self.feedbackBoxSetting(for: vibe), to: showsFeedbackBox)
     }
 
-    func setShowsOnlyPullRequestsWithVideos(_ showsOnlyPullRequestsWithVideos: Bool) async {
-        await setSetting(\.showsOnlyPullRequestsWithVideos, to: showsOnlyPullRequestsWithVideos)
+    func setShowsOnlyPostsWithVideos(_ showsOnlyPostsWithVideos: Bool) async {
+        await setSetting(\.showsOnlyPostsWithVideos, to: showsOnlyPostsWithVideos)
+    }
+
+    // At least one tab stays on, which Revyl's backend refuses to break as well (AGENTS.md, "Feed Modes").
+    func setShowsFeedModeTab(_ showsFeedModeTab: Bool, for feedMode: FeedMode) async {
+        guard showsFeedModeTab || feedModesWithShownTabs != [feedMode] else { return }
+        await setSetting(Self.feedModeTabSetting(for: feedMode), to: showsFeedModeTab)
     }
 
     private func setSetting(_ setting: WritableKeyPath<UserSettings, Bool>, to newValue: Bool) async {
@@ -87,13 +102,9 @@ final class UserSettingsStore {
         pendingChangeBySetting[setting] = PendingSettingChange(revision: changeRevision, value: newValue)
         // Saves replace every setting, so they run one at a time and each sends the settings as they stand when its turn comes; a quick second toggle can't be overwritten by the first one's older copy.
         let previousSave = latestSave
-        let save = Task {
+        let save = Task { [api] in
             _ = await previousSave?.result
-            let userSettingsToSave = userSettings
-            _ = try await accessTokenVault.sendRevylRequest { [shipTokAPI] accessToken in
-                try await shipTokAPI.replaceUserSettings(userSettingsToSave, gitHubAccessToken: accessToken)
-            }
-            confirmedUserSettings = userSettingsToSave
+            savedUserSettings = try await api.saveUserSettings(userSettings)
             confirmedSaveCount += 1
         }
         latestSave = save
@@ -112,10 +123,60 @@ final class UserSettingsStore {
         let value: Bool
     }
 
-    private static func feedbackBoxSetting(for vibe: PullRequestVibe) -> WritableKeyPath<UserSettings, Bool> {
+    private static func feedbackBoxSetting(for vibe: ShipTokVibe) -> WritableKeyPath<UserSettings, Bool> {
         switch vibe {
         case .good: \.showsGoodVibesFeedbackBox
         case .bad: \.showsBadVibesFeedbackBox
+        }
+    }
+
+    private static func feedModeTabSetting(for feedMode: FeedMode) -> WritableKeyPath<UserSettings, Bool> {
+        switch feedMode {
+        case .open: \.showsOpenFeedModeTab
+        case .merged: \.showsMergedFeedModeTab
+        case .weekly: \.showsWeeklyFeedModeTab
+        case .features: \.showsFeaturesFeedModeTab
+        }
+    }
+}
+
+// The organization's own ShipTok settings, which only its owners and admins change (AGENTS.md, "Settings").
+@Observable
+@MainActor
+final class OrganizationSettingsStore {
+    private(set) var organizationSettings: OrganizationSettings?
+    private(set) var refreshFailureMessage: String?
+    private(set) var isSaving = false
+    var saveFailureMessage: String?
+    private let api: RevylShipTokAPI
+
+    init(api: RevylShipTokAPI) {
+        self.api = api
+    }
+
+    func refresh() async {
+        guard !isSaving else { return }
+        do {
+            organizationSettings = try await api.fetchOrganizationSettings()
+            refreshFailureMessage = nil
+        } catch {
+            if Task.isCancelled { return }
+            refreshFailureMessage = error.localizedDescription
+        }
+    }
+
+    func setPostsFeedbackSummaryCommentsOnGitHub(_ postsFeedbackSummaryCommentsOnGitHub: Bool) async {
+        guard let savedOrganizationSettings = organizationSettings, !isSaving,
+              postsFeedbackSummaryCommentsOnGitHub != savedOrganizationSettings.postsFeedbackSummaryCommentsOnGitHub
+        else { return }
+        isSaving = true
+        defer { isSaving = false }
+        organizationSettings?.postsFeedbackSummaryCommentsOnGitHub = postsFeedbackSummaryCommentsOnGitHub
+        do {
+            organizationSettings = try await api.saveOrganizationSettings(postsFeedbackSummaryCommentsOnGitHub: postsFeedbackSummaryCommentsOnGitHub)
+        } catch {
+            organizationSettings = savedOrganizationSettings
+            saveFailureMessage = "The setting is back to its saved value. \(error.localizedDescription)"
         }
     }
 }

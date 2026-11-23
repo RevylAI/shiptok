@@ -50,13 +50,6 @@ enum GitHubAlertType: String {
 }
 
 enum MarkdownSummaryParser {
-    // Bots append these to a pull request's description between markers of their own. Only a block between a known pair is left out, never text a heuristic picks (docs/shiptok-format.md, "Pull request descriptions").
-    private static let botAppendedBlockMarkers: [(start: String, end: String)] = [
-        ("<!-- CURSOR_SUMMARY -->", "<!-- /CURSOR_SUMMARY -->"),
-        ("<!-- codesmith:footer -->", "<!-- /codesmith:footer -->"),
-        ("<!-- capy-badge:start -->", "<!-- capy-badge:end -->"),
-    ]
-
     static func blocks(from markdown: String) -> [MarkdownSummaryBlock] {
         var blocks: [MarkdownSummaryBlock] = []
         var paragraphLines: [String] = []
@@ -76,10 +69,9 @@ enum MarkdownSummaryParser {
             pendingAlert = nil
         }
 
-        let markdownWithoutHTMLComments = PullRequestMediaExtraction.markdownWithoutCredentialMediaLinks(markdownWithoutBotAppendedBlocks(markdown))
+        let shownMarkdown = CredentialMediaLinks.markdownWithoutCredentialMediaLinks(markdown)
             .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
-        for rawLine in markdownWithoutHTMLComments.components(separatedBy: "\n") {
+        for rawLine in shownMarkdown.components(separatedBy: "\n") {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             defer { previousLine = line }
             if pendingAlert != nil {
@@ -135,18 +127,6 @@ enum MarkdownSummaryParser {
             blocks.append(.codeBlock(unfinishedCodeBlockLines.joined(separator: "\n")))
         }
         return blocks
-    }
-
-    // Everything from a known start marker to the first end marker after it goes, both markers included; a start marker with no end marker after it leaves the text in.
-    private static func markdownWithoutBotAppendedBlocks(_ markdown: String) -> String {
-        var remainingMarkdown = markdown
-        for marker in botAppendedBlockMarkers {
-            while let startMarkerRange = remainingMarkdown.range(of: marker.start),
-                  let endMarkerRange = remainingMarkdown.range(of: marker.end, range: startMarkerRange.upperBound..<remainingMarkdown.endIndex) {
-                remainingMarkdown.removeSubrange(startMarkerRange.lowerBound..<endMarkerRange.upperBound)
-            }
-        }
-        return remainingMarkdown
     }
 
     private static func alertType(in line: String) -> GitHubAlertType? {

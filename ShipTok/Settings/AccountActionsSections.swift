@@ -1,17 +1,18 @@
 import SwiftUI
 
 struct AccountActionsSections: View {
-    let signInSession: GitHubSignInSession
-    @State private var confirmsDataDeletion = false
-    @State private var dataDeletionFailureMessage: String?
+    let signInSession: ShipTokSignInSession
     @State private var signOutFailureMessage: String?
+    @State private var confirmsRevylAccountDeletion = false
+    @State private var revylAccountDeletionFailureMessage: String?
 
-    private var isDeletingData: Bool { signInSession.isDeletingShipTokData }
+    private var isDeletingRevylAccount: Bool { signInSession.isDeletingRevylAccount }
+    private var isChangingSignIn: Bool { isDeletingRevylAccount || signInSession.isSigningOut }
 
     var body: some View {
         PrivacyAndSupportSection()
         Section {
-            Button("Sign out", role: .destructive) {
+            Button(role: .destructive) {
                 Task {
                     do {
                         try await signInSession.signOut()
@@ -19,8 +20,16 @@ struct AccountActionsSections: View {
                         signOutFailureMessage = error.localizedDescription
                     }
                 }
+            } label: {
+                HStack {
+                    Text(signInSession.isSigningOut ? "Signing out" : "Sign out")
+                    if signInSession.isSigningOut {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
             }
-            .disabled(isDeletingData)
+            .disabled(isChangingSignIn)
             .alert(
                 "Couldn't sign out",
                 isPresented: Binding(get: { signOutFailureMessage != nil }, set: { if !$0 { signOutFailureMessage = nil } })
@@ -29,45 +38,47 @@ struct AccountActionsSections: View {
             } message: {
                 Text(signOutFailureMessage ?? "")
             }
+        } footer: {
+            Text("Signs this iPhone out of Revyl, and it stops getting your ShipTok notifications.")
         }
         Section {
             Button(role: .destructive) {
-                confirmsDataDeletion = true
+                confirmsRevylAccountDeletion = true
             } label: {
                 HStack {
-                    Text(isDeletingData ? "Deleting your ShipTok data" : "Delete my ShipTok data")
-                    if isDeletingData {
+                    Text(isDeletingRevylAccount ? "Deleting your Revyl account" : "Delete my Revyl account")
+                    if isDeletingRevylAccount {
                         Spacer()
                         ProgressView()
                     }
                 }
             }
-            .disabled(isDeletingData)
-            .confirmationDialog("Delete your ShipTok data?", isPresented: $confirmsDataDeletion, titleVisibility: .visible) {
-                Button("Delete my ShipTok data", role: .destructive, action: deleteShipTokData)
+            .disabled(isChangingSignIn)
+            .confirmationDialog("Delete your Revyl account?", isPresented: $confirmsRevylAccountDeletion, titleVisibility: .visible) {
+                Button("Delete my Revyl account", role: .destructive, action: deleteRevylAccount)
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Revyl deletes your ShipTok settings and ends ShipTok's access to your GitHub account, and this iPhone forgets your sign-in, the people you hid, saved feeds and media. Your comments, reactions and vibes stay on GitHub.")
+                Text("Revyl deletes your Revyl account with the comments, replies, reactions, vibes and settings you made in ShipTok. This iPhone signs out and forgets everything ShipTok kept.")
             }
             .alert(
-                "Couldn't delete your ShipTok data",
-                isPresented: Binding(get: { dataDeletionFailureMessage != nil }, set: { if !$0 { dataDeletionFailureMessage = nil } })
+                "Couldn't delete your Revyl account",
+                isPresented: Binding(get: { revylAccountDeletionFailureMessage != nil }, set: { if !$0 { revylAccountDeletionFailureMessage = nil } })
             ) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(dataDeletionFailureMessage ?? "")
+                Text(revylAccountDeletionFailureMessage ?? "")
             }
         } footer: {
-            Text("Your comments, reactions and vibes are GitHub's record and stay there.")
+            Text("An owner of an organization can't delete their Revyl account from ShipTok.")
         }
     }
 
-    private func deleteShipTokData() {
+    private func deleteRevylAccount() {
         Task {
             do {
-                try await signInSession.deleteShipTokData()
+                try await signInSession.deleteRevylAccount()
             } catch {
-                dataDeletionFailureMessage = error.localizedDescription
+                revylAccountDeletionFailureMessage = error.localizedDescription
             }
         }
     }

@@ -16,29 +16,31 @@ test:
         model: iPhone 17 Pro Max
         os_version: iOS 27.0
         orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
     blocks:
-        - type: module_import
-          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
-          module: shiptok-sign-in-as-test-account
-        - type: instructions
-          step_description: Tap the comments button, the speech bubble on the right rail
         - type: validation
-          step_description: A comments sheet opens with a comment count at its top and a 'Comment as @revyl-shiptok-tests' field at its bottom
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
         - type: instructions
-          step_description: Tap the 'Comment as @revyl-shiptok-tests' field and type 'Signed-in ShipTok test comment, deleted by the same test'
-        - type: instructions
-          step_description: Tap the 'Post comment' button, the arrow at the right end of the comment field
+          step_description: 'Tap the comments button, the speech bubble on the right rail'
         - type: validation
-          step_description: The comments sheet lists a comment by @revyl-shiptok-tests that says 'Signed-in ShipTok test comment, deleted by the same test'
+          step_description: 'A comments sheet opens with a comment count at its top and a ''Comment as kyle+bench…'' field at its bottom'
         - type: instructions
-          step_description: Press and hold the comment by @revyl-shiptok-tests that says 'Signed-in ShipTok test comment, deleted by the same test'
-        - type: validation
-          step_description: Actions for that comment show, including 'Reply', 'Copy', 'Open on GitHub' and 'Delete'
+          step_description: 'Tap the ''Comment as kyle+bench…'' field and type ''Signed-in ShipTok test comment, deleted by the same test'''
         - type: instructions
-          step_description: Tap 'Delete'
+          step_description: 'Tap the ''Post comment'' button, the arrow at the right end of the comment field'
         - type: validation
-          step_description: A confirmation asks 'Delete this comment?', says 'It's deleted on GitHub too.' and offers 'Delete'
+          step_description: 'The comments sheet lists a comment by kyle+bench that says ''Signed-in ShipTok test comment, deleted by the same test'''
         - type: instructions
-          step_description: Tap 'Delete' in the confirmation
+          step_description: 'Press and hold the comment by kyle+bench that says ''Signed-in ShipTok test comment, deleted by the same test'''
         - type: validation
-          step_description: The comments sheet no longer lists the comment 'Signed-in ShipTok test comment, deleted by the same test'
+          step_description: 'Actions for that comment show: ''Reply'', ''Copy'' and ''Delete'''
+        - type: instructions
+          step_description: 'Tap ''Delete'''
+        - type: validation
+          step_description: 'A confirmation asks ''Delete this comment?'', says ''It''s deleted for everyone.'' and offers ''Delete'''
+        - type: instructions
+          step_description: 'Tap ''Delete'' in the confirmation'
+        - type: validation
+          step_description: 'The comments sheet no longer lists the comment ''Signed-in ShipTok test comment, deleted by the same test'''

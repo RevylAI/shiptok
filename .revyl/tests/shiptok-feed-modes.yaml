@@ -16,10 +16,12 @@ test:
         model: iPhone 17 Pro Max
         os_version: iOS 27.0
         orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
     blocks:
-        - type: module_import
-          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
-          module: shiptok-sign-in-as-test-account
+        - type: validation
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
         - type: validation
           step_description: '''Merged'' is the selected tab in the Open / Merged / Weekly / Features tabs at the top of the feed, and the line under the pull request''s title reads ''#<number> · merged <when>'''
         - type: instructions
@@ -36,7 +38,7 @@ test:
         - type: instructions
           step_description: Swipe up on the middle of the card
         - type: validation
-          step_description: The page says 'That's every open PR' and 'You've seen every open pull request in RevylAI/kyle-expo that leads with a video.', so
+          step_description: 'The page says ''That''s every open PR'' and ''You''ve seen every open pull request in RevylAI/kyle-expo that leads with a video.'''
         - type: instructions
           step_description: Tap 'Merged' in the tabs at the top
         - type: validation

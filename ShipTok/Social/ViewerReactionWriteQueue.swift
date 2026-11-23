@@ -1,6 +1,12 @@
 import Foundation
 
-// Each write of one reaction on one subject waits for the one before it, so GitHub ends where the last tap left it. Only the newest write's failure restores what's shown, to what GitHub last confirmed, since an older one's result is overtaken by the newer tap.
+// What a reaction goes on: a post, or a comment or reply on one.
+enum ReactionSubject: Hashable, Sendable {
+    case post(postID: String)
+    case comment(postID: String, commentID: String)
+}
+
+// Each write of one reaction on one subject waits for the one before it, so Revyl ends where the last tap left it. Only the newest write's failure restores what's shown, to what Revyl last confirmed, since an older one's result is overtaken by the newer tap.
 @MainActor
 final class ViewerReactionWriteQueue {
     enum Outcome {
@@ -10,33 +16,34 @@ final class ViewerReactionWriteQueue {
     }
 
     private struct WriteKey: Hashable {
-        let subjectID: String
-        let reaction: GitHubReaction
+        let subject: ReactionSubject
+        let reaction: ShipTokReaction
     }
 
     private var newestWriteByKey: [WriteKey: (id: UUID, task: Task<Result<Void, Error>, Never>)] = [:]
     private var confirmedViewerHasReactedByKey: [WriteKey: Bool] = [:]
-    private let githubAPIClient: GitHubAPIClient
+    private let api: RevylShipTokAPI
 
-    init(githubAPIClient: GitHubAPIClient) {
-        self.githubAPIClient = githubAPIClient
+    init(api: RevylShipTokAPI) {
+        self.api = api
     }
 
-    // A write always changes what's shown, so until one succeeds GitHub is taken to hold the opposite of it.
-    func write(_ reaction: GitHubReaction, viewerHasReacted: Bool, onSubjectID subjectID: String) async -> Outcome {
-        let writeKey = WriteKey(subjectID: subjectID, reaction: reaction)
+    // A write always changes what's shown, so until one succeeds Revyl is taken to hold the opposite of it.
+    func write(_ reaction: ShipTokReaction, viewerHasReacted: Bool, on subject: ReactionSubject) async -> Outcome {
+        let writeKey = WriteKey(subject: subject, reaction: reaction)
         if confirmedViewerHasReactedByKey[writeKey] == nil {
             confirmedViewerHasReactedByKey[writeKey] = !viewerHasReacted
         }
         let previousWriteTask = newestWriteByKey[writeKey]?.task
         let writeID = UUID()
-        let writeTask = Task { [githubAPIClient] () -> Result<Void, Error> in
+        let writeTask = Task { [api] () -> Result<Void, Error> in
             _ = await previousWriteTask?.value
             do {
-                if viewerHasReacted {
-                    try await githubAPIClient.addReaction(reaction, toSubjectID: subjectID)
-                } else {
-                    try await githubAPIClient.removeReaction(reaction, fromSubjectID: subjectID)
+                switch subject {
+                case .post(let postID):
+                    try await api.setPostReaction(reaction, isReacting: viewerHasReacted, postID: postID)
+                case .comment(let postID, let commentID):
+                    try await api.setCommentReaction(reaction, isReacting: viewerHasReacted, postID: postID, commentID: commentID)
                 }
                 confirmedViewerHasReactedByKey[writeKey] = viewerHasReacted
                 return .success(())

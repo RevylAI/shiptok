@@ -16,10 +16,12 @@ test:
         model: iPhone 17 Pro Max
         os_version: iOS 27.0
         orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
     blocks:
-        - type: module_import
-          step_description: Sign in as the GitHub test account and open RevylAI/kyle-expo's feed
-          module: shiptok-sign-in-as-test-account
+        - type: validation
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
         - type: extraction
           step_description: The GitHub login of the pull request's author shown at the card's lower left
           variable_name: author-login
@@ -44,7 +46,7 @@ test:
         - type: instructions
           step_description: Tap the More button on the right rail, then tap 'Hide @{{author-login}}'
         - type: validation
-          step_description: A confirmation titled 'Hide @{{author-login}}?' says their pull requests, weekly videos, comments, vibes and media won't show in ShipTok on this iPhone, that nothing changes on GitHub, and that they can be unhidden in Settings
+          step_description: A confirmation titled 'Hide @{{author-login}}?' says their pull requests, weekly and feature videos won't show in ShipTok on this iPhone, that they aren't told and nothing changes on GitHub, and that they can be unhidden anytime in Settings
         - type: instructions
           step_description: Confirm by tapping 'Hide @{{author-login}}'
         - type: validation

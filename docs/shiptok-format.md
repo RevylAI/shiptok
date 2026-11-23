@@ -1,133 +1,142 @@
 # The ShipTok format
 
-This is what ShipTok reads from GitHub and writes there, for anyone posting a ShipTok video, vibe, weekly edition or feature and for Revyl's pull request review config. GitHub is the record: the app reads pull requests, issues and comments, and writes reactions and comments as the signed-in person.
+This is what Revyl's backend reads from GitHub to build ShipTok's cards, for anyone posting a ShipTok video, a weekly edition or a feature: which pull requests and issues become cards, what counts as media and which plays first, how a ShipTok video is tagged, what a description shows, and the comment Revyl's GitHub App keeps with each post's feedback. The backend reads GitHub through the organization's installation of Revyl's GitHub App and serves the result to the ShipTok app, which calls no GitHub API itself (`AGENTS.md`, "Ownership And Boundaries").
 
 ## Which pull requests are in the feed
 
-Open shows the open pull requests, drafts included, and Merged the merged ones, in the repository the person chose, when the description or a top-level conversation comment carries at least one media item (see below). No label, age or time window decides. A pull request closed without merging leaves Open, and if the viewer is on its card it stays until they move on; it never shows otherwise. With Videos only on, as it is unless the person turns it off, a pull request shows only when its first media item, once media from people the viewer hid is left out, is a video. A feature's deck is the one place a pull request shows with no media at all (Features).
+ShipTok offers every repository Revyl's GitHub App covers for the organization, and each person chooses one.
+
+- **Open** holds the repository's open pull requests, drafts included, most recently updated first.
+- **Merged** holds its merged pull requests, most recently merged first.
+- A pull request is in either only while it has at least one media item (below). No label, age or time window decides.
+- A pull request closed without merging is never in the feed or a deck.
+- **Videos only**, a person's setting that's on by default, leaves out of Open and Merged every pull request whose first media item isn't a video. Weekly, Features and the pull requests they open always show.
+- A pull request without media is in neither, and a feature's deck still shows it (Features).
+
+Revyl keeps what it reads from GitHub for a minute for each organization, so a change on GitHub can take up to a minute to reach ShipTok.
 
 ## What counts as media
 
-ShipTok reads media from GitHub's rendered HTML of the description and of each top-level conversation comment, a bot's included, and never from inline code-review comments. Only HTTPS links count.
+Media comes from the description of a pull request, weekly edition or feature and from every comment on its Conversation tab, in that order, a bot's comments included. Inline code-review comments and review summaries are never read, and neither is the feedback summary comment (below). Only HTTPS links count.
 
-- **Videos.** A video GitHub renders, such as an attached MP4 or MOV, taken from its `<video>` element or, when that gives no usable link, the first of its `<source>` elements that does; a link to an `.mp4`, `.mov` or `.m4v` file, where an image inside the link is its poster rather than another item; and a Revyl-hosted video link (below). A video iOS can't play, such as WebM, isn't media.
-- **Images and GIFs.** Any image GitHub renders, from any host, a `.gif` counting as a GIF. Left out: emoji, an image whose HTML gives a `width` or `height` of 40 pixels or less (the size is read only from those attributes, never from the image), an SVG, a link whose path holds `/badge` or `favicon`, and images from badge, avatar, chart and bot-service hosts such as shields.io, badgen.net, codecov.io and avatars.githubusercontent.com. These are heuristics, so a badge from another host can still count.
+From the HTML GitHub renders for each description and comment:
 
-The same media in several places is one item, and a copy tagged as a ShipTok video wins.
+- **Videos.** A `<video>` element, from its `src` or `data-canonical-src`, or else the first of its `<source>` elements with a usable link, with its `poster`. A link to a file ending in `.mp4`, `.mov` or `.m4v`, where an image inside the link is the video's poster rather than another item. An image whose file ends in one of those extensions.
+- **Images and GIFs.** Any other image from any host, a `.gif` counting as a GIF. Left out: an image with the `emoji` class, one whose `width` or `height` attribute is 40 pixels or less, an SVG, one whose path holds `/badge` or `favicon`, and images from shields.io, badgen.net, blacksmith.sh, codecov.io, github.githubassets.com, avatars.githubusercontent.com, vercel.com, coderabbit.ai, graphite.dev, cursor.com and dummyimage.com.
+- **WebM.** A WebM video doesn't play on an iPhone, so it isn't media.
+
+From each description's and comment's raw markdown, a Revyl-hosted video link (`<Revyl backend>/api/v1/shiptok/videos/<token>.mp4` or `.mov`) is a video wherever it appears, a bare link included.
+
+The same file in several places is one item. An item's id is the SHA-256 of its URL with the scheme and host lowercased and the query and fragment dropped, using `data-canonical-src` when GitHub gives one, so a link GitHub signs again keeps its id.
 
 ## ShipTok video
 
-A ShipTok video is any video in a description or top-level comment that carries a ShipTok tag:
+A ShipTok video is a video in a description or comment whose raw markdown carries a ShipTok tag:
 
-- `#shiptok`, in any case, with no letter, digit, `_` or `#` right before or after it; or
-- the hidden marker `<!-- shiptok:video -->`, in any case, which may carry attributes after a space that the app ignores, so `<!-- shiptok:video source=revyl -->` matches too. It's read from the raw markdown, since GitHub's rendered HTML drops it.
+- `#shiptok`, in any case, as a word of its own: not inside a longer word or hashtag, so `#ShipTok!` counts and `#shiptok_demo` doesn't.
+- `<!-- shiptok:video -->`, which GitHub doesn't show. Attributes inside it, such as `<!-- shiptok:video by=release-bot -->`, change nothing.
 
-People and bots can both post one, and neither the poster nor the host changes its priority. A comment carrying a tag stays out of the comment list, with or without a video.
+The tag makes every video in that same description or comment a ShipTok video, whoever posted it and wherever it's hosted, and never an image or GIF.
 
-```markdown
-<!-- shiptok:video -->
+There are two ways to post one:
 
-**ShipTok** · <one-line hook for the change>
+- **Attach it on GitHub.** Attach the video to the pull request's description or a comment, and add `#shiptok` to the same description or comment. A video attached on GitHub plays in ShipTok from the link GitHub signs for it.
+- **Upload it to Revyl.** `revyl shiptok upload <file>` stores an MP4 or MOV file with a video track for the repository of the checkout's `origin` remote, or the one `--repo OWNER/REPO` names, and prints a `#shiptok <link>` line to paste in the pull request's description or a comment. It needs the Revyl CLI signed in with the Member role or higher in the Revyl organization whose GitHub App covers that repository. With `--pr <number>`, Revyl's GitHub App posts the video on that pull request itself, in one comment that reads `<!-- shiptok:video -->` and the video's Revyl-hosted link, and edits that comment for a later upload. In ShipTok the video plays from a link Revyl signs for five minutes each time it serves the post, only for the organization that uploaded it. A browser that opens the Revyl-hosted link lands on Revyl's watch page, which plays it for a signed-in member of that organization.
 
-<the video>
-```
-
-A Revyl-hosted upload's canonical link is `/api/v1/shiptok/videos/{token}.mp4` or `/api/v1/shiptok/videos/{token}.mov` on the backend, under whatever path the backend is served from, where `{token}` is the upload's 43-character token of letters, digits, `-` and `_`. The link can stand bare in the markdown or behind a linked poster. On a private repository the video plays only for a viewer GitHub lets read the repository: a signed-in app presents the person's GitHub token when the link is on the Revyl backend its build names, and playback follows the link's redirect without forwarding GitHub authorization. Uploading again makes a new link and a new cache identity, and the bytes behind a link never change.
-
-A video is at most 100 MB (104,857,600 bytes), the limit of a Revyl-hosted upload. The app plays videos from memory, so it stops downloading a larger one, tagged or not, and treats it as media that failed to load.
+ShipTok downloads at most 100 MiB (104,857,600 bytes) of a video, wherever it's hosted, and a larger one fails like broken media; Revyl refuses to store a larger upload. Portrait 9:16 suits the card best: ShipTok crops a card's first media item to fill the card only when that loses at most an eighth of it, and shows any other shape whole over a dimmed, blurred copy of itself.
 
 ## Which media shows first
 
-1. The newest tagged ShipTok video, by the last edit of its description or comment, else its creation.
-2. Otherwise the first video in deck order: the description first, then comments from oldest to newest.
-3. Otherwise the first image or GIF in the same order.
+A card's first item, its hero, is:
 
-Tags only reorder, so every other media item stays in the deck, untagged media included. Hiding a person leaves out their media and applies the same order to what's left.
+1. the newest ShipTok video, by when its description or comment was last edited, or posted when it never was;
+2. else the first video;
+3. else the first item.
+
+The other items follow in the order they appear, the description first and then the comments oldest first. When the same file appears in several places, it keeps its first place, and a copy tagged as a ShipTok video wins over an untagged one.
 
 ## Pull request descriptions
 
-A pull request's description shows in its detail sheet, which every mode opens, and on the summary that takes the place of media for a pull request with no media in a feature's deck. Both read the raw markdown and leave out its HTML comments and the blocks bots append between markers of their own:
+ShipTok shows a pull request's description in its detail sheet, and on the card of a pull request without media. Revyl serves the raw markdown without:
 
-- `<!-- CURSOR_SUMMARY -->` to `<!-- /CURSOR_SUMMARY -->`: Cursor Bugbot's summary.
-- `<!-- codesmith:footer -->` to `<!-- /codesmith:footer -->`: codesmith's footer.
-- `<!-- capy-badge:start -->` to `<!-- capy-badge:end -->`: Capy's Open in Capy badge.
+- HTML comments, ShipTok's own markers included;
+- the blocks bots add between `<!-- CURSOR_SUMMARY -->` and `<!-- /CURSOR_SUMMARY -->`, `<!-- codesmith:footer -->` and `<!-- /codesmith:footer -->`, and `<!-- capy-badge:start -->` and `<!-- capy-badge:end -->`;
+- every credential media link: a Revyl-hosted video link, and an image, GitHub upload or link to a media file whose URL carries a query string, as signed links do. An image or a bare link goes, and a linked label stays.
 
-Everything from a start marker to the first end marker after it is left out, both markers included. A start marker with no end marker after it leaves the text in, and text outside such a pair is never taken for a bot's. Media still comes from the whole rendered description, these blocks included (What counts as media, above).
+Titles, the hook of a weekly edition or feature, and pull request labels lose the same credential media links.
 
-A blockquote whose first line is GitHub's alert syntax, `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]` in any case, shows as a note titled Note, Tip, Important, Warning or Caution, with the rest of the blockquote inside it. The note ends at the first line that doesn't start with `>`. Any other blockquote shows as plain text.
-
-## Vibes
-
-A vibe is a top-level comment on a pull request, or on a week's or a feature's issue, posted as the person who cast it with a swipe or the rail's vibes button. Its body reads:
-
-```markdown
-<!-- shiptok:vibe good -->
-**Good vibes** via ShipTok
-
-<optional feedback, typed or transcribed>
-```
-
-Bad vibes use `<!-- shiptok:vibe bad -->` and `**Bad vibes** via ShipTok`. With no feedback, the body ends after the second line.
-
-- A comment is a vibe when its first line, with spaces and tabs at either end trimmed, is exactly one of the two markers, whoever posted it. Its feedback is the rest of the body, less blank lines before it and a first line starting with `**`.
-- On each pull request, week or feature, the app counts each person's newest vibe comment, by when it was created, and never a bot's.
-- A new vibe the app posts replaces the person's earlier vibe comments there by deleting them once it has posted, and undoing a vibe deletes its comment.
-- The comments sheet shows a vibe comment with the person's vibe and its feedback, and its header counts vibes apart from comments; the comment count on the rail leaves vibes out.
+The app shows headings, paragraphs, bullet and numbered lists, tables row by row, code blocks and inline formatting, and the five alerts GitHub renders from a quote whose first line is `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`. Images, HTML tags, lines that start with one, and horizontal rules don't show, and an empty description reads "No description."
 
 ## Weekly editions
 
-A weekly edition is a closed issue in the chosen repository labeled `shiptok-weekly`, whose description reads:
+Weekly shows one card per weekly edition, newest week first. A weekly edition is a GitHub issue in the repository that:
+
+- is closed and labeled `shiptok-weekly`;
+- has a description in the format below;
+- holds at least one media item, in its description or its comments, read the way a pull request's is.
 
 ```markdown
-<!-- shiptok:weekly week_start=2026-11-09 -->
+<!-- shiptok:weekly week_start=2026-11-16 -->
 
 ## <the week's title>
 
-<a one-line hook>
+<the hook: one line>
 
 ### Pull requests in this video
 
-1. #12
-2. #15
+1. #6712
+2. #6730
 ```
 
-- The first non-empty line is the marker, exactly as shown apart from spaces around it, and its date is a Monday: the start of a week that runs Monday to Sunday in Pacific time.
-- The first line starting with `## ` is the title, and the next non-empty line, which can't start with `#`, is the hook.
-- Every line that is exactly `<n>. #<number>`, apart from spaces around it, names a pull request for the week's deck, in the video's order: the item number, a dot, one space, then `#` and the pull request's number, with nothing else on the line. An edition needs 1 to 30 of these lines to show, and a pull request named twice shows once.
-- The issue's own title isn't read; a title like `ShipTok weekly · Nov 9–15` is a convention.
-- The media can be in the description or any top-level comment, and needs no tag: videos, images and GIFs all count, and the card shows them in the same order as a pull request's. An edition with no media doesn't show.
+- The first line with text is exactly the marker, and `week_start` is a Monday written `YYYY-MM-DD`.
+- The first line that starts with `## ` is the title.
+- The next line with text after the title is the hook, and it doesn't start with `#`.
+- Every line that's exactly `<n>. #<pull request number>` names a pull request, in the order the video covers them. There are 1 to 30 such lines, and a number listed twice counts once.
 
-Only closed issues are read, so closing the issue publishes the week, and it shows on the app's next read. The app reads the labeled closed issues newest-created first and sorts the editions it finds by week, and each issue is a card of its own, so a second issue for the same week is a second card. In the deck, open and merged pull requests with media show; one closed without merging, one with no media and one whose media all failed for the viewer are left out, though the card the viewer is on when it closes or loses its media stays until they move on. Vibes, reactions and comments on a week go on its issue in the same formats as on a pull request.
+An issue that breaks any of these isn't a weekly edition. The card shows a "ShipTok weekly" chip with the week's dates, the title, the hook and its hero. Its deck holds the listed pull requests in order, less any closed without merging and any without media.
 
 ## Features
 
-A feature is a closed issue in the chosen repository labeled `shiptok-feature`: one per shipped feature, with one video, however many pull requests shipped it. Its description reads:
+Features shows one card per shipped feature, most recently closed first. A feature is a GitHub issue in the repository that:
+
+- is closed and labeled `shiptok-feature`;
+- has a description in the weekly format, with `<!-- shiptok:feature -->` as its first line with text and no week;
+- holds at least one media item, in its description or its comments.
 
 ```markdown
 <!-- shiptok:feature -->
 
 ## <the feature's title>
 
-<a one-line hook>
+<the hook: one line>
 
 ### Pull requests in this video
 
-1. #12
-2. #15
+1. #6801
+2. #6814
 ```
 
-- The first non-empty line is the marker, exactly as shown apart from spaces around it. It carries no date, since a feature dates from when its issue closed.
-- The first line starting with `## ` is the title, at most 70 characters with no trailing period. The next non-empty line, which can't start with `#`, is the hook, on one line of at most 120 characters. The app checks neither length nor the period, and the card shows at most two lines of each.
-- Every line that is exactly `<n>. #<number>`, apart from spaces around it, names a pull request for the feature's deck, in the video's order: the item number, a dot, one space, then `#` and the pull request's number, with nothing else on the line. A line in another form, such as `1.#12`, `1. #12 (API)` or `- #12`, names none. A feature needs 1 to 30 of these lines to show, and a pull request named twice shows once.
-- The issue's own title isn't read, so name it for people browsing GitHub, usually after the feature. Other labels can stay on the issue.
-- The media can be in the description or any top-level comment, and needs no tag: videos, images and GIFs all count, and the card shows them in the same order as a pull request's. A feature with no media doesn't show.
+The card shows a "ShipTok feature" chip with when the issue closed ("shipped 3 days ago"), the title, the hook and its hero. Its deck holds the listed pull requests in order, less any closed without merging, and shows a pull request without media as a card with its state, stats, labels and description.
 
-To publish a feature:
+## Feedback summary comment
 
-1. Create the `shiptok-feature` label in the repository if it's missing.
-2. Open an issue with the label and the description above, and attach the video to the description or a top-level comment, or paste a Revyl-hosted video link there (ShipTok video, above).
-3. Close the issue as completed.
+While an organization's "Feedback summary on GitHub" setting is on, as it is by default, Revyl's GitHub App keeps one comment on each pull request, weekly edition and feature that has feedback in ShipTok, so people on GitHub see it too:
 
-Only closed issues are read, so closing the issue publishes the feature, and it shows on the app's next read, dated from that close ("shipped 3 days ago"). To change a feature, edit its description or post a newer tagged video with the issue left closed; reopening it takes the card away at the app's next read, and closing it again dates it from the new close. The app reads the labeled closed issues newest-created first and sorts the features it finds by when they closed, newest first, then by the higher issue number, and each issue is a card of its own.
+```markdown
+<!-- shiptok:feedback-summary -->
+**🎬 ShipTok feedback**
 
-In the deck, every open or merged pull request the list names shows, with or without media of its own. One with no media shows its state, additions, deletions and changed files, labels and description in place of media, with a Details button. One closed without merging and one whose media all failed for the viewer are left out, though the card the viewer is on when it closes without merging stays until they move on. Vibes, reactions and comments on a feature go on its issue in the same formats as on a pull request.
+👍 2 good vibes · ❤️ 1 like · 🚀 1
+
+- 💬 **<name>:** <comment>
+  - ↳ **<name>:** <reply>
+- 👍 **<name>:** <good vibe feedback>
+
+[Watch and reply in ShipTok →](<Revyl's watch page for the post>)
+```
+
+- The counts line lists good vibes, bad vibes and likes, then the other reactions by count, leaving out any that are zero.
+- Each comment shows with its replies under it, and each vibe with feedback text, oldest first, by the person's name. Mentions and HTML in what people wrote are neutralized, so the comment pings nobody.
+- Past 60,000 characters, the oldest items give way to "…and N more in ShipTok".
+- The App edits the comment as feedback changes and deletes it once no feedback remains. Turning the setting off deletes every such comment, and turning it on posts them again.
+- The comment is never read as media.

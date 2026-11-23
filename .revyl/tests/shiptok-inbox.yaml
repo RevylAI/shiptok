@@ -1,0 +1,32 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 50c7fd70-4f64-4581-bf12-a0740f5f196f
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-23T20:48:20Z"
+    checksum: 6847045269e5102b955d2384c71f3977a8871789793862c6fb52cbf2121acf06
+test:
+    metadata:
+        name: shiptok-inbox
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
+    blocks:
+        - type: validation
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
+        - type: instructions
+          step_description: Tap the inbox, the tray icon just left of the Settings gear at the top right of the feed
+        - type: validation
+          step_description: An 'Inbox' screen opens with a 'Feed' back button at its top left, and either lists teammates' likes, reactions, vibes, comments and replies on your pull requests, each naming the person and the pull request, or says 'Nothing yet'
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of the inbox
+        - type: validation
+          step_description: The feed shows a pull request card again, with no unread dot on the inbox tray

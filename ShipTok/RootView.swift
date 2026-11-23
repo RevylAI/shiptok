@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct RootView: View {
-    let signInSession: GitHubSignInSession
+    let signInSession: ShipTokSignInSession
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -9,54 +10,62 @@ struct RootView: View {
             switch signInSession.phase {
             case .restoring:
                 ProgressView().controlSize(.large)
-            case .signedOut(let message):
-                SignInView(signInSession: signInSession, message: message)
+            case .signedOut(let firstScreenVisit):
+                FirstScreenView(signInSession: signInSession, firstScreenVisit: firstScreenVisit)
+                    .id(firstScreenVisit.visitID)
             case .signedIn(let teammate):
                 SignedInView(teammate: teammate, signInSession: signInSession)
-                    .id(teammate.user.githubUserID)
+                    .id("\(teammate.account.revylUserID) \(teammate.account.organization.orgID)")
             }
         }
-        .task { await signInSession.restoreSavedSession() }
+        .task {
+            await signInSession.restoreSavedSession()
+            await signInSession.verifyRevylSignIn()
+        }
+        .onChange(of: scenePhase) { _, newScenePhase in
+            guard newScenePhase == .active else { return }
+            Task { await signInSession.verifyRevylSignIn() }
+        }
     }
 }
 
 private struct SignedInView: View {
     let teammate: SignedInTeammate
-    let signInSession: GitHubSignInSession
-    @AppStorage private var chosenRepositoryFullName: String?
+    let signInSession: ShipTokSignInSession
+    @State private var chosenRepository: FeedRepositoryChoice?
     @State private var lostRepositoryMessage: String?
     @State private var showsAccount = false
 
-    init(teammate: SignedInTeammate, signInSession: GitHubSignInSession) {
+    init(teammate: SignedInTeammate, signInSession: ShipTokSignInSession) {
         self.teammate = teammate
         self.signInSession = signInSession
-        _chosenRepositoryFullName = AppStorage(FeedRepositoryChoice.defaultsKey(githubUserID: teammate.user.githubUserID))
+        _chosenRepository = State(initialValue: FeedRepositoryChoice.load(revylUserID: teammate.account.revylUserID))
     }
 
     var body: some View {
-        if let chosenRepositoryFullName {
+        if let chosenRepository {
             FeedView(
                 viewer: teammate,
-                repositoryFullName: chosenRepositoryFullName,
+                repository: chosenRepository,
                 signInSession: signInSession,
-                onChooseRepository: { self.chosenRepositoryFullName = $0 },
-                onFeedRepositoryLost: { message in
+                onChooseRepository: choose,
+                onRepositoryLost: { message in
                     lostRepositoryMessage = message
-                    self.chosenRepositoryFullName = nil
+                    FeedRepositoryChoice.remove(revylUserID: teammate.account.revylUserID)
+                    self.chosenRepository = nil
                 }
             )
-            .id(chosenRepositoryFullName)
+            .id(chosenRepository.githubRepositoryID)
         } else {
             NavigationStack {
                 FeedRepositoryPickerView(
-                    accountAPI: teammate.accountAPI,
-                    chosenRepositoryFullName: nil,
+                    api: teammate.api,
+                    chosenRepositoryID: nil,
                     message: lostRepositoryMessage,
-                    choosesDefaultRepositoryWhenReachable: lostRepositoryMessage == nil,
-                    onSignInRejected: { signInSession.handleRejectedGitHubAccess($0, endingSignInID: teammate.signInID) },
-                    onChoose: { repositoryFullName in
+                    choosesOnlyRepositoryAutomatically: lostRepositoryMessage == nil,
+                    onChoose: { repository in
                         lostRepositoryMessage = nil
-                        chosenRepositoryFullName = repositoryFullName
+                        choose(repository)
                     }
                 )
                 .toolbar {
@@ -72,7 +81,7 @@ private struct SignedInView: View {
                     }
                     .scrollContentBackground(.hidden)
                     .background(RevylBrandColor.surface)
-                    .navigationTitle("@\(teammate.user.githubLogin)")
+                    .navigationTitle(Text(verbatim: teammate.account.displayName))
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
@@ -82,5 +91,11 @@ private struct SignedInView: View {
                 }
             }
         }
+    }
+
+    private func choose(_ repository: ShipTokRepository) {
+        let repositoryChoice = FeedRepositoryChoice(repository: repository)
+        repositoryChoice.save(revylUserID: teammate.account.revylUserID)
+        chosenRepository = repositoryChoice
     }
 }

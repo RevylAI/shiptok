@@ -1,40 +1,12 @@
 import SwiftUI
 
-enum FeedCardPost {
-    case pullRequest(PullRequest)
-    case weeklyEdition(WeeklyEdition)
-    case feature(Feature)
-
-    var thread: any GitHubCommentThread {
-        switch self {
-        case .pullRequest(let pullRequest): pullRequest
-        case .weeklyEdition(let weeklyEdition): weeklyEdition
-        case .feature(let feature): feature
-        }
-    }
-
-    var vibeTarget: VibeTarget {
-        switch self {
-        case .pullRequest(let pullRequest): VibeTarget(pullRequest: pullRequest)
-        case .weeklyEdition(let weeklyEdition): VibeTarget(weeklyEdition: weeklyEdition)
-        case .feature(let feature): VibeTarget(feature: feature)
-        }
-    }
-
-    var reactions: GitHubReactionSummary { thread.reactions }
-
-    var discussionCommentCount: Int { thread.discussionComments.count }
-
-    var mediaItems: [PullRequestMediaItem] { thread.mediaItems }
-}
-
 struct FeedCardVibes {
-    let tally: PullRequestVibeTally
-    let onCast: (PullRequestVibe) -> Void
+    let tally: VibeTally
+    let onCast: (ShipTokVibe) -> Void
     let onRemoveViewerVibe: () -> Void
 }
 
-// One feed page laid out like Instagram Reels: a pull request, a week's video in Weekly or a feature's video in Features. A pull request with no media, which only a feature's deck shows, puts its summary where the media would be. Its layout follows AGENTS.md, "Card Layout".
+// One feed page laid out like Instagram Reels: a post, which is a pull request, a week's video in Weekly or a feature's video in Features. A pull request with no media, which only a feature's deck shows, puts its summary where the media would be. Its layout follows AGENTS.md, "Card Layout".
 struct FeedCardView: View {
     private struct CardFrames: Equatable {
         let card: CGRect
@@ -42,8 +14,8 @@ struct FeedCardView: View {
         let caption: CGRect
     }
 
-    let post: FeedCardPost
-    let heroMediaItem: PullRequestMediaItem?
+    let post: ShipTokPost
+    let heroMediaItem: ShipTokPostMedia?
     let isHeroMediaUnloadable: Bool
     let analyticsSubject: ShipTokAnalyticsSubject
     let pageLayout: FeedPageLayout
@@ -53,7 +25,7 @@ struct FeedCardView: View {
     let isBehindVibeFeedbackComposer: Bool
     let isKeyboardShown: Bool
     let vibes: FeedCardVibes
-    let moderation: GitHubPostedContentModeration
+    let moderation: ContentModeration
     // A week's or a feature's deck button shows a number only once that deck has been read in full, so it never counts a card the deck leaves out (AGENTS.md, "Pull Request Decks").
     let deckPullRequestCount: Int?
     let isPlaybackActive: Bool
@@ -62,12 +34,12 @@ struct FeedCardView: View {
     let likeBurstTrigger: Int
     let onDoubleTap: () -> Void
     let onToggleLike: () -> Void
-    let onToggleReaction: (GitHubReaction) -> Void
+    let onToggleReaction: (ShipTokReaction) -> Void
     let onOpenComments: () -> Void
     let onOpenDeck: () -> Void
     let onTapCaption: () -> Void
-    let onHeroMediaLoadFailure: (PullRequestMediaItem, _ wasRefusedToViewer: Bool) -> Void
-    let onHeroMediaSizeRead: (PullRequestMediaItem, CGSize) -> Void
+    let onHeroMediaLoadFailure: (ShipTokPostMedia) -> Void
+    let onHeroMediaSizeRead: (ShipTokPostMedia, CGSize) -> Void
     let onTapWhileBehindVibeFeedbackComposer: () -> Void
     @State private var isReactionPickerPresented = false
     @State private var isViewerVibeRemovalConfirmationPresented = false
@@ -125,7 +97,7 @@ struct FeedCardView: View {
                         }
                     }
                     .offset(x: arrangedFrames.card.minX, y: arrangedFrames.card.minY)
-                if case .pullRequest(let pullRequest) = post, heroMediaItem == nil {
+                if let pullRequest = post.pullRequest, heroMediaItem == nil {
                     let summaryFrame = pullRequestSummaryFrame(frames: arrangedFrames)
                     pullRequestSummary(pullRequest)
                         .frame(width: summaryFrame.width, height: summaryFrame.height, alignment: .topLeading)
@@ -152,7 +124,7 @@ struct FeedCardView: View {
             .coordinateSpace(.named(Self.cardCoordinateSpaceName))
             // A sideways swipe is the only visible way to cast a vibe, so every element on the card offers both to VoiceOver (AGENTS.md, "Vibes").
             .accessibilityActions {
-                ForEach(PullRequestVibe.allCases, id: \.self) { vibe in
+                ForEach(ShipTokVibe.allCases, id: \.self) { vibe in
                     Button(vibe.displayName) { vibes.onCast(vibe) }
                 }
             }
@@ -213,10 +185,10 @@ struct FeedCardView: View {
     @ViewBuilder
     private func heroMedia(captionBackdrop: FeedCaptionBackdrop) -> some View {
         if let heroMediaItem {
-            PullRequestHeroMediaView(
+            PostHeroMediaView(
                 mediaItem: heroMediaItem,
                 analyticsSubject: analyticsSubject,
-                mediaPosition: post.mediaItems.firstIndex(where: { $0.id == heroMediaItem.id }) ?? 0,
+                mediaPosition: post.media.firstIndex(where: { $0.id == heroMediaItem.id }) ?? 0,
                 isPlaybackActive: isPlaybackActive,
                 isUnloadable: isHeroMediaUnloadable,
                 isOccludedForAnalytics: isOccludedForAnalytics,
@@ -227,7 +199,7 @@ struct FeedCardView: View {
                 progressLineInsets: pageLayout.heroProgressLineInsets,
                 wholeMediaInsets: pageLayout.wholeHeroMediaInsets,
                 captionBackdrop: captionBackdrop,
-                onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem, $0) },
+                onLoadFailure: { onHeroMediaLoadFailure(heroMediaItem) },
                 onMediaSizeRead: { onHeroMediaSizeRead(heroMediaItem, $0) }
             )
             .id(heroMediaItem.id)
@@ -274,7 +246,7 @@ struct FeedCardView: View {
     // Where the safe zone of a 9:16 ShipTok video ends on a card of this size, the video laid out as the hero lays it out: cropped to fill the card when that
     // loses at most an eighth of it, else whole and centered between the page layout's whole-media insets (AGENTS.md, "Card Layout").
     private func shipTokVideoSafeZoneBottom(inCardOfSize cardSize: CGSize) -> CGFloat {
-        let fillsCard = PullRequestMediaItemView.heroMediaFillsCard(mediaSize: Self.shipTokVideoSize, cardSize: cardSize)
+        let fillsCard = PostMediaView.heroMediaFillsCard(mediaSize: Self.shipTokVideoSize, cardSize: cardSize)
         let insets = fillsCard ? EdgeInsets() : pageLayout.wholeHeroMediaInsets
         let videoBoxSize = CGSize(width: cardSize.width - insets.leading - insets.trailing, height: cardSize.height - insets.top - insets.bottom)
         let widthScale = videoBoxSize.width / Self.shipTokVideoSize.width
@@ -299,7 +271,7 @@ struct FeedCardView: View {
     }
 
     // With nothing to play, the card says what the pull request changed. Only its details button takes a tap, so a double tap anywhere else still likes it and a link in the description never opens.
-    private func pullRequestSummary(_ pullRequest: PullRequest) -> some View {
+    private func pullRequestSummary(_ pullRequest: ShipTokPullRequestDetails) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 pullRequestStateChip(pullRequest)
@@ -335,10 +307,12 @@ struct FeedCardView: View {
         }
     }
 
-    private func pullRequestStateChip(_ pullRequest: PullRequest) -> some View {
+    private func pullRequestStateChip(_ pullRequest: ShipTokPullRequestDetails) -> some View {
         let (stateName, systemImageName, stateColor): (String, String, Color) =
-            if pullRequest.mergedAt != nil {
+            if pullRequest.state == .merged {
                 ("Merged", "arrow.triangle.merge", RevylBrandColor.brand)
+            } else if pullRequest.state == .closed {
+                ("Closed", "xmark.circle", RevylBrandColor.danger)
             } else if pullRequest.isDraft {
                 ("Draft", "arrow.triangle.pull", RevylBrandColor.textSubtle)
             } else {
@@ -353,17 +327,17 @@ struct FeedCardView: View {
             .overlay(Capsule().stroke(stateColor, lineWidth: 1))
     }
 
-    private func pullRequestLabelsAndDescription(_ pullRequest: PullRequest) -> some View {
+    private func pullRequestLabelsAndDescription(_ pullRequest: ShipTokPullRequestDetails) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if !pullRequest.labels.isEmpty {
                 PullRequestLabelChips(labels: pullRequest.labels)
             }
-            if MarkdownSummaryParser.blocks(from: pullRequest.descriptionMarkdown).isEmpty {
+            if MarkdownSummaryParser.blocks(from: post.descriptionMarkdown).isEmpty {
                 Text("No description.")
                     .font(.subheadline)
                     .foregroundStyle(RevylBrandColor.textMuted)
             } else {
-                MarkdownSummaryView(markdown: pullRequest.descriptionMarkdown)
+                MarkdownSummaryView(markdown: post.descriptionMarkdown)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -372,30 +346,26 @@ struct FeedCardView: View {
 
     @ViewBuilder
     private var caption: some View {
-        switch post {
-        case .pullRequest(let pullRequest):
-            pullRequestCaption(pullRequest)
-        case .weeklyEdition(let weeklyEdition):
+        switch post.kind {
+        case .pullRequest:
+            pullRequestCaption
+        case .weeklyEdition:
             publishedIssueCaption(
                 chipText: "ShipTok weekly",
-                dateText: weeklyEdition.weekDatesText,
-                title: weeklyEdition.title,
-                hook: weeklyEdition.hook,
+                dateText: post.weekDatesText ?? "",
                 accessibilityHint: "Opens this week's pull requests"
             )
-        case .feature(let feature):
+        case .feature:
             publishedIssueCaption(
                 chipText: "ShipTok feature",
-                dateText: "shipped \(feature.closedAt.formatted(.relative(presentation: .named)))",
-                title: feature.title,
-                hook: feature.hook,
+                dateText: post.closedAt.map { "shipped \($0.formatted(.relative(presentation: .named)))" } ?? "",
                 accessibilityHint: "Opens the pull requests behind this feature"
             )
         }
     }
 
     // A week or a feature names itself with a chip, a date, its title and its hook, and every part of the caption opens its pull requests.
-    private func publishedIssueCaption(chipText: String, dateText: String, title: String, hook: String, accessibilityHint: String) -> some View {
+    private func publishedIssueCaption(chipText: String, dateText: String, accessibilityHint: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button(action: onTapCaption) {
@@ -420,14 +390,16 @@ struct FeedCardView: View {
             .animation(.snappy, value: vibes.tally.viewerVibe)
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
+                    Text(verbatim: post.title)
                         .font(.callout)
                         .foregroundStyle(RevylBrandColor.textPrimary)
                         .lineLimit(2)
-                    Text(hook)
-                        .font(.subheadline)
-                        .foregroundStyle(RevylBrandColor.textBody)
-                        .lineLimit(1)
+                    if let hook = post.hook {
+                        Text(verbatim: hook)
+                            .font(.subheadline)
+                            .foregroundStyle(RevylBrandColor.textBody)
+                            .lineLimit(1)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -444,13 +416,13 @@ struct FeedCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func pullRequestCaption(_ pullRequest: PullRequest) -> some View {
+    private var pullRequestCaption: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button(action: onTapCaption) {
                     HStack(spacing: 10) {
-                        GitHubAvatarView(avatarURL: pullRequest.author?.avatarURL, diameter: 36)
-                        Text(verbatim: pullRequest.author?.login ?? "ghost")
+                        AvatarView(avatarURL: post.githubAuthor.avatarURL, diameter: 36)
+                        Text(verbatim: post.githubAuthor.login ?? "ghost")
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(RevylBrandColor.textPrimary)
                             .lineLimit(1)
@@ -464,17 +436,19 @@ struct FeedCardView: View {
             .animation(.snappy, value: vibes.tally.viewerVibe)
             Button(action: onTapCaption) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(pullRequest.title)
+                    Text(verbatim: post.title)
                         .font(.callout)
                         .foregroundStyle(RevylBrandColor.textPrimary)
                         .lineLimit(1)
                     HStack(spacing: 4) {
-                        Text(verbatim: "#\(pullRequest.number)")
-                        Text("·")
-                        if let mergedAt = pullRequest.mergedAt {
-                            Text("merged \(mergedAt.formatted(.relative(presentation: .named)))")
-                        } else {
-                            Text("\(pullRequest.isDraft ? "Draft · " : "")updated \(pullRequest.updatedAt.formatted(.relative(presentation: .named)))")
+                        Text(verbatim: "#\(post.githubIssueNumber)")
+                        if let pullRequest = post.pullRequest {
+                            Text("·")
+                            if let mergedAt = pullRequest.mergedAt {
+                                Text("merged \(mergedAt.formatted(.relative(presentation: .named)))")
+                            } else {
+                                Text("\(pullRequest.isDraft ? "Draft · " : "")updated \(pullRequest.updatedAt.formatted(.relative(presentation: .named)))")
+                            }
                         }
                     }
                     .font(.subheadline)
@@ -527,7 +501,7 @@ struct FeedCardView: View {
     private var actionRail: some View {
         let reactions = post.reactions
         let viewerHasLiked = reactions.viewerReactions.contains(.heart)
-        let viewerReactionOtherThanLike = GitHubReaction.allCases.first { $0 != .heart && reactions.viewerReactions.contains($0) }
+        let viewerReactionOtherThanLike = ShipTokReaction.allCases.first { $0 != .heart && reactions.viewerReactions.contains($0) }
         let isHeroVideoMuted = HeroVideoMuteChoice.shared.isMuted
         return ActionRailStack {
             railItem(
@@ -552,12 +526,12 @@ struct FeedCardView: View {
                 railItem(
                     systemImageName: "bubble.right",
                     tint: RevylBrandColor.textPrimary,
-                    count: post.discussionCommentCount
+                    count: post.feedback.commentCount
                 )
             }
             .buttonStyle(.swipeYielding)
             .accessibilityLabel("Comments")
-            .accessibilityValue(Self.compactCount(post.discussionCommentCount))
+            .accessibilityValue(Self.compactCount(post.feedback.commentCount))
             Button { isReactionPickerPresented.toggle() } label: {
                 if !isReactionPickerPresented, let viewerReactionOtherThanLike {
                     Text(verbatim: viewerReactionOtherThanLike.emoji)
@@ -608,11 +582,11 @@ struct FeedCardView: View {
                 .accessibilityValue(playbackRateChoice.chosenPlaybackRateText)
                 .accessibilityHint("Changes the speed of every video")
             }
-            switch post {
-            case .pullRequest(let pullRequest):
+            switch post.kind {
+            case .pullRequest:
                 // A lone still or GIF opens in the deck too, where it always shows whole (AGENTS.md, "Card Layout").
-                if pullRequest.mediaItems.count > 1 || heroMediaItem?.kind == .image || heroMediaItem?.kind == .animatedImage {
-                    PullRequestMediaDeckButton(mediaItems: pullRequest.mediaItems, action: onOpenDeck)
+                if post.media.count > 1 || heroMediaItem?.kind == .image || heroMediaItem?.kind == .gif {
+                    PostMediaDeckButton(mediaItems: post.media, action: onOpenDeck)
                 }
             case .weeklyEdition:
                 pullRequestDeckButton(accessibilityLabel: "This week's pull requests")
@@ -636,22 +610,22 @@ struct FeedCardView: View {
     }
 
     private var moderationMenu: some View {
-        GitHubPostedContentModerationMenu(moderation: moderation) {
+        ContentModerationMenu(moderation: moderation) {
             railItem(systemImageName: "ellipsis", tint: RevylBrandColor.textPrimary, count: nil)
         }
         .accessibilityLabel("More")
-        .accessibilityHint("Report on GitHub or hide a person")
+        .accessibilityHint("Report or hide a person")
     }
 
     private var reactionPicker: some View {
-        GitHubReactionPicker(viewerReactions: post.reactions.viewerReactions) { reaction in
+        ReactionPicker(viewerReactions: post.reactions.viewerReactions) { reaction in
             onToggleReaction(reaction)
             isReactionPickerPresented = false
         }
     }
 
     private func reactionPickerOffset(cardFrame: CGRect) -> CGSize {
-        let pickerSize = GitHubReactionPicker.fittedSize
+        let pickerSize = ReactionPicker.fittedSize
         let railLeadingX = reactButtonFrameInCard.midX - FeedPageLayout.railWidth / 2
         let pickerX = railLeadingX - Self.reactionPickerSpacing - pickerSize.width
         let pickerY = reactButtonFrameInCard.midY - pickerSize.height / 2
