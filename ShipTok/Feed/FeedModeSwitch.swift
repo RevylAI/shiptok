@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum FeedMode: String, Sendable {
+enum FeedMode: String, CaseIterable, Sendable {
     case open
     case merged
     case weekly
@@ -12,12 +12,22 @@ enum FeedMode: String, Sendable {
         case .merged: self = .merged
         }
     }
+
+    var tabTitle: String {
+        switch self {
+        case .open: "Open"
+        case .merged: "Merged"
+        case .weekly: "Weekly"
+        case .features: "Features"
+        }
+    }
 }
 
-// The Open / Merged / Weekly / Features tabs at the top of the feed, plain text like Reels' own; while a week's or a feature's pull requests are open they
-// become the way back to the weeks or features (AGENTS.md, "Card Layout" and "Feed Modes").
+// The tabs at the top of the feed for the modes the person keeps on, in Open / Merged / Weekly / Features order, plain text like Reels' own; while a week's or a
+// feature's pull requests are open they become the way back to the weeks or features (AGENTS.md, "Card Layout" and "Feed Modes").
 struct FeedModeSwitch: View {
     @Binding var feedMode: FeedMode
+    let feedModesWithShownTabs: [FeedMode]
     let shownDeckSource: PullRequestDeckSource?
     let onCloseDeck: () -> Void
     // Where the card's middle falls in the switch's own frame, which the tabs center on whenever they fit there.
@@ -47,10 +57,9 @@ struct FeedModeSwitch: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 FeedModeTabsLayout(spacing: Self.tabSpacing, preferredCenterX: preferredTabsCenterX) {
-                    tab("Open", mode: .open)
-                    tab("Merged", mode: .merged)
-                    tab("Weekly", mode: .weekly)
-                    tab("Features", mode: .features)
+                    ForEach(feedModesWithShownTabs, id: \.self) { mode in
+                        tab(for: mode)
+                    }
                 }
             }
         }
@@ -65,7 +74,7 @@ struct FeedModeSwitch: View {
         }
     }
 
-    private func tab(_ title: String, mode: FeedMode) -> some View {
+    private func tab(for mode: FeedMode) -> some View {
         let isSelected = feedMode == mode
         return Button {
             let previousMode = feedMode
@@ -74,7 +83,7 @@ struct FeedModeSwitch: View {
                 analytics?.capture(.feedModeChanged(previousMode: previousMode, mode: mode))
             }
         } label: {
-            Text(verbatim: title)
+            Text(verbatim: mode.tabTitle)
                 .font(.title2.weight(.bold))
                 .lineLimit(1)
                 .minimumScaleFactor(Self.tabMinimumScaleFactor)

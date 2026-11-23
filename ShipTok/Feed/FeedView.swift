@@ -483,6 +483,12 @@ struct FeedView: View {
         .onChange(of: showsOnlyPullRequestsWithVideos, initial: true) { _, newShowsOnlyPullRequestsWithVideos in
             feedStore.showsOnlyPullRequestsWithVideos = newShowsOnlyPullRequestsWithVideos
         }
+        .onChange(of: userSettingsStore.feedModesWithShownTabs) { _, newFeedModesWithShownTabs in
+            if let openDeckSource, !newFeedModesWithShownTabs.contains(openDeckSource.feedMode) { closeDeck() }
+            if !newFeedModesWithShownTabs.contains(feedMode), let firstFeedModeWithShownTab = newFeedModesWithShownTabs.first {
+                feedMode = firstFeedModeWithShownTab
+            }
+        }
         .onChange(of: scenePhase) { _, newScenePhase in
             switch newScenePhase {
             case .active:
@@ -594,6 +600,7 @@ struct FeedView: View {
         return ZStack(alignment: .topLeading) {
             FeedModeSwitch(
                 feedMode: Binding(get: { feedMode }, set: { feedMode = $0 }),
+                feedModesWithShownTabs: userSettingsStore.feedModesWithShownTabs,
                 shownDeckSource: feedContext == .openDeck ? openDeckSource : nil,
                 onCloseDeck: closeDeck,
                 preferredTabsCenterX: pageLayout.card.midX - feedModeSwitchArea.minX
@@ -1529,7 +1536,7 @@ struct FeedView: View {
     }
 
     private func openPullRequest(number: Int) {
-        for feed in [PullRequestFeed.merged, .open] {
+        for feed in [PullRequestFeed.merged, .open] where userSettingsStore.feedModesWithShownTabs.contains(FeedMode(feed)) {
             guard let pageIndex = feedStore.visiblePullRequests(in: feed).firstIndex(where: { $0.number == number }) else { continue }
             feedMode = FeedMode(feed)
             selectedTab = .feed

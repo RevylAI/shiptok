@@ -23,7 +23,7 @@ test:
         - type: instructions
           step_description: Tap Settings, the gear icon at the top right of the feed
         - type: validation
-          step_description: Settings shows an Account row with '@revyl-shiptok-tests' and 'Signed in with Revyl, using your GitHub account', and a Feed section whose Repository is RevylAI/kyle-expo
+          step_description: Settings shows an Account row with '@revyl-shiptok-tests' and 'Signed in to Revyl, with your GitHub account connected', and a Feed section whose Repository is RevylAI/kyle-expo
         - type: instructions
           step_description: Tap the Repository row in the Feed section
         - type: validation
@@ -44,3 +44,27 @@ test:
           step_description: Scroll back to the top of Settings and tap 'Feed', the back button with a chevron at the top left, without tapping any other button
         - type: validation
           step_description: The feed shows a pull request card again
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: validation
+          step_description: Settings shows a 'Feed tabs' section, below the Feed section, with Open, Merged, Weekly and Features all turned on
+        - type: instructions
+          step_description: In the Feed tabs section, turn off Open, then Merged, then Weekly
+        - type: validation
+          step_description: In Feed tabs only Features is still on, and its switch is dimmed
+        - type: instructions
+          step_description: Tap the Features switch in the Feed tabs section
+        - type: validation
+          step_description: Features is still turned on, since the last tab can't be turned off
+        - type: instructions
+          step_description: Scroll back to the top of Settings and tap 'Feed', the back button with a chevron at the top left
+        - type: validation
+          step_description: The top of the feed shows only a 'Features' tab, with no Open, Merged or Weekly tab, and the feed shows a feature card
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed, then in the Feed tabs section turn Open, Merged and Weekly back on
+        - type: validation
+          step_description: In Feed tabs, Open, Merged, Weekly and Features are all turned on
+        - type: instructions
+          step_description: Scroll back to the top of Settings and tap 'Feed', the back button with a chevron at the top left
+        - type: validation
+          step_description: The top of the feed shows the Open, Merged, Weekly and Features tabs

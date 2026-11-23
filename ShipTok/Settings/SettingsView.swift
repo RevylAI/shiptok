@@ -54,6 +54,16 @@ struct SettingsView: View {
                     Text("Open and Merged show only pull requests that lead with a video. Turn it off to see ones with only screenshots or GIFs too. Weekly, Features and the pull requests they open always show.")
                 }
                 Section {
+                    ForEach(FeedMode.allCases, id: \.self) { feedMode in
+                        Toggle(feedMode.tabTitle, isOn: feedModeTabBinding(for: feedMode))
+                            .disabled(userSettingsStore.feedModesWithShownTabs == [feedMode])
+                    }
+                } header: {
+                    Text("Feed tabs")
+                } footer: {
+                    Text("Choose which tabs show at the top of the feed. At least one stays on.")
+                }
+                Section {
                     Toggle("Ask for feedback on good vibes", isOn: feedbackBoxBinding(for: .good))
                     Toggle("Ask for feedback on bad vibes", isOn: feedbackBoxBinding(for: .bad))
                 } header: {
@@ -95,6 +105,16 @@ struct SettingsView: View {
             set: { showsOnlyPullRequestsWithVideos in
                 analytics?.capture(.showsOnlyPullRequestsWithVideosChanged(showsOnlyPullRequestsWithVideos))
                 Task { await userSettingsStore.setShowsOnlyPullRequestsWithVideos(showsOnlyPullRequestsWithVideos) }
+            }
+        )
+    }
+
+    private func feedModeTabBinding(for feedMode: FeedMode) -> Binding<Bool> {
+        Binding(
+            get: { userSettingsStore.feedModesWithShownTabs.contains(feedMode) },
+            set: { showsFeedModeTab in
+                analytics?.capture(.showsFeedModeTabChanged(feedMode, showsFeedModeTab: showsFeedModeTab))
+                Task { await userSettingsStore.setShowsFeedModeTab(showsFeedModeTab, for: feedMode) }
             }
         )
     }

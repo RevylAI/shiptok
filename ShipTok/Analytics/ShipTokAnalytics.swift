@@ -131,6 +131,7 @@ enum ShipTokAnalyticsEvent: Sendable {
     case feedModeChanged(previousMode: FeedMode, mode: FeedMode)
     case olderPullRequestsLoaded(PullRequestFeed, addedPullRequestCount: Int, addedVisiblePullRequestCount: Int)
     case showsOnlyPullRequestsWithVideosChanged(Bool)
+    case showsFeedModeTabChanged(FeedMode, showsFeedModeTab: Bool)
     case commentsOpened(ShipTokAnalyticsSubject)
     case likeSelected(ShipTokAnalyticsSubject, control: LikeControl, wasLiked: Bool)
     case firstScreenShown(reason: FirstScreenShowReason)
@@ -163,6 +164,7 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .feedModeChanged: "shiptok_feed_mode_changed"
         case .olderPullRequestsLoaded: "shiptok_older_pull_requests_loaded"
         case .showsOnlyPullRequestsWithVideosChanged: "shiptok_shows_only_pull_requests_with_videos_changed"
+        case .showsFeedModeTabChanged: "shiptok_shows_feed_mode_tab_changed"
         case .commentsOpened: "shiptok_comments_opened"
         case .likeSelected: "shiptok_like_selected"
         case .firstScreenShown: "shiptok_first_screen_shown"
@@ -245,6 +247,9 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["added_visible_pull_request_count"] = .integer(addedVisiblePullRequestCount)
         case .showsOnlyPullRequestsWithVideosChanged(let showsOnlyPullRequestsWithVideos):
             properties["shows_only_pull_requests_with_videos"] = .boolean(showsOnlyPullRequestsWithVideos)
+        case .showsFeedModeTabChanged(let feedMode, let showsFeedModeTab):
+            properties["feed_mode"] = .string(feedMode.rawValue)
+            properties["shows_feed_mode_tab"] = .boolean(showsFeedModeTab)
         case .commentsOpened(let subject):
             addSubject(subject)
         case .likeSelected(let subject, let control, let wasLiked):
@@ -371,7 +376,7 @@ final class ShipTokAnalytics {
         if let visitProperty {
             properties[visitProperty.name] = .string(visitProperty.visitID.uuidString)
         }
-        properties["schema_version"] = .integer(5)
+        properties["schema_version"] = .integer(6)
         properties["app_version"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")
         properties["app_build"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown")
         #if DEBUG

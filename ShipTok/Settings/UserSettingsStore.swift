@@ -5,24 +5,44 @@ struct UserSettings: Codable, Equatable, Sendable {
     var showsGoodVibesFeedbackBox: Bool
     var showsBadVibesFeedbackBox: Bool
     var showsOnlyPullRequestsWithVideos: Bool
+    var showsOpenFeedModeTab: Bool
+    var showsMergedFeedModeTab: Bool
+    var showsWeeklyFeedModeTab: Bool
+    var showsFeaturesFeedModeTab: Bool
 
-    static let defaults = UserSettings(showsGoodVibesFeedbackBox: false, showsBadVibesFeedbackBox: true, showsOnlyPullRequestsWithVideos: true)
+    static let defaults = UserSettings(
+        showsGoodVibesFeedbackBox: false,
+        showsBadVibesFeedbackBox: true,
+        showsOnlyPullRequestsWithVideos: true,
+        showsOpenFeedModeTab: true,
+        showsMergedFeedModeTab: true,
+        showsWeeklyFeedModeTab: true,
+        showsFeaturesFeedModeTab: true
+    )
 
     enum CodingKeys: String, CodingKey {
         case showsGoodVibesFeedbackBox = "shows_good_vibes_feedback_box"
         case showsBadVibesFeedbackBox = "shows_bad_vibes_feedback_box"
         case showsOnlyPullRequestsWithVideos = "shows_only_pull_requests_with_videos"
+        case showsOpenFeedModeTab = "shows_open_feed_mode_tab"
+        case showsMergedFeedModeTab = "shows_merged_feed_mode_tab"
+        case showsWeeklyFeedModeTab = "shows_weekly_feed_mode_tab"
+        case showsFeaturesFeedModeTab = "shows_features_feed_mode_tab"
     }
 }
 
 extension UserSettings {
-    // Revyl's backend may not return Videos only yet, and it's on until the person turns it off (AGENTS.md, "Feed Order").
+    // Revyl's backend may not return Videos only or the feed tabs yet, and each is on until the person turns it off (AGENTS.md, "Feed Order" and "Feed Modes").
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         showsGoodVibesFeedbackBox = try container.decode(Bool.self, forKey: .showsGoodVibesFeedbackBox)
         showsBadVibesFeedbackBox = try container.decode(Bool.self, forKey: .showsBadVibesFeedbackBox)
         showsOnlyPullRequestsWithVideos = try container.decodeIfPresent(Bool.self, forKey: .showsOnlyPullRequestsWithVideos)
             ?? Self.defaults.showsOnlyPullRequestsWithVideos
+        showsOpenFeedModeTab = try container.decodeIfPresent(Bool.self, forKey: .showsOpenFeedModeTab) ?? Self.defaults.showsOpenFeedModeTab
+        showsMergedFeedModeTab = try container.decodeIfPresent(Bool.self, forKey: .showsMergedFeedModeTab) ?? Self.defaults.showsMergedFeedModeTab
+        showsWeeklyFeedModeTab = try container.decodeIfPresent(Bool.self, forKey: .showsWeeklyFeedModeTab) ?? Self.defaults.showsWeeklyFeedModeTab
+        showsFeaturesFeedModeTab = try container.decodeIfPresent(Bool.self, forKey: .showsFeaturesFeedModeTab) ?? Self.defaults.showsFeaturesFeedModeTab
     }
 }
 
@@ -56,6 +76,11 @@ final class UserSettingsStore {
         userSettings[keyPath: Self.feedbackBoxSetting(for: vibe)]
     }
 
+    var feedModesWithShownTabs: [FeedMode] {
+        let shownUserSettings = userSettings
+        return FeedMode.allCases.filter { shownUserSettings[keyPath: Self.feedModeTabSetting(for: $0)] }
+    }
+
     // A read that a save overtook holds settings older than that save, so it's dropped.
     func refresh() async {
         let confirmedSaveCountAtFetchStart = confirmedSaveCount
@@ -78,6 +103,12 @@ final class UserSettingsStore {
 
     func setShowsOnlyPullRequestsWithVideos(_ showsOnlyPullRequestsWithVideos: Bool) async {
         await setSetting(\.showsOnlyPullRequestsWithVideos, to: showsOnlyPullRequestsWithVideos)
+    }
+
+    // At least one tab stays on, which Revyl's backend refuses to break as well (AGENTS.md, "Feed Modes").
+    func setShowsFeedModeTab(_ showsFeedModeTab: Bool, for feedMode: FeedMode) async {
+        guard showsFeedModeTab || feedModesWithShownTabs != [feedMode] else { return }
+        await setSetting(Self.feedModeTabSetting(for: feedMode), to: showsFeedModeTab)
     }
 
     private func setSetting(_ setting: WritableKeyPath<UserSettings, Bool>, to newValue: Bool) async {
@@ -116,6 +147,15 @@ final class UserSettingsStore {
         switch vibe {
         case .good: \.showsGoodVibesFeedbackBox
         case .bad: \.showsBadVibesFeedbackBox
+        }
+    }
+
+    private static func feedModeTabSetting(for feedMode: FeedMode) -> WritableKeyPath<UserSettings, Bool> {
+        switch feedMode {
+        case .open: \.showsOpenFeedModeTab
+        case .merged: \.showsMergedFeedModeTab
+        case .weekly: \.showsWeeklyFeedModeTab
+        case .features: \.showsFeaturesFeedModeTab
         }
     }
 }
