@@ -199,6 +199,8 @@ struct ShipTokPostFeedback: Hashable, Sendable, Codable {
     var viewerVibeFeedbackText: String?
     // What deletes the viewer's vibe; nil while it has none, or while a new one is on its way.
     var viewerVibeID: String?
+    // True when Revyl matched the post to the viewer as its developer, so the post is theirs and offers no Report or Hide.
+    let viewerIsDeveloper: Bool
 
     private enum CodingKeys: String, CodingKey {
         case reactionCounts = "reaction_counts"
@@ -213,12 +215,14 @@ struct ShipTokPostFeedback: Hashable, Sendable, Codable {
         let vibe: ShipTokVibe?
         let vibeFeedbackText: String?
         let vibeID: String?
+        let isDeveloper: Bool
 
         private enum CodingKeys: String, CodingKey {
             case reactions
             case vibe
             case vibeFeedbackText = "vibe_feedback_text"
             case vibeID = "vibe_id"
+            case isDeveloper = "is_developer"
         }
     }
 
@@ -235,6 +239,7 @@ struct ShipTokPostFeedback: Hashable, Sendable, Codable {
         viewerVibe = viewer.vibe
         viewerVibeFeedbackText = viewer.vibeFeedbackText
         viewerVibeID = viewer.vibeID
+        viewerIsDeveloper = viewer.isDeveloper
     }
 
     func encode(to encoder: Encoder) throws {
@@ -243,7 +248,7 @@ struct ShipTokPostFeedback: Hashable, Sendable, Codable {
         try container.encode(goodVibeCount, forKey: .goodVibeCount)
         try container.encode(badVibeCount, forKey: .badVibeCount)
         try container.encode(commentCount, forKey: .commentCount)
-        try container.encode(Viewer(reactions: Array(reactions.viewerReactions), vibe: viewerVibe, vibeFeedbackText: viewerVibeFeedbackText, vibeID: viewerVibeID), forKey: .viewer)
+        try container.encode(Viewer(reactions: Array(reactions.viewerReactions), vibe: viewerVibe, vibeFeedbackText: viewerVibeFeedbackText, vibeID: viewerVibeID, isDeveloper: viewerIsDeveloper), forKey: .viewer)
     }
 
     // A new vibe replaces the viewer's earlier one, so its count moves from the old vibe to the new.

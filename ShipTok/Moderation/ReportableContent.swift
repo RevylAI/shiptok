@@ -24,9 +24,9 @@ struct ReportableContent: Hashable, Identifiable {
         githubReportURL != nil || commentID != nil || vibeID != nil
     }
 
-    // Nil for a post whose GitHub account was deleted, which has nobody to report or hide.
+    // Nil for the viewer's own post and for a post whose GitHub account was deleted, which has nobody to report or hide (AGENTS.md, "Report And Hide").
     init?(post: ShipTokPost) {
-        guard let login = post.githubAuthor.login else { return nil }
+        guard !post.feedback.viewerIsDeveloper, let login = post.githubAuthor.login else { return nil }
         kind = .post(post.kind)
         poster = HiddenPerson(githubLogin: login)
         postID = post.id

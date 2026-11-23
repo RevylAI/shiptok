@@ -23,7 +23,7 @@ Settings → Repository lists every repository your organization's Revyl GitHub 
 
 ## Report and hide
 
-Every pull request, weekly or feature video, comment, reply and vibe in ShipTok can be reported, and the person who posted it hidden. A pull request or video lives on GitHub, so Report opens GitHub's own report form. A comment, reply or vibe lives in Revyl, so Report emails your organization's owners and admins. Hiding a post's author takes their pull requests and videos out of ShipTok on this iPhone, and hiding a commenter takes their comments, replies and vibes out; they aren't told. Settings → Hidden people lists everyone you hid, with Unhide.
+Every pull request, weekly or feature video, comment, reply and vibe in ShipTok can be reported, and the person who posted it hidden, except your own pull requests and videos. A pull request or video lives on GitHub, so Report opens GitHub's own report form. A comment, reply or vibe lives in Revyl, so Report emails your organization's owners and admins. Hiding a post's author takes their pull requests and videos out of ShipTok on this iPhone, and hiding a commenter takes their comments, replies and vibes out; they aren't told. Settings → Hidden people lists everyone you hid, with Unhide.
 
 ## Your data
 
