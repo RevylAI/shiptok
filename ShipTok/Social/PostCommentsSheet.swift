@@ -465,6 +465,13 @@ private struct PostCommentRow: View {
                 Text(verbatim: comment.author.displayName)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(RevylBrandColor.textMuted)
+                // A reply sits under its thread's top-level comment, so only one that answers another reply says whom it answers.
+                if let replyToAuthor = comment.replyToAuthor, comment.replyToCommentID != comment.parentCommentID {
+                    Text("Replying to \(replyToAuthor.displayName)")
+                        .font(.caption)
+                        .foregroundStyle(RevylBrandColor.textSubtle)
+                        .lineLimit(1)
+                }
                 Text(verbatim: comment.body)
                     .font(.subheadline)
                     .foregroundStyle(RevylBrandColor.textPrimary)

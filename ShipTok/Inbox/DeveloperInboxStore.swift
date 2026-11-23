@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import OSLog
 
-// Feedback on the viewer's own posts and replies to their comments, newest first, as Revyl serves it; whether it's read is kept in the Revyl account, so every device agrees (AGENTS.md, "Inbox").
+// Feedback on the viewer's own posts, replies to their comments and replies in threads they started, newest first, as Revyl serves it; whether it's read is kept in the Revyl account, so every device agrees (AGENTS.md, "Inbox").
 @Observable
 @MainActor
 final class DeveloperInboxStore {

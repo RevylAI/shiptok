@@ -110,18 +110,17 @@ final class PostCommentsStore {
         }
     }
 
-    // A reply to a reply attaches to its top-level comment, since replies are one level deep.
+    // A reply names the comment it answers, so Revyl tells that comment's author; Revyl files it under the thread's top-level comment, since replies are one level deep.
     func postComment(body: String, replyingTo repliedComment: ShipTokPostComment?) async -> ShipTokPostComment? {
-        let parentCommentID = repliedComment.map { $0.parentCommentID ?? $0.id }
-        let attempt = analytics.requestMutation(.comment, change: .add, subject: analyticsSubject, isReply: parentCommentID != nil)
+        let attempt = analytics.requestMutation(.comment, change: .add, subject: analyticsSubject, isReply: repliedComment != nil)
         isPostingComment = true
         defer { isPostingComment = false }
         do {
-            let postedComment = try await api.postComment(body: body, parentCommentID: parentCommentID, postID: postID)
+            let postedComment = try await api.postComment(body: body, parentCommentID: repliedComment?.id, postID: postID)
             localChangeGeneration += 1
-            if let parentCommentID, let parentIndex = comments.firstIndex(where: { $0.id == parentCommentID }) {
-                comments[parentIndex].replies.append(postedComment)
-            } else if parentCommentID == nil, commentsNextCursor == nil {
+            if let threadCommentID = postedComment.parentCommentID, let threadIndex = comments.firstIndex(where: { $0.id == threadCommentID }) {
+                comments[threadIndex].replies.append(postedComment)
+            } else if postedComment.parentCommentID == nil, commentsNextCursor == nil {
                 comments.append(postedComment)
             }
             onCommentCountChange(1)

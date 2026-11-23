@@ -377,6 +377,9 @@ struct ShipTokPostComment: Identifiable, Hashable, Sendable, Decodable {
     let id: String
     let postID: String
     let parentCommentID: String?
+    // The comment a reply answers, the top-level one or a reply under it, and that comment's author.
+    let replyToCommentID: String?
+    let replyToAuthor: ShipTokPerson?
     let author: ShipTokPerson
     let body: String
     let createdAt: Date
@@ -389,6 +392,8 @@ struct ShipTokPostComment: Identifiable, Hashable, Sendable, Decodable {
         case id = "comment_id"
         case postID = "post_id"
         case parentCommentID = "parent_comment_id"
+        case replyToCommentID = "reply_to_comment_id"
+        case replyToAuthor = "reply_to_author"
         case author
         case body
         case createdAt = "created_at"
@@ -403,6 +408,8 @@ struct ShipTokPostComment: Identifiable, Hashable, Sendable, Decodable {
         id = try container.decode(String.self, forKey: .id)
         postID = try container.decode(String.self, forKey: .postID)
         parentCommentID = try container.decodeIfPresent(String.self, forKey: .parentCommentID)
+        replyToCommentID = try container.decodeIfPresent(String.self, forKey: .replyToCommentID)
+        replyToAuthor = try container.decodeIfPresent(ShipTokPerson.self, forKey: .replyToAuthor)
         author = try container.decode(ShipTokPerson.self, forKey: .author)
         body = try container.decode(String.self, forKey: .body)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
@@ -513,6 +520,8 @@ struct ShipTokInboxItem: Identifiable, Hashable, Sendable, Decodable {
     let vibe: ShipTokVibe?
     let text: String?
     let commentID: String?
+    // Whose comment a reply answers, which is someone else's when the reply lands in a thread the viewer started.
+    let replyToAuthor: ShipTokPerson?
     let createdAt: Date
     // The backend's own spelling of when it was created, which marks the inbox read through exactly this item, to the microsecond (AGENTS.md, "Inbox").
     let createdAtText: String
@@ -527,6 +536,7 @@ struct ShipTokInboxItem: Identifiable, Hashable, Sendable, Decodable {
         case vibe
         case text
         case commentID = "comment_id"
+        case replyToAuthor = "reply_to_author"
         case createdAt = "created_at"
         case isUnread = "is_unread"
     }
@@ -541,6 +551,7 @@ struct ShipTokInboxItem: Identifiable, Hashable, Sendable, Decodable {
         vibe = try container.decodeIfPresent(ShipTokVibe.self, forKey: .vibe)
         text = try container.decodeIfPresent(String.self, forKey: .text)
         commentID = try container.decodeIfPresent(String.self, forKey: .commentID)
+        replyToAuthor = try container.decodeIfPresent(ShipTokPerson.self, forKey: .replyToAuthor)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         createdAtText = try container.decode(String.self, forKey: .createdAt)
         isUnread = try container.decode(Bool.self, forKey: .isUnread)

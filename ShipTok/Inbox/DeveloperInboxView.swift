@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DeveloperInboxView: View {
     let store: DeveloperInboxStore
+    let viewerRevylUserID: String
     let onOpenItem: (ShipTokInboxItem) -> Void
     let onHide: (ReportableContent) -> Void
     let onShowFeed: (() -> Void)?
@@ -40,7 +41,7 @@ struct DeveloperInboxView: View {
                             }
                             ForEach(store.items) { inboxItem in
                                 Button { onOpenItem(inboxItem) } label: {
-                                    DeveloperInboxRow(inboxItem: inboxItem, isUnread: store.isUnread(inboxItem))
+                                    DeveloperInboxRow(inboxItem: inboxItem, isUnread: store.isUnread(inboxItem), viewerRevylUserID: viewerRevylUserID)
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
@@ -105,6 +106,7 @@ struct DeveloperInboxView: View {
 private struct DeveloperInboxRow: View {
     let inboxItem: ShipTokInboxItem
     let isUnread: Bool
+    let viewerRevylUserID: String
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -140,9 +142,13 @@ private struct DeveloperInboxRow: View {
         switch inboxItem.kind {
         case .vibe: inboxItem.vibe == .bad ? "gave it bad vibes" : "gave it good vibes"
         case .comment: "commented"
-        case .reply: "replied to your comment"
+        case .reply: replyAnswersViewer ? "replied to your comment" : "replied in your thread"
         case .reaction: inboxItem.reaction.map { $0 == .heart ? "liked it" : "reacted \($0.emoji)" } ?? "reacted"
         }
+    }
+
+    private var replyAnswersViewer: Bool {
+        inboxItem.replyToAuthor.map { $0.revylUserID == viewerRevylUserID } ?? true
     }
 
     private var postDescription: String {

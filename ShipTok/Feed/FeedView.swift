@@ -482,6 +482,7 @@ struct FeedView: View {
         case .inbox:
             DeveloperInboxView(
                 store: inboxStore,
+                viewerRevylUserID: viewer.account.revylUserID,
                 onOpenItem: { inboxItem in
                     openPost(postID: inboxItem.post.postID, opensComments: inboxItem.kind != .reaction, focusedCommentID: inboxItem.commentID)
                 },
