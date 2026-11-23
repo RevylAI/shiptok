@@ -62,7 +62,7 @@ struct HiddenPeopleSection: View {
         } header: {
             Text("Hidden people")
         } footer: {
-            Text("A hidden GitHub account's pull requests, weekly and feature videos, and a hidden teammate's comments, replies, vibes and notifications don't show in ShipTok on this iPhone. They aren't told.")
+            Text("A hidden GitHub account's pull requests, weekly and feature videos, and a hidden teammate's comments, replies, vibes and inbox items don't show in ShipTok on this iPhone. Push notifications for what they do still arrive. They aren't told.")
         }
     }
 }
