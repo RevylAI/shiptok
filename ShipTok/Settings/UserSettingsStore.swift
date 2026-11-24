@@ -38,12 +38,13 @@ struct UserSettings: Codable, Equatable, Sendable {
 final class UserSettingsStore {
     private(set) var refreshFailureMessage: String?
     var saveFailureMessage: String?
-    // What Revyl's backend last confirmed, by a read or a save; nil until the first one. The settings shown are these with each setting's newest change still saving on top, so a read never shows an old value over a toggle, and a failed save puts the setting back to what's saved (AGENTS.md, "Settings").
+    // What Revyl's backend last confirmed, by a read or a save; nil until the first one. The settings shown are these with each setting's newest change still saving on top, so a read never shows an old value over a toggle, and a failed save shows what Revyl reads back (AGENTS.md, "Settings").
     private(set) var savedUserSettings: UserSettings?
     private var pendingChangeBySetting: [WritableKeyPath<UserSettings, Bool>: PendingSettingChange] = [:]
     private var latestChangeRevision = 0
     private var confirmedSaveCount = 0
     private var latestSave: Task<Void, Error>?
+    private var readAfterFailedSave: Task<Void, Never>?
     private let api: RevylShipTokAPI
 
     init(api: RevylShipTokAPI) {
@@ -114,7 +115,22 @@ final class UserSettingsStore {
             pendingChangeBySetting[setting] = nil
         }
         if case .failure(let error) = saveResult {
-            saveFailureMessage = "The setting is back to its saved value. \(error.localizedDescription)"
+            saveFailureMessage = "Settings show what Revyl has saved. \(error.localizedDescription)"
+            readAfterFailedSave?.cancel()
+            readAfterFailedSave = Task { await readSavedSettingsAfterFailedSave() }
+        }
+    }
+
+    // A failed save may still have landed, as when Revyl stores it and restarts before answering, so Revyl is read again, retrying while it's briefly unreachable (AGENTS.md, "Settings").
+    private func readSavedSettingsAfterFailedSave() async {
+        for retryDelay: Duration in [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(32)] {
+            do {
+                try await Task.sleep(for: retryDelay)
+            } catch {
+                return
+            }
+            await refresh()
+            if refreshFailureMessage == nil { return }
         }
     }
 
