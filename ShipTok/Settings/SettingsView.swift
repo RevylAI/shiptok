@@ -65,7 +65,7 @@ struct SettingsView: View {
                                 .foregroundStyle(RevylBrandColor.textMuted)
                         }
                     }
-                    Toggle("Videos only", isOn: showsOnlyPostsWithVideosBinding)
+                    ToggleSettingRow(title: "Videos only", isOn: showsOnlyPostsWithVideosBinding)
                 } header: {
                     Text("Feed")
                 } footer: {
@@ -73,7 +73,7 @@ struct SettingsView: View {
                 }
                 Section {
                     ForEach(FeedMode.allCases, id: \.self) { feedMode in
-                        Toggle(feedMode.tabTitle, isOn: feedModeTabBinding(for: feedMode))
+                        ToggleSettingRow(title: feedMode.tabTitle, isOn: feedModeTabBinding(for: feedMode))
                             .disabled(userSettingsStore.feedModesWithShownTabs == [feedMode])
                     }
                 } header: {
@@ -82,8 +82,8 @@ struct SettingsView: View {
                     Text("Choose which tabs show at the top of the feed. At least one stays on.")
                 }
                 Section {
-                    Toggle("Ask for feedback on good vibes", isOn: feedbackBoxBinding(for: .good))
-                    Toggle("Ask for feedback on bad vibes", isOn: feedbackBoxBinding(for: .bad))
+                    ToggleSettingRow(title: "Ask for feedback on good vibes", isOn: feedbackBoxBinding(for: .good))
+                    ToggleSettingRow(title: "Ask for feedback on bad vibes", isOn: feedbackBoxBinding(for: .bad))
                 } header: {
                     Text("Vibe feedback")
                 } footer: {
