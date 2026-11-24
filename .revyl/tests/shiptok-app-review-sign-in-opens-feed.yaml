@@ -1,0 +1,78 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: e9cacdee-fc76-450e-8873-30d8be3aa842
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-21T15:45:58Z"
+    checksum: 4d4361eaa00d67e570f0cd5be6e539ced0b3eab5dd99350df19ef358ca410e83
+test:
+    metadata:
+        name: shiptok-app-review-sign-in-opens-feed
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    blocks:
+        - type: validation
+          step_description: The first screen shows ShipTok with exactly two choices, a 'Sign in to Revyl' button and a 'Join existing organization' button
+        - type: instructions
+          step_description: Tap 'Sign in to Revyl'
+        - type: validation
+          step_description: A browser sheet opens over ShipTok on Revyl's sign-in page
+        - type: instructions
+          step_description: Sign in on Revyl's page with the email {{global.shiptok-app-review-revyl-sign-in-email}} and the password {{global.shiptok-app-review-revyl-sign-in-password}}, following the page's steps
+        - type: validation
+          step_description: Revyl's page shows 'Sign in to ShipTok' with a 'Continue' button
+        - type: instructions
+          step_description: Tap 'Continue'
+        - type: manual
+          step_type: wait
+          step_description: "5"
+        - type: if
+          condition: An alert asks to allow ShipTok to send notifications
+          then:
+            - type: instructions
+              step_description: Tap 'Allow' on the notifications alert
+            - type: manual
+              step_type: wait
+              step_description: "3"
+        - type: validation
+          step_description: The browser sheet is gone and ShipTok shows its Repository list or its feed, not the first screen and not a Revyl or GitHub page
+        - type: if
+          condition: ShipTok shows its 'Repository' list of repositories to choose from
+          then:
+            - type: instructions
+              step_description: Tap the row that reads 'RevylAI/kyle-expo'
+            - type: manual
+              step_type: wait
+              step_description: "5"
+        - type: validation
+          step_description: ShipTok shows RevylAI/kyle-expo's feed, a card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: validation
+          step_description: Settings shows an Account row that says 'Signed in to Revyl in Revyl Benchmarks', and a Feed section whose Repository is RevylAI/kyle-expo
+        - type: instructions
+          step_description: Scroll down to the bottom of Settings without tapping any button or toggle
+        - type: validation
+          step_description: The bottom of Settings shows the 'Sign out' and 'Delete my Revyl account' buttons
+        - type: instructions
+          step_description: Scroll back to the top of Settings and tap 'Feed', the back button with a chevron at the top left, without tapping any other button
+        - type: validation
+          step_description: The feed shows a card again
+        - type: manual
+          step_type: kill_app
+        - type: manual
+          step_type: wait
+          step_description: "3"
+        - type: manual
+          step_type: open_app
+        - type: manual
+          step_type: wait
+          step_description: "5"
+        - type: validation
+          step_description: 'ShipTok opens straight to RevylAI/kyle-expo''s feed, with no first screen, Revyl page or Repository list: a card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
