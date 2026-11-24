@@ -1,0 +1,67 @@
+# Revyl Test Definition
+
+_meta:
+    remote_id: 62b6589d-08d4-4613-82db-aa23caecb641
+    remote_version: 1
+    local_version: 1
+    last_synced_at: "2026-11-24T09:15:28Z"
+    checksum: 2b7eaf19bbb71b3edb7f14664cc71b1447cbb2685f77c03148745855e3e7731e
+test:
+    metadata:
+        name: shiptok-github-account-setting
+        platform: ios
+    build:
+        name: ShipTok
+    device:
+        model: iPhone 17 Pro Max
+        os_version: iOS 27.0
+        orientation: portrait
+    env_vars:
+        - SHIPTOK_LAUNCH_SIGN_IN_REVYL_API_KEY
+        - SHIPTOK_LAUNCH_SIGN_IN_FEED_REPOSITORY_FULL_NAME
+    blocks:
+        - type: validation
+          step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
+        - type: instructions
+          step_description: Tap Settings, the gear icon at the top right of the feed
+        - type: validation
+          step_description: Settings shows an Account section with 'kyle+bench', 'kyle+bench@revyl.ai' and 'Signed in to Revyl in Revyl Benchmarks', and under them a 'GitHub username' row whose value on the right is an @ username or 'Not set'
+        - type: extraction
+          step_description: 'The value on the right of the ''GitHub username'' row in the Account section, exactly as shown: an @ username such as ''@name'', or ''Not set'''
+          variable_name: starting-github-username
+        - type: instructions
+          step_description: Tap the 'GitHub username' row
+        - type: validation
+          step_description: A 'GitHub username' screen shows a 'Your GitHub account' section with {{starting-github-username}}, a footer saying you're the developer on pull requests this GitHub account opens and that this isn't a GitHub sign-in, and a section with a 'GitHub username' field and a Save button
+        - type: instructions
+          step_description: Tap the 'GitHub username' field, type not a username! and tap Save
+        - type: validation
+          step_description: A yellow message below the Save button says 'That isn't a GitHub username', and the 'Your GitHub account' section still shows {{starting-github-username}}
+        - type: instructions
+          step_description: Clear the 'GitHub username' field completely, type RevylAI and tap Save
+        - type: validation
+          step_description: A yellow message below the Save button says '@RevylAI is a GitHub organization or bot, not a person', and the 'Your GitHub account' section still shows {{starting-github-username}}
+        - type: instructions
+          step_description: Clear the 'GitHub username' field completely, type @octocat and tap Save
+        - type: validation
+          step_description: The 'Your GitHub account' section shows '@octocat' with an avatar, the field is empty, no yellow message shows, and a red 'Remove' button shows below
+        - type: instructions
+          step_description: Tap 'Settings', the back button with a chevron at the top left
+        - type: validation
+          step_description: Settings shows the 'GitHub username' row with '@octocat' and an avatar on the right
+        - type: instructions
+          step_description: Tap the 'GitHub username' row, then tap the red 'Remove' button
+        - type: validation
+          step_description: The 'Your GitHub account' section shows 'Not set' and no 'Remove' button shows
+        - type: instructions
+          step_description: If {{starting-github-username}} is an @ username rather than 'Not set', tap the 'GitHub username' field, type {{starting-github-username}} exactly as it is and tap Save. If it is 'Not set', don't type or tap anything.
+        - type: validation
+          step_description: The 'Your GitHub account' section shows {{starting-github-username}} and no yellow message shows
+        - type: instructions
+          step_description: Tap 'Settings', the back button with a chevron at the top left
+        - type: validation
+          step_description: Settings shows the 'GitHub username' row with {{starting-github-username}} on the right
+        - type: instructions
+          step_description: Tap 'Feed', the back button with a chevron at the top left of Settings, without tapping any other button
+        - type: validation
+          step_description: The feed shows a pull request card again

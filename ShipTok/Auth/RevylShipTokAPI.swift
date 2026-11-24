@@ -15,6 +15,7 @@ enum RevylShipTokAPIError: LocalizedError {
     case revylOrganizationRequired
     case revylSignInExpired
     case revylAccountOwnsOrganization(revylMessage: String)
+    case explainedByRevyl(revylMessage: String)
     case organizationJoinRequestEmailInvalid
     case rateLimited
     case repositoryNotFound
@@ -39,7 +40,7 @@ enum RevylShipTokAPIError: LocalizedError {
             "Your Revyl account isn't in an organization. Ask your organization's owner or an admin to invite you, then sign in again."
         case .revylSignInExpired:
             "That Revyl sign-in expired before ShipTok could finish it. Sign in to Revyl again."
-        case .revylAccountOwnsOrganization(let revylMessage):
+        case .revylAccountOwnsOrganization(let revylMessage), .explainedByRevyl(let revylMessage):
             revylMessage
         case .organizationJoinRequestEmailInvalid:
             "That doesn't look like an email address. Check it and try again."
@@ -124,6 +125,27 @@ struct OrganizationSettings: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case postsFeedbackSummaryCommentsOnGitHub = "posts_feedback_summary_comments_on_github"
         case viewerCanChange = "viewer_can_change"
+    }
+}
+
+struct GitHubAccount: Codable, Equatable, Sendable {
+    let githubUserID: Int64
+    let login: String
+    let avatarURL: URL?
+
+    private enum CodingKeys: String, CodingKey {
+        case githubUserID = "github_user_id"
+        case login
+        case avatarURL = "avatar_url"
+    }
+}
+
+// The GitHub account a person set in their organization, or none.
+struct GitHubAccountSetting: Codable, Equatable, Sendable {
+    let githubAccount: GitHubAccount?
+
+    private enum CodingKeys: String, CodingKey {
+        case githubAccount = "github_account"
     }
 }
 
@@ -311,6 +333,36 @@ struct RevylShipTokAPI: Sendable {
         )
     }
 
+    // Revyl makes the person the developer of the posts by the GitHub account they set (AGENTS.md, "Settings").
+    func fetchGitHubAccountSetting() async throws -> GitHubAccountSetting {
+        try await send("GET", path: "revyl-account/github-account", operationName: "your GitHub username")
+    }
+
+    // Revyl trims the login, drops one leading @ and looks it up on GitHub, so it answers with GitHub's own casing.
+    func saveGitHubAccount(login: String) async throws -> GitHubAccountSetting {
+        try await send(
+            "PUT",
+            path: "revyl-account/github-account",
+            jsonBody: ["login": login],
+            refusalKeysExplainedByRevyl: Self.githubAccountRefusalKeys,
+            operationName: "your GitHub username"
+        )
+    }
+
+    func removeGitHubAccount() async throws {
+        _ = try await sendRequest("DELETE", path: "revyl-account/github-account", operationName: "your GitHub username")
+    }
+
+    // Revyl's own words say what was wrong with the username, and who already set it.
+    private static let githubAccountRefusalKeys: Set<String> = [
+        "github_login_invalid",
+        "github_account_not_found",
+        "github_account_not_a_person",
+        "github_account_set_by_another_person",
+        "github_app_not_installed",
+        "github_unavailable",
+    ]
+
     // MARK: Push notifications
 
     func registerPushNotificationDevice(apnsDeviceTokenHex: String, apnsEnvironment: String) async throws {
@@ -329,9 +381,17 @@ struct RevylShipTokAPI: Sendable {
         path: String,
         queryItems: [URLQueryItem] = [],
         jsonBody: (any Encodable & Sendable)? = nil,
+        refusalKeysExplainedByRevyl: Set<String> = [],
         operationName: String
     ) async throws -> ResponseBody {
-        let responseData = try await sendRequest(method, path: path, queryItems: queryItems, jsonBody: jsonBody, operationName: operationName)
+        let responseData = try await sendRequest(
+            method,
+            path: path,
+            queryItems: queryItems,
+            jsonBody: jsonBody,
+            refusalKeysExplainedByRevyl: refusalKeysExplainedByRevyl,
+            operationName: operationName
+        )
         do {
             return try JSONDecoder.shipTokBackend.decode(ResponseBody.self, from: responseData)
         } catch {
@@ -347,6 +407,7 @@ struct RevylShipTokAPI: Sendable {
         queryItems: [URLQueryItem] = [],
         jsonBody: (any Encodable & Sendable)? = nil,
         sendsRevylAPIKey: Bool = true,
+        refusalKeysExplainedByRevyl: Set<String> = [],
         operationName: String
     ) async throws -> Data {
         guard let backendURL = RevylBackendConfiguration.backendURL else {
@@ -372,6 +433,8 @@ struct RevylShipTokAPI: Sendable {
         let refusal = RevylRefusal.decode(from: responseData)
         Self.logger.notice("Revyl answered \(statusCode) \(refusal?.key ?? "without a key", privacy: .public) to \(method, privacy: .public) \(path, privacy: .public)")
         let refusalError: RevylShipTokAPIError = switch (statusCode, refusal?.key) {
+        case (_, let key?) where refusalKeysExplainedByRevyl.contains(key):
+            refusal?.error.map { .explainedByRevyl(revylMessage: $0) } ?? .unexpectedResponse(operationName: operationName, statusCode: statusCode)
         case (_, "revyl_sign_in_required"?): .revylSignInRequired
         case (_, "revyl_person_required"?): .revylPersonRequired
         case (_, "revyl_organization_required"?): .revylOrganizationRequired

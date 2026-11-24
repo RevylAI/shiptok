@@ -8,6 +8,7 @@ struct SettingsView: View {
     let onChooseRepository: @MainActor (ShipTokRepository) async -> Void
     let onShowFeed: (() -> Void)?
     @State private var organizationSettingsStore: OrganizationSettingsStore
+    @State private var githubAccountStore: GitHubAccountStore
     @Environment(\.shipTokAnalytics) private var analytics
 
     init(
@@ -25,6 +26,7 @@ struct SettingsView: View {
         self.onChooseRepository = onChooseRepository
         self.onShowFeed = onShowFeed
         _organizationSettingsStore = State(initialValue: OrganizationSettingsStore(api: viewer.api))
+        _githubAccountStore = State(initialValue: GitHubAccountStore(api: viewer.api))
     }
 
     var body: some View {
@@ -45,6 +47,7 @@ struct SettingsView: View {
                                 .foregroundStyle(RevylBrandColor.textMuted)
                         }
                     }
+                    GitHubAccountSettingRow(store: githubAccountStore)
                 }
                 Section {
                     NavigationLink {
@@ -108,6 +111,7 @@ struct SettingsView: View {
         }
         .task { await userSettingsStore.refresh() }
         .task { await organizationSettingsStore.refresh() }
+        .task { await githubAccountStore.refresh() }
         .alert(
             "Couldn't save your setting",
             isPresented: Binding(get: { userSettingsStore.saveFailureMessage != nil }, set: { if !$0 { userSettingsStore.saveFailureMessage = nil } })

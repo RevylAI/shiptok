@@ -5,7 +5,7 @@ ShipTok is Revyl's iPhone app for watching what your team ships. Sign in with yo
 - **Open** and **Merged** show the repository's open and merged pull requests that have a video, screenshot or GIF.
 - **Weekly** shows one video per week of shipped work, and **Features** one video per shipped feature. Tap one to watch the pull requests behind it.
 
-Swipe up for the next card and down for the previous one. Swipe right for good vibes or left for bad vibes, with feedback you type or dictate if you like. Double-tap to like, press and hold the like button for other reactions, and open the comments to comment or reply. Revyl finds the pull request's developer among your organization's members, and they get your feedback in their ShipTok inbox and as a notification.
+Swipe up for the next card and down for the previous one. Swipe right for good vibes or left for bad vibes, with feedback you type or dictate if you like. Double-tap to like, press and hold the like button for other reactions, and open the comments to comment or reply. Revyl finds the pull request's developer among your organization's members, by the GitHub username each person sets in Settings or else by email, and they get your feedback in their ShipTok inbox and as a notification.
 
 ## How it fits together
 
@@ -21,13 +21,17 @@ A ShipTok video is a video in a pull request's description or in a comment on it
 
 Settings → Repository lists every repository your organization's Revyl GitHub App covers, and ShipTok remembers your choice on this iPhone. When the App covers exactly one, ShipTok chooses it for you. If the list is empty, ask an admin of your organization to install Revyl's GitHub App on the repositories ShipTok should show.
 
+## GitHub username
+
+Settings → GitHub username tells Revyl which GitHub account is yours, so you're the developer on the pull requests it opens, with their feedback in your inbox and notifications. Type the username, with or without its @, and Save. One person in your organization can set each GitHub account: if someone already did, ShipTok says who, and your organization's owners and admins can change or remove it. Until you set it, Revyl looks for you by email. It isn't a GitHub sign-in, and ShipTok never connects to your GitHub account.
+
 ## Report and hide
 
 Every pull request, weekly or feature video, comment, reply and vibe in ShipTok can be reported, and the person who posted it hidden, except your own pull requests and videos. A pull request or video lives on GitHub, so Report opens GitHub's own report form. A comment, reply or vibe lives in Revyl, so Report emails your organization's owners and admins. Hiding a post's author takes their pull requests and videos out of ShipTok on this iPhone, and hiding a commenter takes their comments, replies and vibes out; they aren't told. Settings → Hidden people lists everyone you hid, with Unhide.
 
 ## Your data
 
-ShipTok keeps your sign-in in this iPhone's Keychain and caches feeds and media on the iPhone. Everything you do in ShipTok lives in your Revyl account. Sign out, in Settings, signs this iPhone out and stops its ShipTok notifications. Delete my Revyl account deletes your Revyl account with the comments, replies, reactions, vibes and settings you made in ShipTok, and then everything ShipTok kept on the iPhone. An owner of an organization can't delete their Revyl account from ShipTok. The [ShipTok section of Revyl's privacy policy](https://revyl.com/privacy/#shiptok) describes the data ShipTok uses.
+ShipTok keeps your sign-in in this iPhone's Keychain and caches feeds and media on the iPhone. Everything you do in ShipTok lives in your Revyl account. Sign out, in Settings, signs this iPhone out and stops its ShipTok notifications. Delete my Revyl account deletes your Revyl account with your GitHub username and the comments, replies, reactions, vibes and settings you made in ShipTok, and then everything ShipTok kept on the iPhone. An owner of an organization can't delete their Revyl account from ShipTok. The [ShipTok section of Revyl's privacy policy](https://revyl.com/privacy/#shiptok) describes the data ShipTok uses.
 
 ## Analytics
 
