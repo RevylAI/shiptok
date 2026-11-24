@@ -5,11 +5,11 @@ ShipTok is Revyl's iPhone app for watching what your team ships. Sign in with yo
 - **Open** and **Merged** show the repository's open and merged pull requests that have a video, screenshot or GIF.
 - **Weekly** shows one video per week of shipped work, and **Features** one video per shipped feature. Tap one to watch the pull requests behind it.
 
-Swipe up for the next card and down for the previous one. Swipe right for good vibes or left for bad vibes, with feedback you type or dictate if you like. Double-tap to like, press and hold the like button for other reactions, and open the comments to comment or reply. Revyl finds the pull request's developer among your organization's members, by the GitHub username each person sets in Settings or else by email, and they get your feedback in their ShipTok inbox and as a notification.
+Swipe up for the next card and down for the previous one. Swipe right for good vibes or left for bad vibes, with feedback you type or dictate if you like. Double-tap to like, press and hold the like button for other reactions, and open the comments to comment or reply. Revyl finds the pull request's developer among your organization's members, by the GitHub username each person sets in Settings or else by email, and they get your feedback in their ShipTok inbox.
 
 ## How it fits together
 
-ShipTok talks only to Revyl's backend, which serves its ShipTok API. The backend reads the repository's pull requests and issues from GitHub through the organization's installation of Revyl's GitHub App, so nobody connects a GitHub account. It also keeps everything people give in ShipTok: likes, reactions, vibes, comments, replies, the inbox and each person's settings, which their iPhones and Revyl's web app share. While the organization allows it, Revyl's GitHub App keeps one comment on each pull request and issue with feedback, summing it up for people on GitHub.
+ShipTok talks only to Revyl's backend, which serves its ShipTok API. The backend reads the repository's pull requests and issues from GitHub through the organization's installation of Revyl's GitHub App, so nobody connects a GitHub account. It also keeps everything people give in ShipTok: likes, reactions, vibes, comments, replies, the inbox and each person's settings, which their iPhones and Revyl's web app share. Revyl's GitHub App also keeps one comment on each pull request and issue with feedback, summing it up for people on GitHub.
 
 `AGENTS.md` holds the rules for changing the app. `docs/shiptok-format.md` describes what Revyl's backend reads from GitHub: which pull requests are in the feed, what counts as media, the ShipTok video tag, the weekly and feature issues, and the feedback summary comment.
 
@@ -23,7 +23,7 @@ Settings → Repository lists every repository your organization's Revyl GitHub 
 
 ## GitHub username
 
-Settings → GitHub username tells Revyl which GitHub account is yours, so you're the developer on the pull requests it opens, with their feedback in your inbox and notifications. Type the username, with or without its @, and Save. One person in your organization can set each GitHub account: if someone already did, ShipTok says who, and your organization's owners and admins can change or remove it. Until you set it, Revyl looks for you by email. It isn't a GitHub sign-in, and ShipTok never connects to your GitHub account.
+Settings → GitHub username tells Revyl which GitHub account is yours, so you're the developer on the pull requests it opens, with their feedback in your inbox. Type the username, with or without its @, and Save. One person in your organization can set each GitHub account: if someone already did, ShipTok says who, and your organization's owners and admins can change or remove it. Until you set it, Revyl looks for you by email. It isn't a GitHub sign-in, and ShipTok never connects to your GitHub account.
 
 ## Report and hide
 
@@ -31,7 +31,7 @@ Every pull request, weekly or feature video, comment, reply and vibe in ShipTok 
 
 ## Your data
 
-ShipTok keeps your sign-in in this iPhone's Keychain and caches feeds and media on the iPhone. Everything you do in ShipTok lives in your Revyl account. Sign out, in Settings, signs this iPhone out and stops its ShipTok notifications. Delete my Revyl account deletes your Revyl account with your GitHub username and the comments, replies, reactions, vibes and settings you made in ShipTok, and then everything ShipTok kept on the iPhone. An owner of an organization can't delete their Revyl account from ShipTok. The [ShipTok section of Revyl's privacy policy](https://revyl.com/privacy/#shiptok) describes the data ShipTok uses.
+ShipTok keeps your sign-in in this iPhone's Keychain and caches feeds and media on the iPhone. Everything you do in ShipTok lives in your Revyl account. Sign out, in Settings, signs this iPhone out. Delete my Revyl account deletes your Revyl account with your GitHub username and the comments, replies, reactions, vibes and settings you made in ShipTok, and then everything ShipTok kept on the iPhone. An owner of an organization can't delete their Revyl account from ShipTok. The [ShipTok section of Revyl's privacy policy](https://revyl.com/privacy/#shiptok) describes the data ShipTok uses.
 
 ## Analytics
 

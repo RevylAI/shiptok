@@ -130,8 +130,6 @@ enum ShipTokAnalyticsEvent: Sendable {
     case personHidden(ReportableContent, control: ModerationControl)
     case personUnhidden
     case inboxOpened(unreadCount: Int)
-    case pushNotificationPermissionAnswered(granted: Bool)
-    case pushNotificationOpened(inboxItemID: String?, inboxItemKind: String?)
 
     var name: String {
         switch self {
@@ -164,8 +162,6 @@ enum ShipTokAnalyticsEvent: Sendable {
         case .personHidden: "shiptok_person_hidden"
         case .personUnhidden: "shiptok_person_unhidden"
         case .inboxOpened: "shiptok_inbox_opened"
-        case .pushNotificationPermissionAnswered: "shiptok_push_notification_permission_answered"
-        case .pushNotificationOpened: "shiptok_push_notification_opened"
         }
     }
 
@@ -273,11 +269,6 @@ enum ShipTokAnalyticsEvent: Sendable {
             properties["control"] = .string(control.rawValue)
         case .inboxOpened(let unreadCount):
             properties["unread_count"] = .integer(unreadCount)
-        case .pushNotificationPermissionAnswered(let granted):
-            properties["granted"] = .boolean(granted)
-        case .pushNotificationOpened(let inboxItemID, let inboxItemKind):
-            properties["inbox_item_id"] = inboxItemID.map(Property.string)
-            properties["inbox_item_kind"] = inboxItemKind.map(Property.string)
         case .personUnhidden, .revylAccountDeletionRequested:
             break
         }
@@ -360,7 +351,7 @@ final class ShipTokAnalytics {
         if let visitProperty {
             properties[visitProperty.name] = .string(visitProperty.visitID.uuidString)
         }
-        properties["schema_version"] = .integer(7)
+        properties["schema_version"] = .integer(8)
         properties["app_version"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")
         properties["app_build"] = .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown")
         #if DEBUG

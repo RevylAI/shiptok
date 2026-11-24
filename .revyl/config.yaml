@@ -65,8 +65,7 @@ pr_review:
       vibes badge. Settings such as Videos only, Feed tabs and Vibe feedback
       are saved on Revyl for the account, so put back any you change. Report
       on a pull request opens GitHub's report page in Safari; never submit it.
-      Never report a comment or vibe, never change the organization's
-      Feedback summary on GitHub toggle, and never submit Join existing
+      Never report a comment or vibe, and never submit Join existing
       organization. Never tap Sign out, since it revokes the key every session
       and test signs in with, and never tap Delete my Revyl account.
     always_verify:

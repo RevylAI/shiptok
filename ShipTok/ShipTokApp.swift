@@ -2,7 +2,6 @@ import SwiftUI
 
 @main
 struct ShipTokApp: App {
-    @UIApplicationDelegateAdaptor(ShipTokAppDelegate.self) private var appDelegate
     @State private var signInSession = ShipTokSignInSession()
 
     init() {

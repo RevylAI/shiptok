@@ -69,7 +69,7 @@ struct GitHubAccountView: View {
             } header: {
                 Text("Your GitHub account")
             } footer: {
-                Text("You're the developer on pull requests this GitHub account opens: their feedback reaches your inbox and notifications. Each GitHub account can belong to one person in your organization, and its owners and admins can change or remove it. This isn't a GitHub sign-in.")
+                Text("You're the developer on pull requests this GitHub account opens: their feedback reaches your inbox. Each GitHub account can belong to one person in your organization, and its owners and admins can change or remove it. This isn't a GitHub sign-in.")
             }
             Section {
                 TextField("GitHub username", text: $enteredLogin)

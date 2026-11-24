@@ -2,7 +2,6 @@ import AuthenticationServices
 import Observation
 import OSLog
 import SwiftUI
-import UserNotifications
 
 enum SignInCallbackError: LocalizedError {
     case stateMismatch
@@ -207,7 +206,6 @@ final class ShipTokSignInSession {
         storedRevylSignIn = nil
         Self.logger.info("Deleted the Revyl account")
         teammate.analytics.capture(.signInEnded(reason: .revylAccountDeleted))
-        ShipTokPushNotifications.shared.stopRegistering()
         teammate.mediaCache.stopDownloadsAndRemoveAllMedia()
         // A feed read that finishes after the files go would save its feeds again, so the feed's work stops and drains first.
         await teammate.feedWork.stopAndWaitForRunningWork()
@@ -219,7 +217,7 @@ final class ShipTokSignInSession {
         }
     }
 
-    // A sign-in the Keychain still holds would come back on the next launch, so nothing ends until the Keychain lets it go. Revyl revokes the key and the push notification devices it registered; the feed's reads and saves stop and drain before it ends, so nothing is saved for it afterwards.
+    // A sign-in the Keychain still holds would come back on the next launch, so nothing ends until the Keychain lets it go. Revyl revokes the key; the feed's reads and saves stop and drain before it ends, so nothing is saved for it afterwards.
     func signOut() async throws {
         guard case .signedIn(let teammate) = phase, !teammate.feedWork.hasStopped, !isDeletingRevylAccount, !isSigningOut else { return }
         isSigningOut = true
@@ -232,7 +230,6 @@ final class ShipTokSignInSession {
         try ShipTokSignInKeychainStore.deleteStoredRevylSignIn()
         guard case .signedIn(let currentTeammate) = phase, currentTeammate.signInID == teammate.signInID else { return }
         storedRevylSignIn = nil
-        ShipTokPushNotifications.shared.stopRegistering()
         await teammate.feedWork.stopAndWaitForRunningWork()
         end(teammate, reason: .signedOut, message: nil)
         UserDefaults.standard.removeObject(forKey: Self.signedOutReasonDefaultsKey)
@@ -250,7 +247,6 @@ final class ShipTokSignInSession {
         // A key the Keychain fails to forget is refused again on the next launch, which ends it then; the store logs the failure.
         try? ShipTokSignInKeychainStore.deleteStoredRevylSignIn()
         storedRevylSignIn = nil
-        ShipTokPushNotifications.shared.stopRegistering()
         end(teammate, reason: isOrganizationRequired ? .revylOrganizationRequired : .revylSignInRequired, message: error.localizedDescription)
         showFirstScreen(
             reason: isOrganizationRequired ? .revylOrganizationRequired : .revylSignInRequired,
@@ -295,7 +291,6 @@ final class ShipTokSignInSession {
         )
         storedRevylSignIn = revylSignIn
         phase = .signedIn(teammate)
-        ShipTokPushNotifications.shared.startRegistering(api: api, analytics: teammate.analytics)
         return teammate
     }
 

@@ -437,7 +437,7 @@ struct PostCommentsSheet: View {
         }
     }
 
-    // A comment opened from the inbox or a notification can sit past the first page, so pages load until it's there.
+    // A comment opened from the inbox can sit past the first page, so pages load until it's there.
     private func scrollToFocusedComment(scrollProxy: ScrollViewProxy) async {
         guard let focusedCommentID, !hasScrolledToFocusedComment else { return }
         hasScrolledToFocusedComment = true

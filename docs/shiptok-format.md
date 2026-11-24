@@ -120,7 +120,7 @@ The card shows a "ShipTok feature" chip with when the issue closed ("shipped 3 d
 
 ## Feedback summary comment
 
-While an organization's "Feedback summary on GitHub" setting is on, as it is by default, Revyl's GitHub App keeps one comment on each pull request, weekly edition and feature that has feedback in ShipTok, so people on GitHub see it too:
+Revyl's GitHub App keeps one comment on each pull request, weekly edition and feature that has feedback in ShipTok, so people on GitHub see it too:
 
 ```markdown
 <!-- shiptok:feedback-summary -->
@@ -138,5 +138,5 @@ While an organization's "Feedback summary on GitHub" setting is on, as it is by 
 - The counts line lists good vibes, bad vibes and likes, then the other reactions by count, leaving out any that are zero.
 - Each comment shows with its replies under it, and each vibe with feedback text, oldest first, by the person's name. Mentions and HTML in what people wrote are neutralized, so the comment pings nobody.
 - Past 60,000 characters, the oldest items give way to "…and N more in ShipTok".
-- The App edits the comment as feedback changes and deletes it once no feedback remains. Turning the setting off deletes every such comment, and turning it on posts them again.
+- The App edits the comment as feedback changes and deletes it once no feedback remains.
 - The comment is never read as media.

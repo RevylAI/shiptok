@@ -275,7 +275,7 @@ enum OnScreenPosts: Hashable {
     case openDeck
 }
 
-// What an open deck shows: the pull requests a week's or a feature's video covers, or one post opened from the inbox or a notification (AGENTS.md, "Pull Request Decks").
+// What an open deck shows: the pull requests a week's or a feature's video covers, or one post opened from the inbox (AGENTS.md, "Pull Request Decks").
 enum PostDeckSource: Hashable {
     case pullRequestsOf(ShipTokPost)
     case post(postID: String)

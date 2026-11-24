@@ -23,7 +23,6 @@ enum RevylShipTokAPIError: LocalizedError {
     case githubUnavailable
     case postNotFound
     case feedModeTabRequired
-    case organizationAdminRequired
     case unavailable(operationName: String)
     case unexpectedResponse(operationName: String, statusCode: Int)
     case responseUnreadable(operationName: String)
@@ -56,8 +55,6 @@ enum RevylShipTokAPIError: LocalizedError {
             "That post isn't on ShipTok any more."
         case .feedModeTabRequired:
             "Keep at least one feed tab on."
-        case .organizationAdminRequired:
-            "Only your organization's owners and admins can change that."
         case .unavailable(let operationName):
             "Revyl couldn't finish \(operationName) just now. Try again in a minute."
         case .unexpectedResponse(let operationName, let statusCode):
@@ -115,16 +112,6 @@ struct ShipTokInboxPage: Decodable, Sendable {
         case items
         case unreadCount = "unread_count"
         case nextCursor = "next_cursor"
-    }
-}
-
-struct OrganizationSettings: Codable, Equatable, Sendable {
-    var postsFeedbackSummaryCommentsOnGitHub: Bool
-    let viewerCanChange: Bool
-
-    private enum CodingKeys: String, CodingKey {
-        case postsFeedbackSummaryCommentsOnGitHub = "posts_feedback_summary_comments_on_github"
-        case viewerCanChange = "viewer_can_change"
     }
 }
 
@@ -191,7 +178,7 @@ struct RevylShipTokAPI: Sendable {
         return response.revylAPIKey
     }
 
-    // Revokes the presented ShipTok key, and Revyl deletes the push notification devices it registered.
+    // Revokes the presented ShipTok key.
     func revokeRevylAPIKey() async throws {
         _ = try await sendRequest("DELETE", path: "revyl-sign-in/api-key", operationName: "signing out of Revyl")
     }
@@ -320,19 +307,6 @@ struct RevylShipTokAPI: Sendable {
         try await send("PUT", path: "revyl-account/settings", jsonBody: userSettings, operationName: "your settings")
     }
 
-    func fetchOrganizationSettings() async throws -> OrganizationSettings {
-        try await send("GET", path: "organization-settings", operationName: "your organization's settings")
-    }
-
-    func saveOrganizationSettings(postsFeedbackSummaryCommentsOnGitHub: Bool) async throws -> OrganizationSettings {
-        try await send(
-            "PUT",
-            path: "organization-settings",
-            jsonBody: ["posts_feedback_summary_comments_on_github": postsFeedbackSummaryCommentsOnGitHub],
-            operationName: "your organization's settings"
-        )
-    }
-
     // Revyl makes the person the developer of the posts by the GitHub account they set (AGENTS.md, "Settings").
     func fetchGitHubAccountSetting() async throws -> GitHubAccountSetting {
         try await send("GET", path: "revyl-account/github-account", operationName: "your GitHub username")
@@ -362,17 +336,6 @@ struct RevylShipTokAPI: Sendable {
         "github_app_not_installed",
         "github_unavailable",
     ]
-
-    // MARK: Push notifications
-
-    func registerPushNotificationDevice(apnsDeviceTokenHex: String, apnsEnvironment: String) async throws {
-        _ = try await sendRequest(
-            "POST",
-            path: "push-notification-devices",
-            jsonBody: ["apns_device_token": apnsDeviceTokenHex, "apns_environment": apnsEnvironment],
-            operationName: "notifications"
-        )
-    }
 
     // MARK: Requests
 
@@ -444,7 +407,6 @@ struct RevylShipTokAPI: Sendable {
         case (_, "github_unavailable"?): .githubUnavailable
         case (_, "post_not_found"?): .postNotFound
         case (_, "feed_mode_tab_required"?): .feedModeTabRequired
-        case (_, "organization_admin_required"?): .organizationAdminRequired
         case (_, "unavailable"?): .unavailable(operationName: operationName)
         case (_, "revyl_account_owns_organization"?):
             refusal?.error.map { .revylAccountOwnsOrganization(revylMessage: $0) } ?? .unexpectedResponse(operationName: operationName, statusCode: statusCode)

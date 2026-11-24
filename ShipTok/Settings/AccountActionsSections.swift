@@ -39,7 +39,7 @@ struct AccountActionsSections: View {
                 Text(signOutFailureMessage ?? "")
             }
         } footer: {
-            Text("Signs this iPhone out of Revyl, and it stops getting your ShipTok notifications.")
+            Text("Signs this iPhone out of Revyl.")
         }
         Section {
             Button(role: .destructive) {

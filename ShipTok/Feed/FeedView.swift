@@ -55,7 +55,7 @@ struct FeedView: View {
         let focusedCommentID: String?
     }
 
-    // An inbox item or a notification can name a post that isn't loaded yet, so its comments open once its card has been read.
+    // An inbox item can name a post that isn't loaded yet, so its comments open once its card has been read.
     private struct PendingCommentsOpening: Equatable {
         let postID: String
         let focusedCommentID: String?
@@ -149,7 +149,7 @@ struct FeedView: View {
         userSettingsStore.userSettings.showsOnlyPostsWithVideos
     }
 
-    // A week's or a feature's deck shows over its own mode; a deck of one post, opened from the inbox or a notification, shows over whichever mode is selected (AGENTS.md, "Pull Request Decks").
+    // A week's or a feature's deck shows over its own mode; a deck of one post, opened from the inbox, shows over whichever mode is selected (AGENTS.md, "Pull Request Decks").
     private var feedContext: FeedContext {
         guard let openDeckSource = feedStore.openDeckSource, openDeckSource.feedMode == nil || openDeckSource.feedMode == feedMode else {
             return .feed(feedMode)
@@ -404,10 +404,6 @@ struct FeedView: View {
             guard let pendingCommentsOpening, let post = feedStore.post(withID: pendingCommentsOpening.postID) else { return }
             self.pendingCommentsOpening = nil
             commentsSheetRequest = CommentsSheetRequest(post: post, focusedCommentID: pendingCommentsOpening.focusedCommentID)
-        }
-        .onChange(of: ShipTokPushNotifications.shared.openedNotification?.id, initial: true) {
-            guard let openedNotification = ShipTokPushNotifications.shared.takeOpenedNotification() else { return }
-            openPost(postID: openedNotification.postID, opensComments: openedNotification.opensComments, focusedCommentID: openedNotification.commentID)
         }
         .onChange(of: scenePhase) { _, newScenePhase in
             switch newScenePhase {

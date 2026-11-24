@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: ff99732d-f49e-4e4d-9459-54f0c1ac5e25
-    remote_version: 5
-    local_version: 5
-    last_synced_at: "2026-11-24T09:34:51Z"
-    checksum: 41932e31c4ed41794a172b1c1f6d976870aef8821b3a975beb73f5695fc40550
+    remote_version: 6
+    local_version: 6
+    last_synced_at: "2026-11-24T14:25:15Z"
+    checksum: 51cd25e1f54343883b342975985da114a6ead671c0b0d698c309a643315d6098
 test:
     metadata:
         name: shiptok-settings
@@ -39,9 +39,9 @@ test:
         - type: validation
           step_description: Settings shows a 'Feed tabs' section with Open, Merged, Weekly and Features toggles, and a 'Vibe feedback' section with 'Ask for feedback on good vibes' and 'Ask for feedback on bad vibes' toggles that says vibes and their feedback reach the pull request's developer in ShipTok
         - type: instructions
-          step_description: Scroll down a little, until a 'Revyl Benchmarks' section shows, without tapping any toggle
+          step_description: Scroll down a little, until a 'Hidden people' section shows, without tapping any toggle
         - type: validation
-          step_description: Settings shows a 'Revyl Benchmarks' section with a 'Feedback summary on GitHub' toggle, and a 'Hidden people' section
+          step_description: Settings shows a 'Hidden people' section right after the 'Vibe feedback' section, with no organization section between them
         - type: instructions
           step_description: Scroll down to the bottom of Settings without tapping any button or toggle
         - type: validation

@@ -7,7 +7,6 @@ struct SettingsView: View {
     let signInSession: ShipTokSignInSession
     let onChooseRepository: @MainActor (ShipTokRepository) async -> Void
     let onShowFeed: (() -> Void)?
-    @State private var organizationSettingsStore: OrganizationSettingsStore
     @State private var githubAccountStore: GitHubAccountStore
     @Environment(\.shipTokAnalytics) private var analytics
 
@@ -25,7 +24,6 @@ struct SettingsView: View {
         self.signInSession = signInSession
         self.onChooseRepository = onChooseRepository
         self.onShowFeed = onShowFeed
-        _organizationSettingsStore = State(initialValue: OrganizationSettingsStore(api: viewer.api))
         _githubAccountStore = State(initialValue: GitHubAccountStore(api: viewer.api))
     }
 
@@ -97,7 +95,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-                OrganizationSettingsSection(store: organizationSettingsStore, organizationName: viewer.account.organization.displayName)
                 HiddenPeopleSection(hiddenPeopleStore: viewer.hiddenPeopleStore)
                 GesturesSection()
                 AccountActionsSections(signInSession: signInSession)
@@ -110,7 +107,6 @@ struct SettingsView: View {
             .backToFeedToolbarItem(onShowFeed)
         }
         .task { await userSettingsStore.refresh() }
-        .task { await organizationSettingsStore.refresh() }
         .task { await githubAccountStore.refresh() }
         .alert(
             "Couldn't save your setting",
@@ -119,14 +115,6 @@ struct SettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(userSettingsStore.saveFailureMessage ?? "")
-        }
-        .alert(
-            "Couldn't save your organization's setting",
-            isPresented: Binding(get: { organizationSettingsStore.saveFailureMessage != nil }, set: { if !$0 { organizationSettingsStore.saveFailureMessage = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(organizationSettingsStore.saveFailureMessage ?? "")
         }
     }
 
