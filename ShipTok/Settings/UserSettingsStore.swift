@@ -32,10 +32,31 @@ struct UserSettings: Codable, Equatable, Sendable {
     }
 }
 
+@MainActor
+protocol RevylSettingsStore: AnyObject {
+    var refreshFailureMessage: String? { get }
+    func refresh() async
+}
+
+extension RevylSettingsStore {
+    // A failed save may still have landed, as when Revyl stores it and restarts before answering, so Revyl is read again, retrying while it's briefly unreachable (AGENTS.md, "Settings").
+    func readSavedSettingsAfterFailedSave() async {
+        for retryDelay: Duration in [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(32)] {
+            do {
+                try await Task.sleep(for: retryDelay)
+            } catch {
+                return
+            }
+            await refresh()
+            if refreshFailureMessage == nil { return }
+        }
+    }
+}
+
 // A person's settings live in their Revyl account, so every device and the web share them (AGENTS.md, "Settings").
 @Observable
 @MainActor
-final class UserSettingsStore {
+final class UserSettingsStore: RevylSettingsStore {
     private(set) var refreshFailureMessage: String?
     var saveFailureMessage: String?
     // What Revyl's backend last confirmed, by a read or a save; nil until the first one. The settings shown are these with each setting's newest change still saving on top, so a read never shows an old value over a toggle, and a failed save shows what Revyl reads back (AGENTS.md, "Settings").
@@ -121,19 +142,6 @@ final class UserSettingsStore {
         }
     }
 
-    // A failed save may still have landed, as when Revyl stores it and restarts before answering, so Revyl is read again, retrying while it's briefly unreachable (AGENTS.md, "Settings").
-    private func readSavedSettingsAfterFailedSave() async {
-        for retryDelay: Duration in [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(32)] {
-            do {
-                try await Task.sleep(for: retryDelay)
-            } catch {
-                return
-            }
-            await refresh()
-            if refreshFailureMessage == nil { return }
-        }
-    }
-
     private struct PendingSettingChange {
         let revision: Int
         let value: Bool
@@ -159,11 +167,12 @@ final class UserSettingsStore {
 // The organization's own ShipTok settings, which only its owners and admins change (AGENTS.md, "Settings").
 @Observable
 @MainActor
-final class OrganizationSettingsStore {
+final class OrganizationSettingsStore: RevylSettingsStore {
     private(set) var organizationSettings: OrganizationSettings?
     private(set) var refreshFailureMessage: String?
     private(set) var isSaving = false
     var saveFailureMessage: String?
+    private var readAfterFailedSave: Task<Void, Never>?
     private let api: RevylShipTokAPI
 
     init(api: RevylShipTokAPI) {
@@ -185,6 +194,7 @@ final class OrganizationSettingsStore {
         guard let savedOrganizationSettings = organizationSettings, !isSaving,
               postsFeedbackSummaryCommentsOnGitHub != savedOrganizationSettings.postsFeedbackSummaryCommentsOnGitHub
         else { return }
+        readAfterFailedSave?.cancel()
         isSaving = true
         defer { isSaving = false }
         organizationSettings?.postsFeedbackSummaryCommentsOnGitHub = postsFeedbackSummaryCommentsOnGitHub
@@ -192,7 +202,8 @@ final class OrganizationSettingsStore {
             organizationSettings = try await api.saveOrganizationSettings(postsFeedbackSummaryCommentsOnGitHub: postsFeedbackSummaryCommentsOnGitHub)
         } catch {
             organizationSettings = savedOrganizationSettings
-            saveFailureMessage = "The setting is back to its saved value. \(error.localizedDescription)"
+            saveFailureMessage = "Settings show what Revyl has saved. \(error.localizedDescription)"
+            readAfterFailedSave = Task { await readSavedSettingsAfterFailedSave() }
         }
     }
 }
