@@ -14,9 +14,13 @@ struct GitHubAccountSettingRow: View {
                 Spacer()
                 if let githubAccountSetting = store.githubAccountSetting {
                     if let githubAccount = githubAccountSetting.githubAccount {
-                        AvatarView(avatarURL: githubAccount.avatarURL, diameter: 24)
-                        Text(verbatim: "@\(githubAccount.username)")
-                            .foregroundStyle(RevylBrandColor.textMuted)
+                        // Another username replaces these views rather than redrawing them (AGENTS.md, "Settings").
+                        HStack(spacing: 8) {
+                            AvatarView(avatarURL: githubAccount.avatarURL, diameter: 24)
+                            Text(verbatim: "@\(githubAccount.username)")
+                                .foregroundStyle(RevylBrandColor.textMuted)
+                        }
+                        .id(githubAccount.username)
                     } else {
                         Text("Not set")
                             .foregroundStyle(RevylBrandColor.textMuted)
@@ -50,12 +54,14 @@ struct GitHubAccountView: View {
         List {
             Section {
                 if let savedGitHubAccount {
+                    // Another username replaces this row rather than redrawing it (AGENTS.md, "Settings").
                     HStack(spacing: 12) {
                         AvatarView(avatarURL: savedGitHubAccount.avatarURL, diameter: 32)
                         Text(verbatim: "@\(savedGitHubAccount.username)")
                             .font(.headline)
                             .foregroundStyle(RevylBrandColor.textPrimary)
                     }
+                    .id(savedGitHubAccount.username)
                 } else if store.githubAccountSetting != nil {
                     Text("Not set")
                         .foregroundStyle(RevylBrandColor.textMuted)
