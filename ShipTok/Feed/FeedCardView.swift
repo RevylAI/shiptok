@@ -422,7 +422,7 @@ struct FeedCardView: View {
                 Button(action: onTapCaption) {
                     HStack(spacing: 10) {
                         AvatarView(avatarURL: post.githubAuthor.avatarURL, diameter: 36)
-                        Text(verbatim: post.githubAuthor.login ?? "ghost")
+                        Text(verbatim: post.githubAuthor.username ?? "ghost")
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(RevylBrandColor.textPrimary)
                             .lineLimit(1)

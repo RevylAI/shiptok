@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-// Someone the viewer hid: a post's GitHub author, by login, or a teammate who comments, by Revyl account.
+// Someone the viewer hid: a post's GitHub author, by GitHub username, or a teammate who comments, by Revyl account.
 struct HiddenPerson: Codable, Hashable, Identifiable, Sendable {
     enum Account: Codable, Hashable, Sendable {
         case github(lowercasedLogin: String)
@@ -13,9 +13,9 @@ struct HiddenPerson: Codable, Hashable, Identifiable, Sendable {
 
     var id: Account { account }
 
-    init(githubLogin: String) {
-        account = .github(lowercasedLogin: githubLogin.lowercased())
-        displayName = "@\(githubLogin)"
+    init(githubUsername: String) {
+        account = .github(lowercasedLogin: githubUsername.lowercased())
+        displayName = "@\(githubUsername)"
     }
 
     init(revylPerson: ShipTokPerson) {
@@ -45,8 +45,8 @@ final class HiddenPeopleStore {
     }
 
     func isHidden(_ githubAuthor: ShipTokGitHubAuthor) -> Bool {
-        guard let login = githubAuthor.login else { return false }
-        return hiddenAccounts.contains(.github(lowercasedLogin: login.lowercased()))
+        guard let username = githubAuthor.username else { return false }
+        return hiddenAccounts.contains(.github(lowercasedLogin: username.lowercased()))
     }
 
     func isHidden(_ revylPerson: ShipTokPerson) -> Bool {

@@ -17,7 +17,7 @@ struct PullRequestDetailSheet: View {
                     HStack(spacing: 10) {
                         AvatarView(avatarURL: post.githubAuthor.avatarURL, diameter: 32)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(verbatim: "@\(post.githubAuthor.login ?? "ghost")")
+                            Text(verbatim: "@\(post.githubAuthor.username ?? "ghost")")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(RevylBrandColor.textPrimary)
                             Group {

@@ -117,12 +117,12 @@ struct ShipTokInboxPage: Decodable, Sendable {
 
 struct GitHubAccount: Codable, Equatable, Sendable {
     let githubUserID: Int64
-    let login: String
+    let username: String
     let avatarURL: URL?
 
     private enum CodingKeys: String, CodingKey {
         case githubUserID = "github_user_id"
-        case login
+        case username
         case avatarURL = "avatar_url"
     }
 }
@@ -312,12 +312,12 @@ struct RevylShipTokAPI: Sendable {
         try await send("GET", path: "revyl-account/github-account", operationName: "your GitHub username")
     }
 
-    // Revyl trims the login, drops one leading @ and looks it up on GitHub, so it answers with GitHub's own casing.
-    func saveGitHubAccount(login: String) async throws -> GitHubAccountSetting {
+    // Revyl trims the username, drops one leading @ and looks it up on GitHub, so it answers with GitHub's own casing.
+    func saveGitHubAccount(username: String) async throws -> GitHubAccountSetting {
         try await send(
             "PUT",
             path: "revyl-account/github-account",
-            jsonBody: ["login": login],
+            jsonBody: ["username": username],
             refusalKeysExplainedByRevyl: Self.githubAccountRefusalKeys,
             operationName: "your GitHub username"
         )
@@ -329,7 +329,7 @@ struct RevylShipTokAPI: Sendable {
 
     // Revyl's own words say what was wrong with the username, and who already set it.
     private static let githubAccountRefusalKeys: Set<String> = [
-        "github_login_invalid",
+        "github_username_invalid",
         "github_account_not_found",
         "github_account_not_a_person",
         "github_account_set_by_another_person",

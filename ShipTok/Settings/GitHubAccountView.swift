@@ -15,7 +15,7 @@ struct GitHubAccountSettingRow: View {
                 if let githubAccountSetting = store.githubAccountSetting {
                     if let githubAccount = githubAccountSetting.githubAccount {
                         AvatarView(avatarURL: githubAccount.avatarURL, diameter: 24)
-                        Text(verbatim: "@\(githubAccount.login)")
+                        Text(verbatim: "@\(githubAccount.username)")
                             .foregroundStyle(RevylBrandColor.textMuted)
                     } else {
                         Text("Not set")
@@ -35,7 +35,7 @@ struct GitHubAccountSettingRow: View {
 // Sets, changes or removes the person's GitHub username. It names the GitHub account whose posts are theirs, and signs in to nothing (AGENTS.md, "Settings").
 struct GitHubAccountView: View {
     let store: GitHubAccountStore
-    @State private var enteredLogin = ""
+    @State private var enteredUsername = ""
     @State private var changeInProgress: GitHubAccountChange?
 
     private enum GitHubAccountChange {
@@ -43,7 +43,7 @@ struct GitHubAccountView: View {
         case remove
     }
 
-    private var trimmedLogin: String { enteredLogin.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedUsername: String { enteredUsername.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var savedGitHubAccount: GitHubAccount? { store.githubAccountSetting?.githubAccount }
 
     var body: some View {
@@ -52,7 +52,7 @@ struct GitHubAccountView: View {
                 if let savedGitHubAccount {
                     HStack(spacing: 12) {
                         AvatarView(avatarURL: savedGitHubAccount.avatarURL, diameter: 32)
-                        Text(verbatim: "@\(savedGitHubAccount.login)")
+                        Text(verbatim: "@\(savedGitHubAccount.username)")
                             .font(.headline)
                             .foregroundStyle(RevylBrandColor.textPrimary)
                     }
@@ -72,7 +72,7 @@ struct GitHubAccountView: View {
                 Text("You're the developer on pull requests this GitHub account opens: their feedback reaches your inbox. Each GitHub account can belong to one person in your organization, and its owners and admins can change or remove it. This isn't a GitHub sign-in.")
             }
             Section {
-                TextField("GitHub username", text: $enteredLogin)
+                TextField("GitHub username", text: $enteredUsername)
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -90,7 +90,7 @@ struct GitHubAccountView: View {
                         }
                     }
                 }
-                .disabled(store.isChanging || trimmedLogin.isEmpty)
+                .disabled(store.isChanging || trimmedUsername.isEmpty)
             } header: {
                 Text(savedGitHubAccount == nil ? "Set your username" : "Change it")
             } footer: {
@@ -128,12 +128,12 @@ struct GitHubAccountView: View {
     }
 
     private func save() async {
-        let login = trimmedLogin
-        guard !login.isEmpty, changeInProgress == nil else { return }
+        let username = trimmedUsername
+        guard !username.isEmpty, changeInProgress == nil else { return }
         changeInProgress = .save
         defer { changeInProgress = nil }
-        if await store.saveGitHubAccount(login: login) {
-            enteredLogin = ""
+        if await store.saveGitHubAccount(username: username) {
+            enteredUsername = ""
         }
     }
 

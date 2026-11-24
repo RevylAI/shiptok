@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: b21869b2-3ae8-466a-9c26-23d4ba9a4724
-    remote_version: 3
-    local_version: 3
-    last_synced_at: "2026-11-20T18:58:11Z"
-    checksum: 58a09db7f67840c4897ff8874d8f5f08d77d76688be4778bbd96fe903c8a1faa
+    remote_version: 5
+    local_version: 5
+    last_synced_at: "2026-11-24T14:38:37Z"
+    checksum: 8868761decda9e8f68a483c3419f1a6e662733961ba561e37314fb0edb629812
 test:
     metadata:
         name: shiptok-report-hide-and-unhide-person
@@ -23,12 +23,12 @@ test:
         - type: validation
           step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
         - type: extraction
-          step_description: The GitHub login of the pull request's author shown at the card's lower left
-          variable_name: author-login
+          step_description: The GitHub username of the pull request's author shown at the card's lower left
+          variable_name: author-username
         - type: instructions
           step_description: Tap the More button, the three dots at the bottom of the right rail
         - type: validation
-          step_description: A menu has a 'Pull request by @{{author-login}}' section offering 'Report on GitHub' and 'Hide @{{author-login}}'
+          step_description: A menu has a 'Pull request by @{{author-username}}' section offering 'Report on GitHub' and 'Hide @{{author-username}}'
         - type: instructions
           step_description: Tap 'Report on GitHub'
         - type: manual
@@ -44,22 +44,22 @@ test:
         - type: validation
           step_description: ShipTok's feed shows a pull request card
         - type: instructions
-          step_description: Tap the More button on the right rail, then tap 'Hide @{{author-login}}'
+          step_description: Tap the More button on the right rail, then tap 'Hide @{{author-username}}'
         - type: validation
-          step_description: A confirmation titled 'Hide @{{author-login}}?' says their pull requests, weekly and feature videos won't show in ShipTok on this iPhone, that they aren't told and nothing changes on GitHub, and that they can be unhidden anytime in Settings
+          step_description: A confirmation titled 'Hide @{{author-username}}?' says their pull requests, weekly and feature videos won't show in ShipTok on this iPhone, that they aren't told and nothing changes on GitHub, and that they can be unhidden anytime in Settings
         - type: instructions
-          step_description: Confirm by tapping 'Hide @{{author-login}}'
+          step_description: Confirm by tapping 'Hide @{{author-username}}'
         - type: validation
-          step_description: No pull request by {{author-login}} shows in the feed
+          step_description: No pull request by {{author-username}} shows in the feed
         - type: instructions
           step_description: Tap Settings, the gear icon at the top right of the feed
         - type: validation
-          step_description: Settings lists @{{author-login}} under 'Hidden people' with an 'Unhide' button
+          step_description: Settings lists @{{author-username}} under 'Hidden people' with an 'Unhide' button
         - type: instructions
-          step_description: Tap 'Unhide' next to @{{author-login}}
+          step_description: Tap 'Unhide' next to @{{author-username}}
         - type: validation
           step_description: '''Hidden people'' says no one is hidden'
         - type: instructions
           step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
         - type: validation
-          step_description: The feed shows pull request cards again, including one by {{author-login}}
+          step_description: The feed shows pull request cards again, including one by {{author-username}}

@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: eb8262d3-4bf0-4bfa-916f-23afebb61d0f
-    remote_version: 3
-    local_version: 3
-    last_synced_at: "2026-11-20T18:58:05Z"
-    checksum: 6585d7ad6e7d3f5b6ebab916fae3c44f067bacc764e6f320db65cc9ef04e8647
+    remote_version: 5
+    local_version: 5
+    last_synced_at: "2026-11-24T14:38:33Z"
+    checksum: bcbe1cc4a152c10031b3726bac81cc15454aaf4ddaac44ec85ffe5edfa013404
 test:
     metadata:
         name: shiptok-pull-request-detail-sheet
@@ -28,7 +28,7 @@ test:
         - type: instructions
           step_description: Tap the pull request's title at the card's lower left
         - type: validation
-          step_description: A detail sheet opens with the title '{{detailed-pull-request-title}}', the author's GitHub login, when it was merged, the repository and pull request number with its added and removed line counts, an 'Open on GitHub' button and the pull request's description
+          step_description: A detail sheet opens with the title '{{detailed-pull-request-title}}', the author's GitHub username, when it was merged, the repository and pull request number with its added and removed line counts, an 'Open on GitHub' button and the pull request's description
         - type: instructions
           step_description: Tap 'Done' at the sheet's top right
         - type: validation

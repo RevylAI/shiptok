@@ -26,17 +26,17 @@ struct ReportableContent: Hashable, Identifiable {
 
     // Nil for the viewer's own post and for a post whose GitHub account was deleted, which has nobody to report or hide (AGENTS.md, "Report And Hide").
     init?(post: ShipTokPost) {
-        guard !post.feedback.viewerIsDeveloper, let login = post.githubAuthor.login else { return nil }
+        guard !post.feedback.viewerIsDeveloper, let username = post.githubAuthor.username else { return nil }
         kind = .post(post.kind)
-        poster = HiddenPerson(githubLogin: login)
+        poster = HiddenPerson(githubUsername: username)
         postID = post.id
         commentID = nil
         vibeID = nil
         let queryValueCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
         let encodedContentURL = post.githubURL.absoluteString.addingPercentEncoding(withAllowedCharacters: queryValueCharacters) ?? ""
         // GitHub's report form names a bot's account with its "[bot]" suffix.
-        let reportedLogin = post.githubAuthor.isBot ? "\(login)[bot]" : login
-        let encodedReportedPerson = "\(reportedLogin) (user)".addingPercentEncoding(withAllowedCharacters: queryValueCharacters) ?? ""
+        let reportedUsername = post.githubAuthor.isBot ? "\(username)[bot]" : username
+        let encodedReportedPerson = "\(reportedUsername) (user)".addingPercentEncoding(withAllowedCharacters: queryValueCharacters) ?? ""
         githubReportURL = URL(string: "https://github.com/contact/report-content?content_url=\(encodedContentURL)&report=\(encodedReportedPerson)")
     }
 

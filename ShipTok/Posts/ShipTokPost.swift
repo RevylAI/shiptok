@@ -72,12 +72,12 @@ struct ShipTokPerson: Hashable, Sendable, Codable {
 
 struct ShipTokGitHubAuthor: Hashable, Sendable, Codable {
     // Nil for a deleted GitHub account.
-    let login: String?
+    let username: String?
     let avatarURL: URL?
     let isBot: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case login
+        case username
         case avatarURL = "avatar_url"
         case isBot = "is_bot"
     }

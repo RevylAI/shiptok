@@ -32,9 +32,9 @@ final class GitHubAccountStore: RevylSettingsStore {
         }
     }
 
-    func saveGitHubAccount(login: String) async -> Bool {
+    func saveGitHubAccount(username: String) async -> Bool {
         await changeGitHubAccount { [api] in
-            try await api.saveGitHubAccount(login: login)
+            try await api.saveGitHubAccount(username: username)
         }
     }
 
