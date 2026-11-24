@@ -133,14 +133,24 @@ final class PostCommentsStore {
         }
     }
 
-    // Deleting a comment deletes its replies.
+    // Revyl deletes a top-level comment with its replies, and a reply with every reply that answers it, directly or through another reply. A thread's replies are oldest first, so each one's answered comment is checked before it (AGENTS.md, "Comments").
+    func commentIDsDeleted(byDeleting comment: ShipTokPostComment) -> Set<String> {
+        let threadReplies = comments.first { $0.id == (comment.parentCommentID ?? comment.id) }?.replies ?? []
+        var commentIDs: Set<String> = [comment.id]
+        for reply in threadReplies where comment.parentCommentID == nil || reply.replyToCommentID.map({ commentIDs.contains($0) }) == true {
+            commentIDs.insert(reply.id)
+        }
+        return commentIDs
+    }
+
     func deleteComment(_ comment: ShipTokPostComment) async {
         let attempt = analytics.requestMutation(.comment, change: .remove, subject: analyticsSubject, commentID: comment.id, isReply: comment.parentCommentID != nil)
         let commentsBeforeDeletion = comments
         localChangeGeneration += 1
-        deletedCommentIDs.insert(comment.id)
+        let commentIDsToDelete = commentIDsDeleted(byDeleting: comment)
+        deletedCommentIDs.formUnion(commentIDsToDelete)
         comments = withoutDeletedComments(comments)
-        let removedCount = 1 + comment.replies.count
+        let removedCount = commentIDsToDelete.count
         onCommentCountChange(-removedCount)
         defer { localChangeGeneration += 1 }
         do {
@@ -148,7 +158,7 @@ final class PostCommentsStore {
             analytics.capture(.mutationCompleted(attempt, outcome: .succeeded, commentID: comment.id))
         } catch {
             analytics.capture(.mutationCompleted(attempt, outcome: error.isTaskCancellation ? .cancelled : .failed, commentID: comment.id))
-            deletedCommentIDs.remove(comment.id)
+            deletedCommentIDs.subtract(commentIDsToDelete)
             comments = commentsBeforeDeletion
             onCommentCountChange(removedCount)
             actionFailureMessage = error.localizedDescription

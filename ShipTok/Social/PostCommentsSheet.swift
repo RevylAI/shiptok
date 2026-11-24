@@ -224,14 +224,15 @@ struct PostCommentsSheet: View {
             presenting: commentAwaitingDeletion
         ) { comment in
             Button("Delete", role: .destructive) {
-                if repliedCommentID == comment.id || comment.replies.contains(where: { $0.id == repliedCommentID }) {
-                    repliedCommentID = nil
+                if let repliedCommentID, commentsStore.commentIDsDeleted(byDeleting: comment).contains(repliedCommentID) {
+                    self.repliedCommentID = nil
                 }
                 Task { await commentsStore.deleteComment(comment) }
             }
             Button("Cancel", role: .cancel) {}
         } message: { comment in
-            Text(comment.replies.isEmpty ? "It's deleted for everyone." : "It's deleted for everyone, with its replies.")
+            let deletesOtherComments = commentsStore.commentIDsDeleted(byDeleting: comment).count > 1
+            Text(!deletesOtherComments ? "It's deleted for everyone." : comment.parentCommentID == nil ? "It's deleted for everyone, with its replies." : "It's deleted for everyone, with the replies that answer it and their replies.")
         }
         .confirmationDialog(
             "Delete this vibe?",
