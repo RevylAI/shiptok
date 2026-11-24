@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: 94c7684d-3351-46d4-8e58-93d6a428b322
-    remote_version: 1
-    local_version: 1
-    last_synced_at: "2026-11-20T21:05:22Z"
-    checksum: 542502bcdb7bf703e8b38429485c7d42a1db34bfa173dd8e1fbb6e79cc868d00
+    remote_version: 3
+    local_version: 3
+    last_synced_at: "2026-11-24T15:45:13Z"
+    checksum: f199a5eb9c5016cf3849d002dc3b9b13d209616adea25cdd55466c9da14d31ff
 test:
     metadata:
         name: shiptok-feed-modes
@@ -27,18 +27,25 @@ test:
         - type: instructions
           step_description: Tap 'Open' in the tabs at the top of the feed
         - type: validation
-          step_description: '''Open'' is the selected tab, and the card shows pull request #112 ''ShipTok fixture: open PR with a video'' or #113 ''ShipTok fixture: draft PR with a video''; #112''s line under its title reads ''#112 · updated <when>'' and #113''s reads ''#113 · Draft · updated <when>'''
+          step_description: '''Open'' is the selected tab, and the card shows one of #112 ''ShipTok fixture: open PR with a video'', #113 ''ShipTok fixture: draft PR with a video'' and #141 ''ShipTok fixture: a pull request by someone else'' by revyl-dev-kylexrich-01; #113''s line under its title reads ''#113 · Draft · updated <when>'' and the others'' read ''#<number> · updated <when>'''
         - type: extraction
           step_description: The pull request number after '#' in the line under the card's title, digits only
           variable_name: first-open-pull-request-number
         - type: instructions
           step_description: Swipe up on the middle of the card
         - type: validation
-          step_description: 'The card shows the other one of #112 ''ShipTok fixture: open PR with a video'' and #113 ''ShipTok fixture: draft PR with a video'', not #{{first-open-pull-request-number}}; #112''s line under its title reads ''#112 · updated <when>'' and #113''s reads ''#113 · Draft · updated <when>'''
+          step_description: 'The card shows another one of #112 ''ShipTok fixture: open PR with a video'', #113 ''ShipTok fixture: draft PR with a video'' and #141 ''ShipTok fixture: a pull request by someone else'' by revyl-dev-kylexrich-01, not #{{first-open-pull-request-number}}'
+        - type: extraction
+          step_description: The pull request number after '#' in the line under the card's title, digits only
+          variable_name: second-open-pull-request-number
         - type: instructions
           step_description: Swipe up on the middle of the card
         - type: validation
-          step_description: 'The page says ''That''s every open PR'' and ''You''ve seen every open pull request in RevylAI/kyle-expo that leads with a video.'''
+          step_description: 'The card shows the last one of #112 ''ShipTok fixture: open PR with a video'', #113 ''ShipTok fixture: draft PR with a video'' and #141 ''ShipTok fixture: a pull request by someone else'' by revyl-dev-kylexrich-01, neither #{{first-open-pull-request-number}} nor #{{second-open-pull-request-number}}'
+        - type: instructions
+          step_description: Swipe up on the middle of the card
+        - type: validation
+          step_description: The page says 'That's every open PR' and 'You've seen every open pull request in RevylAI/kyle-expo that leads with a video.'
         - type: instructions
           step_description: Tap 'Merged' in the tabs at the top
         - type: validation

@@ -2,10 +2,10 @@
 
 _meta:
     remote_id: b21869b2-3ae8-466a-9c26-23d4ba9a4724
-    remote_version: 5
-    local_version: 5
-    last_synced_at: "2026-11-24T14:38:37Z"
-    checksum: 8868761decda9e8f68a483c3419f1a6e662733961ba561e37314fb0edb629812
+    remote_version: 6
+    local_version: 6
+    last_synced_at: "2026-11-24T15:45:08Z"
+    checksum: 80b3872768c412c69655ff15f0b82e91fb2b059a253dfbc5cd680bf184325f95
 test:
     metadata:
         name: shiptok-report-hide-and-unhide-person
@@ -22,6 +22,12 @@ test:
     blocks:
         - type: validation
           step_description: 'ShipTok opens signed in on RevylAI/kyle-expo''s feed: a pull request card with the Open / Merged / Weekly / Features tabs at the top and a rail of buttons down the right side'
+        - type: instructions
+          step_description: Tap 'Open' in the tabs at the top of the feed
+        - type: instructions
+          step_description: If the card's author at its lower left isn't revyl-dev-kylexrich-01, swipe up on the middle of the card until the card by revyl-dev-kylexrich-01 shows. Swipe only up or down, never right or left, since a right or left swipe casts a vibe.
+        - type: validation
+          step_description: '''Open'' is the selected tab and the card''s author at its lower left is revyl-dev-kylexrich-01, with or without a [bot] suffix'
         - type: extraction
           step_description: The GitHub username of the pull request's author shown at the card's lower left
           variable_name: author-username
@@ -41,8 +47,10 @@ test:
         - type: manual
           step_type: wait
           step_description: "3"
+        - type: instructions
+          step_description: If 'Open' isn't the selected tab at the top of the feed, tap 'Open'. Then, if the card by {{author-username}} isn't showing, swipe up or down on the middle of the card until it shows. Swipe only up or down, never right or left.
         - type: validation
-          step_description: ShipTok's feed shows a pull request card
+          step_description: ShipTok's Open tab shows the card by {{author-username}}
         - type: instructions
           step_description: Tap the More button on the right rail, then tap 'Hide @{{author-username}}'
         - type: validation
@@ -50,7 +58,7 @@ test:
         - type: instructions
           step_description: Confirm by tapping 'Hide @{{author-username}}'
         - type: validation
-          step_description: No pull request by {{author-username}} shows in the feed
+          step_description: The Open tab shows a pull request by someone other than {{author-username}}, or says every open pull request has been seen, and no card by {{author-username}} shows
         - type: instructions
           step_description: Tap Settings, the gear icon at the top right of the feed
         - type: validation
@@ -61,5 +69,7 @@ test:
           step_description: '''Hidden people'' says no one is hidden'
         - type: instructions
           step_description: Tap 'Feed', the back button with a chevron at the top left of Settings
+        - type: instructions
+          step_description: If 'Open' isn't the selected tab at the top of the feed, tap 'Open'. Then, if the card by {{author-username}} isn't showing, swipe up or down on the middle of the card until it shows. Swipe only up or down, never right or left.
         - type: validation
-          step_description: The feed shows pull request cards again, including one by {{author-username}}
+          step_description: The Open tab shows the card by {{author-username}} again
